@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "cli": "node packages/cli/cli.js"
+    "cli": "node packages/cli/cli.js",
+    "server": "node packages/server/src/index.js",
+    "web": "npm run dev --workspace=packages/web",
+    "web:lan": "npm run dev:lan --workspace=packages/web"
   },
   "workspaces": [
     "core",
