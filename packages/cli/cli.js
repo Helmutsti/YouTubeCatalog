@@ -140,6 +140,19 @@ const REVIEW_ACTIONS_BY_STATUS = {
 
 const DOWNLOAD_QUEUE = '__download_queue__';
 
+// Stampa le righe di log di un job in tempo reale e si risolve al termine
+// (successo o fallimento), ritornando il job completo. Condiviso da
+// runDownloadQueue e singleDownloadFlow.
+async function runJobToCompletion(jobId) {
+  await new Promise((resolve) => {
+    core.onJobLog(jobId, (line) => console.log(line));
+    core.onJobStatus(jobId, (status) => {
+      if (status === 'success' || status === 'failed') resolve();
+    });
+  });
+  return core.getJob(jobId);
+}
+
 // Estratta da reviewFlow per essere riusata anche da searchFlow: mostra le
 // azioni valide per lo stato attuale di un video "in revisione" (new/pending/
 // excluded/failed) e applica la decisione scelta.
@@ -174,18 +187,45 @@ async function runDownloadQueue() {
 
   const { jobId } = core.triggerJob('downloadPending', {});
   console.log('');
-  await new Promise((resolve) => {
-    core.onJobLog(jobId, (line) => console.log(line));
-    core.onJobStatus(jobId, (status) => {
-      if (status === 'success' || status === 'failed') resolve();
-    });
-  });
-
-  const job = core.getJob(jobId);
+  const job = await runJobToCompletion(jobId);
   if (job.status === 'failed') {
     console.log(`\n✘ Job fallito: ${job.error?.message}\n`);
   } else {
     console.log('');
+  }
+}
+
+async function singleDownloadFlow() {
+  const url = await input({ message: 'URL (o id) del video YouTube:' });
+
+  let result;
+  try {
+    result = await core.prepareSingleVideoDownload(url);
+  } catch (err) {
+    console.log(`\n✘ ${err.message}\n`);
+    return;
+  }
+
+  if (result.action === 'already-downloaded') {
+    console.log(`\n"${result.title ?? result.videoId}" è già nell'archivio.\n`);
+    return;
+  }
+  if (result.action === 'already-downloading') {
+    console.log(`\n"${result.title ?? result.videoId}" è già in download in questo momento.\n`);
+    return;
+  }
+  if (result.action === 'already-tracked') {
+    console.log(`\nQuesto video è già tracciato (stato: ${result.status}) tramite una fonte esistente — usa "Rivedi novità" per deciderlo.\n`);
+    return;
+  }
+
+  const { jobId } = core.triggerJob('downloadSingle', { videoId: result.videoId });
+  console.log('');
+  const job = await runJobToCompletion(jobId);
+  if (job.status === 'failed') {
+    console.log(`\n✘ Download fallito: ${job.error?.message}\n`);
+  } else {
+    console.log(`\n✔ Video aggiunto all'archivio.\n`);
   }
 }
 
@@ -370,43 +410,14 @@ async function catalogFlow() {
   console.log('');
 }
 
-async function importFlow() {
-  const candidates = await core.scanImportable();
-  if (candidates.length === 0) {
-    console.log('\nNessun file da importare trovato in media/videos/ (atteso: <id>.mp4, .mkv o .webm).\n');
-    return;
-  }
-
-  console.log(`\nTrovati ${candidates.length} file da importare:`);
-  for (const c of candidates) {
-    console.log(`- ${c.id}${c.knownTitle ? ` — ${c.knownTitle}` : ''} (${c.file})`);
-  }
-
-  const proceed = await confirm({
-    message: `Importarli tutti (recupero metadati da YouTube + calcolo hash, nessun ri-download)?`,
-    default: true
-  });
-  if (!proceed) return;
-
-  console.log('');
-  for (const c of candidates) {
-    try {
-      await core.importLocalVideo(c.id, { onLog: (line) => console.log(line) });
-    } catch (err) {
-      console.log(`✘ ${c.id}: ${err.message}`);
-    }
-  }
-  console.log('');
-}
-
 const ACTIONS = {
   sources: manageSourcesFlow,
+  singleDownload: singleDownloadFlow,
   sync: syncFlow,
   review: reviewFlow,
   search: searchFlow,
   watch: watchFlow,
-  catalog: catalogFlow,
-  import: importFlow
+  catalog: catalogFlow
 };
 
 async function mainMenu() {
@@ -415,9 +426,9 @@ async function mainMenu() {
       message: 'Cosa vuoi fare?',
       choices: [
         { name: 'Gestisci fonti', value: 'sources' },
+        { name: 'Scarica video singolo', value: 'singleDownload' },
         { name: 'Sincronizza', value: 'sync' },
         { name: 'Rivedi novità', value: 'review' },
-        { name: 'Importa video già scaricati', value: 'import' },
         { name: 'Cerca', value: 'search' },
         { name: 'Guarda', value: 'watch' },
         { name: 'Catalogo', value: 'catalog' },

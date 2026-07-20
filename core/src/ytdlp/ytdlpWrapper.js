@@ -197,55 +197,6 @@ export function mapInfoJsonToVideoFields(info, { videoFile, thumbnailFile, sizeB
   };
 }
 
-// Recupera metadati completi (+ thumbnail) SENZA scaricare il video: usata per
-// importare file già presenti su disco (scaricati in precedenza fuori da questo
-// tool) senza doverli ri-scaricare, riusando comunque la stessa mappatura ricca
-// di mapInfoJsonToVideoFields().
-export async function fetchMetadata(videoId) {
-  const paths = getPaths();
-
-  const args = [
-    ...JS_RUNTIME_ARGS,
-    ...PLAYER_CLIENT_ARGS,
-    '--skip-download',
-    '--write-thumbnail',
-    '--convert-thumbnails', 'jpg',
-    '--write-info-json',
-    '-o', path.join(paths.videosDir, '%(id)s.%(ext)s'),
-    '-o', `thumbnail:${path.join(paths.thumbnailsDir, '%(id)s.%(ext)s')}`
-  ];
-  if (paths.cookiesPath) {
-    args.push('--cookies', paths.cookiesPath);
-  }
-  args.push(`https://www.youtube.com/watch?v=${videoId}`);
-
-  await new Promise((resolve, reject) => {
-    const proc = spawn(paths.ytdlpBinaryPath, args, { cwd: paths.projectRoot });
-    let stderrTail = '';
-    proc.stderr.on('data', (d) => { stderrTail = `${stderrTail}${d}`.slice(-1000); });
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`yt-dlp (recupero metadati) terminato con codice ${code}: ${stderrTail.trim()}`));
-    });
-  });
-
-  const infoFile = `${videoId}.info.json`;
-  const infoPath = path.join(paths.videosDir, infoFile);
-  if (!existsSync(infoPath)) {
-    throw new Error(`Metadati non trovati per ${videoId} dopo il recupero`);
-  }
-
-  const thumbDirFiles = existsSync(paths.thumbnailsDir)
-    ? readdirSync(paths.thumbnailsDir).filter((f) => f.startsWith(`${videoId}.`))
-    : [];
-  const thumbnailFile = thumbDirFiles.find((f) => /\.(jpg|jpeg|png|webp)$/i.test(f)) ?? null;
-
-  const info = JSON.parse(readFileSync(infoPath, 'utf-8'));
-  await consolidateMetadata(videoId, info, infoPath);
-  return { info, thumbnailFile };
-}
-
 function buildDownloadArgs(paths, config, formatSelector, videoId, { useCookies }) {
   const args = [
     ...JS_RUNTIME_ARGS,

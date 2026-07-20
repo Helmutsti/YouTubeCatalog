@@ -6,7 +6,7 @@ import { syncSource } from './services/syncService.js';
 import { listSources, addSource, removeSource } from './services/sourceService.js';
 import { decideVideo } from './services/decisionService.js';
 import { playVideo } from './services/playbackService.js';
-import { scanImportable, importLocalVideo } from './services/importService.js';
+import { prepareSingleVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata } from './services/metadataService.js';
 import { searchVideos } from './services/searchService.js';
 import { loadConfig, getPaths } from './config.js';
@@ -37,9 +37,8 @@ export {
   onJobProgress,
   // riproduzione
   playVideo,
-  // importazione di video già scaricati in precedenza (fuori da questo tool)
-  scanImportable,
-  importLocalVideo,
+  // download one-off di un singolo video, senza passare da una fonte
+  prepareSingleVideoDownload,
   // metadati grezzi consolidati (data/metadata.json)
   getRawMetadata,
   // ricerca fuzzy multi-campo

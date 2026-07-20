@@ -54,9 +54,9 @@ YouTubeCatalog/
       services/sourceService.js       # listSources(), addSource(url), removeSource(sourceId)
       services/decisionService.js     # decideVideo(id, "download"|"exclude"|"undecided")
       services/playbackService.js     # playVideo(id, {mode}) -> spawn VLC sul file locale
-      services/importService.js       # scanImportable(), importLocalVideo(id) -> video già scaricati fuori dal tool
       services/metadataService.js     # getRawMetadata(id) -> data/metadata.json
       services/searchService.js       # searchVideos(query) -> ricerca fuzzy multi-campo (M7)
+      services/singleVideoService.js  # prepareSingleVideoDownload(url) -> download one-off di un singolo video, mai legato a una fonte (M8)
       jobs/jobManager.js              # coda single-worker + EventEmitter, persistenza storico
       jobs/jobs/downloadPending.js
       jobs/jobs/downloadSingle.js
@@ -64,14 +64,14 @@ YouTubeCatalog/
     cli/                          # primo consumatore delle mini API di /core
       package.json                  # dipendenza: @inquirer/prompts
       cli.js                      # menu a frecce (@inquirer/prompts): importa @catalog/core direttamente, nessun HTTP
-    server/                       # costruito più avanti (M8): thin wrapper HTTP attorno a @catalog/core
+    server/                       # costruito più avanti (M10): thin wrapper HTTP attorno a @catalog/core
       src/
         index.js
         routes/videos.routes.js
         routes/jobs.routes.js       # include SSE, bridge verso gli eventi di jobManager
         routes/sources.routes.js
         media/mediaRoutes.js        # express.static per /media/videos e /media/thumbnails
-    web/                          # costruito più avanti (M9): SPA React, client HTTP di packages/server
+    web/                          # costruito più avanti (M11): SPA React, client HTTP di packages/server
       vite.config.js
       src/
         App.jsx
@@ -232,8 +232,9 @@ Superficie pubblica (`core/src/index.js`), identica per qualunque chiamante:
 - `decideVideo(id, decision)` — `decision: 'download'` → `status: pending`; `decision: 'exclude'` → `status: excluded`; `decision: 'undecided'` → torna a `status: new` (annulla una decisione precedente). Ammesso da/verso qualunque combinazione tra `new`/`pending`/`excluded` (non da `downloading`/`downloaded`/`failed`, fuori dal ciclo di revisione novità). Aggiorna `decidedAt` (`null` se si torna a `new`).
 - `triggerJob(type, params)` / `getJob(id)` / `listJobs()` — coda job (`downloadPending`, `downloadSingle`): coda single-worker FIFO, stato persistito in `data/jobs/<id>.json`, `EventEmitter` per eventi `log`/`progress`/`status` in tempo reale.
 - `playVideo(id, { mode = 'video' })` — verifica `status: downloaded` e che il file esista, poi lancia VLC; `mode: 'audio'` aggiunge `--no-video` per la riproduzione solo audio.
+- `prepareSingleVideoDownload(url)` — **(nuova, M8)** download one-off di un singolo video da un link incollato, senza passare da una fonte/sync di playlist; vedi sezione dedicata sotto.
 
-Il **job manager** e il **wrapper yt-dlp** vivono in `core` (non dentro `packages/server`): il CLI, essendo nello stesso processo, si iscrive direttamente agli eventi dell'`EventEmitter` di `jobManager` e stampa le righe di log a terminale in tempo reale — nessuna infrastruttura SSE necessaria finché non arriva la WebGUI (M8), che invece farà da bridge fra quegli stessi eventi e i suoi client HTTP via SSE.
+Il **job manager** e il **wrapper yt-dlp** vivono in `core` (non dentro `packages/server`): il CLI, essendo nello stesso processo, si iscrive direttamente agli eventi dell'`EventEmitter` di `jobManager` e stampa le righe di log a terminale in tempo reale — nessuna infrastruttura SSE necessaria finché non arriva la WebGUI (M10), che invece farà da bridge fra quegli stessi eventi e i suoi client HTTP via SSE.
 
 ## Cookie per video privati/non listati (`core/cookies.txt`, facoltativo)
 
@@ -255,17 +256,17 @@ Il **job manager** e il **wrapper yt-dlp** vivono in `core` (non dentro `package
 **Menu principale:**
 
 - **Gestisci fonti** → sotto-menu: **Aggiungi fonte** (prompt testuale per l'URL, unico punto del CLI dove serve testo libero; `addSource(url)` aggiunge subito, senza conferma intermedia, reversibile con "Rimuovi fonte") / **Elenca fonti** / **Rimuovi fonte** (select + conferma) / ← Torna.
+- **Scarica video singolo** → **(nuova, M8)** prompt testuale per l'URL (o l'id) del video; scarica subito quel singolo video senza creare né toccare nessuna fonte — vedi sezione dedicata sotto. Se l'id è già tracciato tramite una fonte esistente con uno stato diverso da "scaricato"/"in corso", rifiuta e rimanda a "Rivedi novità".
 - **Sincronizza** → se nessuna fonte configurata, messaggio e torna al menu; altrimenti `select` con **"Tutte le fonti"** in cima + una voce per fonte + ← Torna → esegue `syncSource` (una o tutte in sequenza) → riepilogo.
 - **Rivedi novità** → **vista unica** che sostituisce le due voci separate precedenti (revisione + download, ora una dentro l'altra su richiesta dell'utente). Elenca **tutti** i video `new`/`pending`/`excluded` insieme (con un'icona di stato per riconoscerli a colpo d'occhio), più una voce in cima **"▶ Scarica in coda (N)"** (visibile solo se N > 0) + ← Torna al menu principale. Se non c'è nulla da rivedere e nulla in coda, messaggio e torna al menu.
   - Scegliendo un video: sotto-`select` con le azioni valide per il suo stato attuale — da `new`: **Scarica** / **Archivia**; da `pending`: **Archivia** / **Rimetti tra le novità** (annulla la decisione, torna a `new`); da `excluded`: **Scarica** / **Rimetti tra le novità** — sempre con ← Torna alla lista. Applica `decideVideo(id, 'download'|'exclude'|'undecided')` → torna alla lista aggiornata. Questo risolve anche il bisogno di **togliere un video dagli archiviati** e cambiargli stato, prima non possibile.
   - Scegliendo **"▶ Scarica in coda (N)"**: stesso comportamento di prima (`confirm` "Scaricare N video ora?" → se sì, `triggerJob('downloadPending')` con log/progress live via `EventEmitter`) ma **nidificato dentro questa vista** invece che una voce separata del menu principale.
-- **Importa video già scaricati** → `scanImportable()`; se vuoto, messaggio. Altrimenti elenca i file candidati trovati in `media/videos/` (nome file = id valido, non ancora `downloaded`), `confirm` per importarli tutti in un colpo, poi `importLocalVideo(id)` per ciascuno (recupero metadati da YouTube senza ri-scaricare, hash dal file locale, marcatura `downloaded`).
 - **Cerca** → **(nuova, M7)** ricerca fuzzy libera su tutto il catalogo (titolo, canale, tag, descrizione); vedi sezione dedicata sotto.
 - **Guarda** → `listChannels({status:'downloaded'})`; se vuoto, messaggio. Altrimenti `select` canali (nome + conteggio) + ← Torna → `select` video di quel canale (titolo, durata, data) + ← Torna ai canali → `select` **Video** / **Solo audio** → `playVideo(id, {mode})` → torna alla lista video di quel canale.
 - **Catalogo** → `select` di uno stato (Tutti/Nuovi/In coda/In download/Scaricati/Falliti/Archiviati) + ← Torna → stampa l'elenco corrispondente (vista informativa) → torna al menu.
 - **Esci** → termina il processo.
 
-Non esiste una scorciatoia "play per id" a comando digitato: la navigazione **Guarda** (canale → video → modalità) è l'unico modo per riprodurre un video partendo da zero, coerente col vincolo "niente comandi scritti a mano" — **Cerca** (sotto) è l'eccezione minima e deliberata a questo vincolo, l'unico punto dove si digita testo libero oltre a "Aggiungi fonte", perché una ricerca non ha senso senza testo digitato. Il blocco "exit durante un download" non richiede gestione esplicita: il design a menu è bloccante (un solo flusso interattivo alla volta), quindi non esiste uno stato in cui si può navigare al menu mentre un job è in corso.
+Non esiste una scorciatoia "play per id" a comando digitato: la navigazione **Guarda** (canale → video → modalità) è l'unico modo per riprodurre un video partendo da zero, coerente col vincolo "niente comandi scritti a mano" — **Cerca** e **Scarica video singolo** sono le eccezioni minime e deliberate a questo vincolo, gli unici punti oltre "Aggiungi fonte" dove si digita testo libero, perché una ricerca o un link incollato non hanno senso senza testo digitato. Il blocco "exit durante un download" non richiede gestione esplicita: il design a menu è bloccante (un solo flusso interattivo alla volta), quindi non esiste uno stato in cui si può navigare al menu mentre un job è in corso.
 
 Errori (id inesistente, stato incompatibile con l'azione, VLC non trovato, URL senza `list=`, fonte non trovata, ecc.) vengono stampati come messaggio chiaro e si torna al menu/passo precedente, mai un crash.
 
@@ -289,15 +290,38 @@ Esportata da `core/src/index.js`.
 
 **CLI**: usa il prompt **`search`** di `@inquirer/prompts` (non `input`+`select` in due passaggi come altrove — qui il filtro dal vivo mentre si digita è il punto centrale della UX) con una funzione `source(input)` che chiama `core.searchVideos(input)` e mappa i risultati in scelte con icona di stato + titolo + canale. Selezionato un video, si presenta un sotto-`select` di azioni **contestuali allo stato attuale**, riusando la stessa logica già presente in "Rivedi novità" (per `new`/`pending`/`excluded`/`failed`: Scarica/Archivia/Riprova/Rimetti tra le novità, via `decideVideo`) e in "Guarda" (per `downloaded`: Video/Solo audio, via `playVideo`); per `downloading`, solo un messaggio informativo, nessuna azione (è già in corso). Tutte queste azioni richiamano le stesse funzioni `core` già scritte e testate — nessuna nuova logica di stato, solo un nuovo punto di ingresso per raggiungerle.
 
+## Download singolo one-off (`singleVideoService.js`, M8)
+
+L'utente vuole poter scaricare **un singolo video** incollandone il link, senza dover passare dal meccanismo delle fonti (`Gestisci fonti` → `Sincronizza` → `Rivedi novità`), pensato per intere playlist. Il video finisce comunque regolarmente nel catalogo (compare in "Guarda"/"Catalogo"/"Cerca" come qualunque altro), ma senza legame con una fonte.
+
+`core/src/services/singleVideoService.js` (nuovo), unica funzione pubblica `prepareSingleVideoDownload(url)`:
+
+1. Estrae l'id video da `url`: riconosce `watch?v=ID` (ignorando deliberatamente un eventuale `list=` — un video dentro una playlist va comunque trattato come singolo, non fa scattare nessuna registrazione di fonte), `youtu.be/ID`, `shorts/ID`, `live/ID`, `embed/ID`, oppure un id nudo di 11 caratteri incollato direttamente. URL non riconosciuto → errore chiaro.
+2. Se l'id è **già nel catalogo**:
+   - `status: downloaded` → nessuna azione, si informa che è già in archivio.
+   - `status: downloading` → nessuna azione, si informa che è già in corso.
+   - qualunque altro stato (`new`/`pending`/`failed`/`excluded`, cioè un video già tracciato tramite una fonte esistente) → **si rifiuta** e rimanda l'utente a "Rivedi novità": il flusso one-off non deve scavalcare una revisione già impostata da una sync di playlist.
+3. Se l'id **non** è nel catalogo: crea uno stub (stesso helper `createNewVideoStub` già usato da `ingestPlaylistEntries`) con `status: pending` e — punto chiave — `source: { sourceId: null, type: 'single' }`. È questo il meccanismo che garantisce che il video non passi mai per i canali di sincronizzazione: `syncSource(sourceId)` itera solo gli entries di una fonte registrata in `catalog.sources`; un video con `source.sourceId: null` non viene mai enumerato né toccato da nessuna sync futura, qualunque cosa succeda dopo. Segue subito il download vero e proprio, riusando **senza modifiche** il job `downloadSingle` già esistente (`core/src/jobs/jobs/downloadSingle.js`, finora usato implicitamente solo per i retry manuali).
+
+**CLI**: nuova voce **"Scarica video singolo"** nel menu principale, subito dopo "Gestisci fonti" — prompt testuale per l'URL (o l'id), poi in base all'esito: messaggio se già in archivio/in corso/già tracciato altrove, oppure `triggerJob('downloadSingle', { videoId })` con log/progress live in tempo reale, stesso pattern già usato da "Scarica in coda" in "Rivedi novità".
+
 ### Idea in discussione: consultabilità di `media/videos/` da filesystem
 
 L'utente ha notato che `media/videos/` è poco consultabile aprendola direttamente in Esplora File: tutti i canali mescolati in un'unica cartella piatta, e il nome file è l'id YouTube (es. `88RAHq3prwo.mp4`), non il titolo. Ha chiesto di ragionare insieme su una soluzione, proponendo lui stesso l'idea di un comando di esportazione.
 
 Due strade valutate:
-1. **Cambiare l'archivio canonico** (es. `media/videos/<Canale>/<Titolo> [<id>].<ext>`, convenzione tipica di yt-dlp) — concettualmente più "corretto", ma richiede riscrivere la logica che oggi si aspetta `<id>.<ext>` esatto (`findDownloadedFiles`, `scanImportable`) e rendere di nuovo tutti i file già scaricati/importati (l'utente ha appena rinominato 49 file proprio nel formato attuale per l'importazione — un secondo giro di rinomina sarebbe spreco puro).
+1. **Cambiare l'archivio canonico** (es. `media/videos/<Canale>/<Titolo> [<id>].<ext>`, convenzione tipica di yt-dlp) — concettualmente più "corretto", ma richiede riscrivere la logica che oggi si aspetta `<id>.<ext>` esatto (`findDownloadedFiles`) e rendere di nuovo tutti i file già scaricati (l'utente ha appena rinominato 49 file proprio nel formato attuale per l'importazione fatta in M6 — un secondo giro di rinomina sarebbe spreco puro).
 2. **Comando di esportazione** (proposto dall'utente): l'archivio interno resta `<id>.<ext>`, invariato, senza toccare nulla del codice esistente. Nuova funzione che genera/aggiorna `media/esportati/<Canale>/<Titolo>.<ext>` tramite **hard link** (non copie): stesso contenuto su disco, occupazione di spazio a zero anche per file da diversi GB, creazione istantanea (`fs.linkSync`, funziona su Windows/NTFS senza privilegi di amministratore, a differenza dei symlink).
 
 **Raccomandazione**: opzione 2 — rischio minimo, nessun re-lavoro sui 50 video già a posto, risultato equivalente (cartella sfogliabile per canale con il titolo vero) a un costo di implementazione molto più basso. Dettagli implementativi da definire quando si passa a costruirla: dove agganciare la generazione/aggiornamento (comando dedicato nel menu vs automatico dopo ogni download), come gestire titoli duplicati nello stesso canale (già visto un caso reale, due video con titolo identico), sanificazione caratteri non validi per nomi file Windows.
+
+### Idea in discussione: reset della schermata CLI (rimandata)
+
+I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non puliscono mai il terminale: ogni vecchia versione di un elenco (es. "Rivedi novità" dopo ogni decisione, "Guarda" scorrendo canali/video) resta stampata sopra le nuove, e dopo pochi giri lo schermo diventa illeggibile. L'utente ha chiesto un reset della schermata a ogni menu/sottomenu — **rimandata** per ora, ma la progettazione è già discussa e pronta per quando si deciderà di riprenderla:
+
+- Meccanismo condiviso in `packages/cli/cli.js`: una `clearScreen()` che pulisce il terminale (`console.clear()`, solo se `process.stdout.isTTY`) e subito dopo ristampa un eventuale messaggio in sospeso; una `setMessage(text)` che mette in coda quel messaggio. Sicuro con una singola variabile globale perché il CLI è già bloccante, un solo flusso interattivo alla volta.
+- Ogni ciclo `while(true)` di menu/sottomenu chiama `clearScreen()` come prima istruzione, prima di ricalcolare/ristampare l'elenco.
+- Ogni output "da leggere" non in tempo reale (conferme, riepiloghi, elenchi informativi) passa da `console.log` diretto a `setMessage()`, così sopravvive esattamente una schermata invece di sparire subito o restare per sempre. Fa eccezione lo streaming live dei log di un job in corso (`onJobLog`), che resta `console.log` diretto riga per riga: solo la riga di riepilogo finale passa da `setMessage()`.
 
 ## Logica di download e dedup
 
@@ -363,10 +387,14 @@ Due strade valutate:
 | M5 ✅ | `core`: `playbackService.js` (spawn VLC). | Verificata la logica (risoluzione path, controlli di esistenza); l'apertura effettiva di VLC non è stata eseguita in automatico per non aprire un'app grafica senza conferma esplicita dell'utente. |
 | M6 ✅ | `packages/cli/cli.js`: menu a frecce (`@inquirer/prompts`) — Gestisci fonti, Sincronizza, **Rivedi novità** (vista unica: revisione + coda + download, "Scarica in coda" nidificato qui), **Importa video già scaricati**, Guarda, Catalogo, Esci. Nuovo `sourceService.js` (sourcelist multi-playlist in `catalog.sources`), `importService.js` (import di video scaricati fuori dal tool), `listChannels`/`listVideosByChannel`, `playVideo` con modalità video/audio, metadati grezzi consolidati in `data/metadata.json` (`metadataStore.js`/`metadataService.js`, niente più `.info.json` sparsi accanto ai video). | Verificato con la playlist reale dell'utente: `addSource` (titolo recuperato, dedup), `syncSource`, download reale (dopo il fix `--js-runtimes node` + esclusione AV1), `listChannels`/`listVideosByChannel`, `playVideo` in entrambe le modalità (VLC aperto per davvero), `removeSource`, importazione di 49 video già scaricati manualmente dall'utente (rinominati ai rispettivi id tramite l'ordine grezzo della playlist), migrazione dei metadati grezzi in `data/metadata.json` (49 file, 23MB → 8.26MB), tutti i casi d'errore previsti. La navigazione a frecce vera e propria non è testabile in automatico — verificata solo l'assenza di errori all'avvio; l'utente l'ha provata di persona. |
 | M7 ✅ | Motore di ricerca nel CLI: `core/src/services/searchService.js` (`searchVideos`, fuzzy scritto a mano — finestra scorrevole + distanza di Levenshtein su titolo/canale/tag, sottostringa esatta su descrizione — nessuna dipendenza esterna) + nuova voce menu "Cerca" (prompt `search` di `@inquirer/prompts`, azioni contestuali allo stato del risultato). | Ricerca reale contro il catalogo dell'utente: titolo con typo, nome canale con typo, termine generico con molti risultati, query senza corrispondenze. |
-| M8 | `packages/server`: thin wrapper Express attorno a `@catalog/core` (stesse funzioni, esposte come REST) + bridge SSE sugli eventi di `jobManager` + static serving media con Range requests. | `Invoke-RestMethod` sugli endpoint restituisce gli stessi dati visti dal CLI; richiesta con header `Range` risponde `206`; stream SSE mostra i log di un job in corso. |
-| M9 | `packages/web`: SPA React (Vite) — `CatalogPage`, `VideoDetailPage` (con decisione su "novità" e player), `JobsPage`. | `npm run dev`, uso la WebGUI per rivedere una novità, deciderla, scaricarla, e riprodurla nel browser. |
-| M10 | Rifinitura: ricerca/filtri su CatalogPage, dettaglio errori + retry sia da CLI che da web, QA sui casi limite. | Passaggio manuale su tutti i flussi, CLI e web. |
-| M11 | Solo documentazione: verifica che il seam `sourceProviders` supporti in futuro un provider `channel`; nota dedicata in `documentazione.md`. | Solo lettura, nessuna verifica runtime. |
+| M8 ✅ | `core`: nuovo `services/singleVideoService.js` (`prepareSingleVideoDownload(url)` — estrae l'id video da URL/id incollato, riusa il job `downloadSingle` già esistente senza modificarlo; se l'id non è nel catalogo crea uno stub con `source: { sourceId: null, type: 'single' }` così non è mai toccato da nessuna sync di playlist, poi scarica subito; se è già `downloaded`/`downloading` informa senza agire; se è già tracciato con un altro stato tramite una fonte, rifiuta e rimanda a "Rivedi novità"). `packages/cli/cli.js`: nuova voce menu "Scarica video singolo" (dopo "Gestisci fonti"), log/progress live come "Scarica in coda". | URL `watch?v=`, `youtu.be/`, `shorts/`, id nudo → download reale e comparsa in "Guarda"/"Catalogo"; URL con `list=` → scarica solo quel video, nessuna fonte creata in `catalog.sources`; id già `downloaded` → messaggio, nessun ri-download; id già tracciato `new`/`pending`/`failed`/`excluded` → rifiutato con messaggio che rimanda a "Rivedi novità"; URL non valido → errore chiaro, nessun crash. |
+| M9 ✅ | Rimozione di "Importa video già scaricati": era uno script di migrazione una tantum (introdotto in M6 per i 49 video già scaricati manualmente prima di adottare il tool), non una funzionalità duratura. Rimuovere `core/src/services/importService.js` (`scanImportable`, `importLocalVideo`) e i relativi export da `core/src/index.js`; rimuovere `fetchMetadata()` da `core/src/ytdlp/ytdlpWrapper.js` (unico chiamante era `importLocalVideo`; `hashFileSha256`/`getYtdlpVersion`/`mapInfoJsonToVideoFields` restano, condivise con `downloadVideo()`); rimuovere dal CLI la voce menu "Importa video già scaricati" e `importFlow()`. Nessun impatto sui 49 video già importati in M6: restano entry `downloaded` regolari nel catalogo, indipendenti dal codice che li ha creati. | Il menu principale non mostra più la voce; nessun riferimento residuo a `importService`/`scanImportable`/`importLocalVideo`/`fetchMetadata` nel repo; i 49 video importati in M6 restano intatti e `downloaded` nel catalogo. |
+| M10 (era M8) | `packages/server`: thin wrapper Express attorno a `@catalog/core` (stesse funzioni, esposte come REST) + bridge SSE sugli eventi di `jobManager` + static serving media con Range requests. | `Invoke-RestMethod` sugli endpoint restituisce gli stessi dati visti dal CLI; richiesta con header `Range` risponde `206`; stream SSE mostra i log di un job in corso. |
+| M11 (era M9) | `packages/web`: SPA React (Vite) — `CatalogPage`, `VideoDetailPage` (con decisione su "novità" e player), `JobsPage`. | `npm run dev`, uso la WebGUI per rivedere una novità, deciderla, scaricarla, e riprodurla nel browser. |
+| M12 (era M10) | Rifinitura: ricerca/filtri su CatalogPage, dettaglio errori + retry sia da CLI che da web, QA sui casi limite. | Passaggio manuale su tutti i flussi, CLI e web. |
+| M13 (era M11) | Solo documentazione: verifica che il seam `sourceProviders` supporti in futuro un provider `channel`; nota dedicata in `documentazione.md`. | Solo lettura, nessuna verifica runtime. |
+
+Nota: il reset della schermata del CLI (vedi "Idea in discussione: reset della schermata CLI" sopra) resta rimandato, non è una milestone numerata per ora.
 
 L'utente ha già in catalogo due fonti reali: "ToDownload" (1 video, in `pending`, ancora da scaricare — un tentativo reale ha incontrato un probabile throttling temporaneo di YouTube legato ai test ripetuti, non un problema di codice) e "bell asmr" (49 video, tutti `downloaded` — l'utente li aveva già scaricati manualmente prima di usare il CLI e li ha importati con "Importa video già scaricati").
 

@@ -174,3 +174,33 @@ Nuova voce di menu "Cerca": ricerca fuzzy multi-campo (titolo, canale, tag, desc
 **CLI**: nuova voce "Cerca", usa il prompt `search` di `@inquirer/prompts` (filtro dal vivo mentre si digita — unica altra eccezione al "niente testo digitato" oltre ad "Aggiungi fonte"). Selezionato un risultato, le azioni disponibili dipendono dal suo stato attuale — **nessuna logica nuova**: per `downloaded` riusa `playVideoWithModeChoice` (estratta da `watchChannelFlow`), per `new`/`pending`/`excluded`/`failed` riusa `applyReviewDecision` (estratta da `reviewFlow`), per `downloading` solo un messaggio informativo. Le due funzioni sono state estratte dai flussi esistenti proprio per essere condivise, senza duplicare codice già scritto e testato.
 
 Verificato con il catalogo reale dell'utente: `"bel gramar"` (typo) → 1 risultato corretto; `"sampuma"` (typo sul nome canale "Sampurna ASMR") → trova comunque il video giusto; `"indian"` → 1 risultato esatto; query senza corrispondenze → 0 risultati; instradamento delle azioni per stato verificato contro dati reali (video `downloaded` → azione di riproduzione). `core` è tornato a **zero dipendenze esterne** dopo la rimozione di `fuzzysort`.
+
+## M8 — Download singolo one-off
+
+Nuova voce di menu "Scarica video singolo": incollato un link, il video viene scaricato subito senza passare dal meccanismo delle fonti/sync di playlist (`Gestisci fonti` → `Sincronizza` → `Rivedi novità`), pensato per intere playlist e non per un singolo video occasionale.
+
+**Nuovo `core/src/services/singleVideoService.js`**, unica funzione pubblica `prepareSingleVideoDownload(url)`:
+- `extractVideoId()` riconosce `watch?v=ID` (un eventuale `list=` viene ignorato deliberatamente — un video dentro una playlist va comunque trattato come singolo), `youtu.be/ID`, `shorts/ID`, `live/ID`, `embed/ID`, oppure un id nudo di 11 caratteri.
+- Se l'id è già `downloaded`/`downloading` nel catalogo, nessuna mutazione: si informa e basta. Se è già tracciato con un altro stato (`new`/`pending`/`failed`/`excluded`, cioè già gestito da una fonte esistente), il flusso **si rifiuta** e rimanda a "Rivedi novità" — decisione presa con l'utente per non scavalcare una revisione già impostata da una sync di playlist.
+- Se l'id non è nel catalogo, crea uno stub (`createNewVideoStub`, già usato da `ingestPlaylistEntries`) con `status: pending` e — punto chiave — `source: { sourceId: null, type: 'single' }`: un video con `source.sourceId: null` non viene mai enumerato da `syncSource()`, che itera solo gli entries di una fonte registrata in `catalog.sources`. Questo è l'intero meccanismo che garantisce "non passa mai per i canali di sincronizzazione", senza bisogno di nessuna logica di esclusione esplicita altrove.
+- Il download vero e proprio riusa **senza modifiche** il job `downloadSingle` già esistente (`core/src/jobs/jobs/downloadSingle.js`), finora usato solo implicitamente per i retry manuali dei falliti.
+
+**CLI**: nuova voce "Scarica video singolo" nel menu principale, subito dopo "Gestisci fonti". Il blocco che segue lo stato di un job in tempo reale (log live + attesa di `success`/`failed`) era duplicato identico in `runDownloadQueue()`: estratto in un helper condiviso `runJobToCompletion(jobId)`, riusato sia dal download in coda sia dal nuovo download singolo.
+
+**Verifica eseguita** (senza toccare i dati reali dell'utente): test unitario di `extractVideoId()` su 12 casi (tutti i formati URL supportati, id nudo con spazi, URL con `list=` extra, URL di sola playlist → `null`, stringa non valida → `null`) — tutti corretti. Verificata la superficie pubblica di `core/src/index.js` (`prepareSingleVideoDownload` esportata). Verificato con un id reale già `downloaded` nel catalogo dell'utente (`88RAHq3prwo`) che `prepareSingleVideoDownload` ritorna `already-downloaded` **senza scrivere nulla** — confermato confrontando l'hash sha256 di `data/catalog.json` prima e dopo la chiamata, identico. Verificato l'avvio del CLI (`node packages/cli/cli.js`): il menu principale mostra correttamente la nuova voce nella posizione attesa.
+
+## M9 — Rimozione "Importa video già scaricati"
+
+"Importa video già scaricati" (`scanImportable`/`importLocalVideo`, costruita in M6) era nata per assorbire in un colpo solo i 49 video che l'utente aveva già scaricato manualmente prima di adottare questo tool — uno script di migrazione una tantum, non una funzionalità pensata per restare. Su richiesta esplicita dell'utente, rimossa del tutto: né la voce di menu né il codice sottostante restano nel progetto.
+
+Rimosso: `core/src/services/importService.js` (file eliminato interamente), la voce di menu "Importa video già scaricati" e la funzione `importFlow()` in `packages/cli/cli.js`, l'import/export di `scanImportable`/`importLocalVideo` in `core/src/index.js`, e `fetchMetadata()` in `core/src/ytdlp/ytdlpWrapper.js` — verificato con una ricerca nel repo che il suo unico chiamante fosse `importLocalVideo`, quindi diventata codice morto una volta rimosso quest'ultimo. Le altre funzioni che `importService.js` importava da `ytdlpWrapper.js` (`hashFileSha256`, `getYtdlpVersion`, `mapInfoJsonToVideoFields`) restano invariate: sono condivise con `downloadVideo()` e continuano a servire.
+
+Nessun impatto sui 49 video già importati in M6: restano entry `downloaded` regolari in `data/catalog.json`, indipendenti dal codice che li ha creati — rimuovere la funzionalità non tocca dati già scritti (verificato: nessuna differenza nell'hash del catalogo prima/dopo le modifiche a questa milestone).
+
+La milestone storica **M6 non è stata riscritta**: descrive correttamente cosa fu costruito e verificato all'epoca, incluso lo script di importazione allora esistente — resta un record accurato di come i 49 video sono realmente arrivati nel catalogo, anche se quello strumento non esiste più nel codice attuale.
+
+**Verifica eseguita**: `node --check` su tutti i file toccati; ricerca nel repo per `importFlow`/`scanImportable`/`importLocalVideo`/`fetchMetadata` → nessun riferimento residuo; avvio reale del CLI → il menu principale non mostra più la voce.
+
+## Nota: reset della schermata CLI (rimandato)
+
+L'utente ha chiesto anche un reset della schermata a ogni menu/sottomenu (i vecchi elenchi restano stampati sopra i nuovi, rendendo il terminale illeggibile dopo pochi giri). Progettazione discussa e già pronta (helper condivisi `clearScreen()`/`setMessage()` in `cli.js`, applicati a ogni `while(true)` di menu) — annotata in `PIANO.md` come idea in discussione, ma **non implementata in questa sessione**: l'utente ha chiesto esplicitamente di rimandarla.
