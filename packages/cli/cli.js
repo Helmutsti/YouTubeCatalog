@@ -436,6 +436,40 @@ async function catalogFlow() {
   setMessage('\n' + lines.join('\n') + '\n');
 }
 
+// Riorganizza l'archivio nel layout canonico per creator: prima un dry-run che
+// mostra gli spostamenti previsti, poi conferma, poi l'esecuzione reale. Gli
+// spostamenti previsti sono contesto immediato della conferma → console.log
+// diretto; solo il riepilogo finale passa da setMessage (design clearScreen).
+async function reorganizeFlow() {
+  const plan = await core.reorganizeLibrary({ dryRun: true });
+
+  if (plan.planned.length === 0) {
+    const parts = ['\nLibreria già organizzata: nessun file da spostare.'];
+    if (plan.alreadyOk) parts.push(`${plan.alreadyOk} già al posto giusto.`);
+    if (plan.missing.length) parts.push(`${plan.missing.length} scaricati ma senza file su disco.`);
+    setMessage(parts.join(' ') + '\n');
+    return;
+  }
+
+  console.log('\nRiorganizzazione in media/videos/<Creator>/<Titolo> [id].<ext>:\n');
+  for (const m of plan.planned.slice(0, 20)) {
+    console.log(`  ${m.from}  →  ${m.to}`);
+  }
+  if (plan.planned.length > 20) console.log(`  … e altri ${plan.planned.length - 20}`);
+  if (plan.missing.length) console.log(`\n⚠️  ${plan.missing.length} video scaricati senza file su disco (saltati).`);
+  console.log('');
+
+  const proceed = await confirm({ message: `Spostare ${plan.planned.length} file ora?`, default: true });
+  if (!proceed) {
+    setMessage('\nOperazione annullata.\n');
+    return;
+  }
+
+  const res = await core.reorganizeLibrary();
+  const extra = res.missing.length ? ` ${res.missing.length} senza file su disco (saltati).` : '';
+  setMessage(`\n✔ Riorganizzati ${res.moved} file per creator.${extra}\n`);
+}
+
 const ACTIONS = {
   sources: manageSourcesFlow,
   singleDownload: singleDownloadFlow,
@@ -443,7 +477,8 @@ const ACTIONS = {
   review: reviewFlow,
   search: searchFlow,
   watch: watchFlow,
-  catalog: catalogFlow
+  catalog: catalogFlow,
+  reorganize: reorganizeFlow
 };
 
 async function mainMenu() {
@@ -459,6 +494,7 @@ async function mainMenu() {
         { name: 'Cerca', value: 'search' },
         { name: 'Guarda', value: 'watch' },
         { name: 'Catalogo', value: 'catalog' },
+        { name: 'Riorganizza libreria (per creator)', value: 'reorganize' },
         { name: 'Esci', value: 'exit' }
       ]
     });
