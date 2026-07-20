@@ -131,17 +131,39 @@ export function hashFileSha256(filePath) {
   });
 }
 
+// Elenca ricorsivamente tutti i file sotto dir (path assoluti).
+function walkFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(full));
+    else out.push(full);
+  }
+  return out;
+}
+
+// I video ora vivono in sottocartelle per creator con nome "<Titolo> [<id>].<ext>"
+// (vedi buildDownloadArgs): non basta più un match piatto per prefisso id. Si
+// cerca ricorsivamente il file il cui basename contiene il marker "[<id>]" —
+// l'id è univoco, quindi il match è robusto qualunque sia la sanitizzazione del
+// titolo/creator fatta da yt-dlp. videoFile/infoFile sono ritornati come
+// percorso RELATIVO a videosDir (separatori normalizzati a "/"), così finiscono
+// direttamente in video.localPath; la thumbnail resta piatta per id.
 function findDownloadedFiles(paths, videoId) {
-  const videoDirFiles = readdirSync(paths.videosDir).filter((f) => f.startsWith(`${videoId}.`));
-  const videoFile = videoDirFiles.find((f) => /\.(mp4|mkv|webm)$/i.test(f)) ?? null;
-  const infoFile = videoDirFiles.find((f) => f.endsWith('.info.json')) ?? null;
+  const marker = `[${videoId}]`;
+  const videoDirFiles = existsSync(paths.videosDir) ? walkFiles(paths.videosDir) : [];
+  const matching = videoDirFiles.filter((f) => path.basename(f).includes(marker));
+  const videoAbs = matching.find((f) => /\.(mp4|mkv|webm)$/i.test(f)) ?? null;
+  const infoAbs = matching.find((f) => f.endsWith('.info.json')) ?? null;
+
+  const toRel = (abs) => (abs ? path.relative(paths.videosDir, abs).split(path.sep).join('/') : null);
 
   const thumbDirFiles = existsSync(paths.thumbnailsDir)
     ? readdirSync(paths.thumbnailsDir).filter((f) => f.startsWith(`${videoId}.`))
     : [];
   const thumbnailFile = thumbDirFiles.find((f) => /\.(jpg|jpeg|png|webp)$/i.test(f)) ?? null;
 
-  return { videoFile, infoFile, thumbnailFile };
+  return { videoFile: toRel(videoAbs), infoFile: toRel(infoAbs), thumbnailFile };
 }
 
 function isoDateFromYyyymmdd(yyyymmdd) {
@@ -163,9 +185,13 @@ async function consolidateMetadata(videoId, info, infoFilePath) {
 // deliberatamente preservato: yt-dlp lo userà per riprendere il download dal
 // punto in cui si era fermato al prossimo tentativo, invece di ripartire da zero.
 function cleanupFailedDownloadArtifacts(paths, videoId) {
-  for (const f of readdirSync(paths.videosDir).filter((f) => f.startsWith(`${videoId}.`))) {
-    if (f.endsWith('.part') || /\.(mp4|mkv|webm)$/i.test(f)) continue;
-    unlinkSync(path.join(paths.videosDir, f));
+  const marker = `[${videoId}]`;
+  const videoDirFiles = existsSync(paths.videosDir) ? walkFiles(paths.videosDir) : [];
+  for (const full of videoDirFiles) {
+    const base = path.basename(full);
+    if (!base.includes(marker)) continue;
+    if (base.endsWith('.part') || /\.(mp4|mkv|webm)$/i.test(base)) continue;
+    unlinkSync(full);
   }
   if (existsSync(paths.thumbnailsDir)) {
     for (const f of readdirSync(paths.thumbnailsDir).filter((f) => f.startsWith(`${videoId}.`))) {
@@ -250,7 +276,13 @@ function buildDownloadArgs(paths, config, formatSelector, url, { useCookies }) {
     '--convert-thumbnails', 'jpg',
     '--write-info-json',
     '--newline',
-    '-o', path.join(paths.videosDir, '%(id)s.%(ext)s'),
+    // Archivio canonico per creator, nome leggibile con id finale (come il
+    // default di yt-dlp): media/videos/<Creator>/<Titolo> [<id>].<ext>. yt-dlp
+    // sanifica da solo i caratteri non validi per Windows e crea le sottocartelle.
+    // Il fallback "|Sconosciuto" copre i (rari) casi senza channel/uploader.
+    // L'.info.json segue automaticamente questo stesso template.
+    '-o', path.join(paths.videosDir, '%(channel,uploader|Sconosciuto)s', '%(title)s [%(id)s].%(ext)s'),
+    // Le thumbnail restano piatte per id (interne, non sfogliate dall'utente).
     '-o', `thumbnail:${path.join(paths.thumbnailsDir, '%(id)s.%(ext)s')}`,
     '--download-archive', paths.downloadArchivePath
   ];

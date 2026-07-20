@@ -230,3 +230,39 @@ I menu (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano mai il term
 Le entry informative di flussi "usa e getta" (non-loop) come `syncFlow`/`catalogFlow`/`addSourceFlow` usano `setMessage()` e si affidano al `clearScreen()` del ciclo chiamante (mainMenu o il sottomenu) per la ristampa: il messaggio compare sopra il menu al giro successivo.
 
 Verificato: `node --check packages/cli/cli.js` passa. La navigazione interattiva vera e propria (frecce + pulizia schermo a ogni passo) va confermata dall'utente lanciando il CLI, non essendo testabile in automatico da qui.
+
+## Archivio canonico per creator con nomi leggibili
+
+Fino a qui i video vivevano **piatti** in `media/videos/<id>.<ext>` (es. `88RAHq3prwo.mp4`): tutti i creator mescolati, nome = id YouTube, cartella non consultabile da Esplora File. Su richiesta dell'utente si è cambiato il **layout canonico** in `media/videos/<Creator>/<Titolo> [<id>].<ext>` — la convenzione di default di yt-dlp (`%(title)s [%(id)s].%(ext)s`), con sottocartella per creator.
+
+**Perché cambiare l'archivio (opzione 1 di `PIANO.md`) e non un export via hard link (opzione 2)**: in una discussione precedente si era propeso per l'export a hard link proprio per non toccare i file già scaricati. L'utente ha però scelto esplicitamente di cambiare l'archivio vero e proprio — un solo posto, non una vista duplicata. Il costo del re-lavoro sui file esistenti è assorbito da una funzione di migrazione riusabile (vedi sotto), non da un rinominare a mano.
+
+**Nome file: id sempre presente.** Il suffisso `[<id>]` è **sempre** nel nome (come yt-dlp), non solo in caso di collisione. Questo risolve da sé il problema dei titoli duplicati nello stesso canale (caso reale già visto: due "[ASMR] Come Study With Me"): id diversi → nomi file diversi, nessuna logica speciale di deduplica necessaria.
+
+### Modifiche a `core/src/ytdlp/ytdlpWrapper.js`
+
+- **Template `-o`** in `buildDownloadArgs()`: da `%(id)s.%(ext)s` a `%(channel,uploader|Sconosciuto)s/%(title)s [%(id)s].%(ext)s`. yt-dlp **sanifica da solo** i caratteri non validi per Windows e crea le sottocartelle; il fallback `|Sconosciuto` copre i rari casi senza `channel`/`uploader`. L'`.info.json` segue automaticamente lo stesso template (finisce nella sottocartella creator). Il template della **thumbnail resta invariato**: `media/thumbnails/<id>.jpg` piatto (le thumbnail sono interne, non sfogliate dall'utente → nessuna migrazione thumbnail).
+- **`findDownloadedFiles()`**: prima cercava piatto per prefisso id (`startsWith("<id>.")`); ora fa un **walk ricorsivo** di `videosDir` e trova video/`.info.json` il cui basename contiene il marker `[<id>]`. L'id è univoco → match robusto qualunque sia la sanitizzazione fatta da yt-dlp sul titolo/creator. Ritorna il video/info come **percorso relativo a `videosDir`** (separatori normalizzati a `/`), che finisce direttamente in `video.localPath`.
+- **`cleanupFailedDownloadArtifacts()`**: reso ricorsivo con lo stesso criterio (`[<id>]`), continua a preservare il file video e il `.part` per il resume, ripulendo `.info.json`/altri artefatti nella sottocartella creator.
+- **Nessuna modifica** a `downloadVideo()` e `mapInfoJsonToVideoFields()`: risolvevano già i path con `path.join(videosDir, X)` e derivavano `container` da `path.extname` — entrambi funzionano trasparentemente con un `localPath` che ora include la sottocartella.
+
+**Perché playback e sync non cambiano**: sia `playbackService.playVideo()` sia l'auto-guarigione in `syncService` risolvono il file come `path.join(videosDir, video.localPath)`. Trasformare `localPath` in un percorso relativo con sottocartella è quindi trasparente per loro — verificato leggendo tutti i consumatori di `localPath`/`videosDir`.
+
+### Migrazione dei file esistenti — `core/src/services/libraryService.js` (nuovo)
+
+`reorganizeLibrary({ dryRun = false })`, esportata da `core/src/index.js`, **idempotente e riusabile** (non uno script usa-e-getta: serve ora per migrare i video già scaricati nel vecchio layout piatto, e in futuro se cambiano titoli o si vuole riallineare l'archivio):
+
+- Per ogni video `downloaded`: calcola il target canonico (`targetRelPath()`), individua il file attuale (`localPath` registrato, con fallback a ricerca ricorsiva per `<id>.<ext>` piatto o marker `[<id>]`), e se non è già al posto giusto lo **sposta** (`renameSync`, istantaneo sullo stesso volume) nella sottocartella creator, aggiornando `video.localPath` nel catalogo via `updateCatalog`.
+- **Idempotente**: i video già al target vengono contati come `alreadyOk` e saltati; una seconda esecuzione non sposta nulla. I `downloaded` senza file su disco finiscono in `missing` (segnalati, non tentati).
+- **`dryRun`**: ritorna solo il piano (`planned: [{id, from, to}]`) senza toccare nulla — usato dal CLI per mostrare l'anteprima prima della conferma.
+- **`sanitizeName()`**: sanitizer Windows scritto a mano (rimuove `< > : " / \ | ? *` + control char, collassa spazi, toglie spazi/punti finali, gestisce i nomi riservati `CON`/`PRN`/…, fallback su id/`Sconosciuto`, taglia i titoli oltre 150 char preservando `[<id>].<ext>`). Non serve parità esatta con yt-dlp: i lookup dei file avvengono per marker `[<id>]`, non per nome.
+- Al termine rimuove le eventuali sottocartelle rimaste vuote.
+
+**CLI**: nuova voce menu "Riorganizza libreria (per creator)" (`packages/cli/cli.js`, `reorganizeFlow`): esegue prima un `dryRun` e mostra gli spostamenti previsti (contesto immediato → `console.log` diretto), poi `confirm`, poi l'esecuzione reale con riepilogo via `setMessage` (coerente con il reset schermata).
+
+### Verifica
+
+- **Sanitizer** (`sanitizeName`, `targetRelPath`): test unitario su caratteri non validi, spazi/punti finali, nome riservato, titolo/canale null → tutti corretti; `Never Gonna Give You Up` di Rick Astley → `Rick Astley/Never Gonna Give You Up [dQw4w9WgXcQ].mp4`.
+- **`reorganizeLibrary`** (test d'integrazione su `mediaRoot` temporaneo + catalogo sintetico): dry-run pianifica gli spostamenti giusti; esecuzione reale sposta i file nelle cartelle creator e aggiorna `localPath`; **duplicati di titolo** vanno a file distinti grazie all'id; video già nidificato contato come `alreadyOk`; video senza file su disco segnalato come `missing`; **seconda esecuzione = 0 spostamenti** (idempotenza); vecchi file piatti rimossi. Tutte le asserzioni superate.
+- `node --check` su tutti i file toccati; import runtime di `core/src/index.js` OK (`reorganizeLibrary` presente tra gli export).
+- **Non eseguibile in questo ambiente** (copia pulita senza `tools/yt-dlp.exe` né `media/`): il download reale end-to-end nel nuovo layout e la migrazione dei 50 file reali. Vanno lanciati dall'utente sulla propria macchina — `reorganizeLibrary({ dryRun: true })` prima, per rivedere il piano, poi l'esecuzione dal menu "Riorganizza libreria".

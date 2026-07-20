@@ -9,6 +9,7 @@ import { playVideo } from './services/playbackService.js';
 import { prepareSingleVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata } from './services/metadataService.js';
 import { searchVideos } from './services/searchService.js';
+import { reorganizeLibrary } from './services/libraryService.js';
 import { loadConfig, getPaths } from './config.js';
 
 registerJobHandler('downloadPending', downloadPendingJob);
@@ -43,6 +44,8 @@ export {
   getRawMetadata,
   // ricerca fuzzy multi-campo
   searchVideos,
+  // manutenzione archivio: riorganizzazione per creator (layout canonico)
+  reorganizeLibrary,
   // config/introspezione
   loadConfig,
   getPaths
