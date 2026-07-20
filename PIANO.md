@@ -39,7 +39,7 @@ YouTubeCatalog/
     videos/
     thumbnails/
   core/                           # LE MINI API: libreria di funzioni, richiamabile da CLI e WebGUI
-    package.json                    # nome pacchetto: @catalog/core
+    package.json                    # nome pacchetto: @catalog/core; nessuna dipendenza esterna (anche la ricerca fuzzy, M7, è scritta a mano)
     cookies.txt                     # FACOLTATIVO, non versionato: vedi "Cookie per video privati/non listati"
     src/
       index.js                      # superficie pubblica: re-esporta tutti i servizi sotto
@@ -56,6 +56,7 @@ YouTubeCatalog/
       services/playbackService.js     # playVideo(id, {mode}) -> spawn VLC sul file locale
       services/importService.js       # scanImportable(), importLocalVideo(id) -> video già scaricati fuori dal tool
       services/metadataService.js     # getRawMetadata(id) -> data/metadata.json
+      services/searchService.js       # searchVideos(query) -> ricerca fuzzy multi-campo (M7)
       jobs/jobManager.js              # coda single-worker + EventEmitter, persistenza storico
       jobs/jobs/downloadPending.js
       jobs/jobs/downloadSingle.js
@@ -63,14 +64,14 @@ YouTubeCatalog/
     cli/                          # primo consumatore delle mini API di /core
       package.json                  # dipendenza: @inquirer/prompts
       cli.js                      # menu a frecce (@inquirer/prompts): importa @catalog/core direttamente, nessun HTTP
-    server/                       # costruito più avanti (M7): thin wrapper HTTP attorno a @catalog/core
+    server/                       # costruito più avanti (M8): thin wrapper HTTP attorno a @catalog/core
       src/
         index.js
         routes/videos.routes.js
         routes/jobs.routes.js       # include SSE, bridge verso gli eventi di jobManager
         routes/sources.routes.js
         media/mediaRoutes.js        # express.static per /media/videos e /media/thumbnails
-    web/                          # costruito più avanti (M8): SPA React, client HTTP di packages/server
+    web/                          # costruito più avanti (M9): SPA React, client HTTP di packages/server
       vite.config.js
       src/
         App.jsx
@@ -232,7 +233,7 @@ Superficie pubblica (`core/src/index.js`), identica per qualunque chiamante:
 - `triggerJob(type, params)` / `getJob(id)` / `listJobs()` — coda job (`downloadPending`, `downloadSingle`): coda single-worker FIFO, stato persistito in `data/jobs/<id>.json`, `EventEmitter` per eventi `log`/`progress`/`status` in tempo reale.
 - `playVideo(id, { mode = 'video' })` — verifica `status: downloaded` e che il file esista, poi lancia VLC; `mode: 'audio'` aggiunge `--no-video` per la riproduzione solo audio.
 
-Il **job manager** e il **wrapper yt-dlp** vivono in `core` (non dentro `packages/server`): il CLI, essendo nello stesso processo, si iscrive direttamente agli eventi dell'`EventEmitter` di `jobManager` e stampa le righe di log a terminale in tempo reale — nessuna infrastruttura SSE necessaria finché non arriva la WebGUI (M7), che invece farà da bridge fra quegli stessi eventi e i suoi client HTTP via SSE.
+Il **job manager** e il **wrapper yt-dlp** vivono in `core` (non dentro `packages/server`): il CLI, essendo nello stesso processo, si iscrive direttamente agli eventi dell'`EventEmitter` di `jobManager` e stampa le righe di log a terminale in tempo reale — nessuna infrastruttura SSE necessaria finché non arriva la WebGUI (M8), che invece farà da bridge fra quegli stessi eventi e i suoi client HTTP via SSE.
 
 ## Cookie per video privati/non listati (`core/cookies.txt`, facoltativo)
 
@@ -258,17 +259,45 @@ Il **job manager** e il **wrapper yt-dlp** vivono in `core` (non dentro `package
 - **Rivedi novità** → **vista unica** che sostituisce le due voci separate precedenti (revisione + download, ora una dentro l'altra su richiesta dell'utente). Elenca **tutti** i video `new`/`pending`/`excluded` insieme (con un'icona di stato per riconoscerli a colpo d'occhio), più una voce in cima **"▶ Scarica in coda (N)"** (visibile solo se N > 0) + ← Torna al menu principale. Se non c'è nulla da rivedere e nulla in coda, messaggio e torna al menu.
   - Scegliendo un video: sotto-`select` con le azioni valide per il suo stato attuale — da `new`: **Scarica** / **Archivia**; da `pending`: **Archivia** / **Rimetti tra le novità** (annulla la decisione, torna a `new`); da `excluded`: **Scarica** / **Rimetti tra le novità** — sempre con ← Torna alla lista. Applica `decideVideo(id, 'download'|'exclude'|'undecided')` → torna alla lista aggiornata. Questo risolve anche il bisogno di **togliere un video dagli archiviati** e cambiargli stato, prima non possibile.
   - Scegliendo **"▶ Scarica in coda (N)"**: stesso comportamento di prima (`confirm` "Scaricare N video ora?" → se sì, `triggerJob('downloadPending')` con log/progress live via `EventEmitter`) ma **nidificato dentro questa vista** invece che una voce separata del menu principale.
+- **Importa video già scaricati** → `scanImportable()`; se vuoto, messaggio. Altrimenti elenca i file candidati trovati in `media/videos/` (nome file = id valido, non ancora `downloaded`), `confirm` per importarli tutti in un colpo, poi `importLocalVideo(id)` per ciascuno (recupero metadati da YouTube senza ri-scaricare, hash dal file locale, marcatura `downloaded`).
+- **Cerca** → **(nuova, M7)** ricerca fuzzy libera su tutto il catalogo (titolo, canale, tag, descrizione); vedi sezione dedicata sotto.
 - **Guarda** → `listChannels({status:'downloaded'})`; se vuoto, messaggio. Altrimenti `select` canali (nome + conteggio) + ← Torna → `select` video di quel canale (titolo, durata, data) + ← Torna ai canali → `select` **Video** / **Solo audio** → `playVideo(id, {mode})` → torna alla lista video di quel canale.
 - **Catalogo** → `select` di uno stato (Tutti/Nuovi/In coda/In download/Scaricati/Falliti/Archiviati) + ← Torna → stampa l'elenco corrispondente (vista informativa) → torna al menu.
 - **Esci** → termina il processo.
 
-Non esiste una scorciatoia "play per id" a comando digitato: la navigazione **Guarda** (canale → video → modalità) è l'unico modo per riprodurre un video, coerente col vincolo "niente comandi scritti a mano". Il blocco "exit durante un download" non richiede gestione esplicita: il design a menu è bloccante (un solo flusso interattivo alla volta), quindi non esiste uno stato in cui si può navigare al menu mentre un job è in corso.
+Non esiste una scorciatoia "play per id" a comando digitato: la navigazione **Guarda** (canale → video → modalità) è l'unico modo per riprodurre un video partendo da zero, coerente col vincolo "niente comandi scritti a mano" — **Cerca** (sotto) è l'eccezione minima e deliberata a questo vincolo, l'unico punto dove si digita testo libero oltre a "Aggiungi fonte", perché una ricerca non ha senso senza testo digitato. Il blocco "exit durante un download" non richiede gestione esplicita: il design a menu è bloccante (un solo flusso interattivo alla volta), quindi non esiste uno stato in cui si può navigare al menu mentre un job è in corso.
 
 Errori (id inesistente, stato incompatibile con l'azione, VLC non trovato, URL senza `list=`, fonte non trovata, ecc.) vengono stampati come messaggio chiaro e si torna al menu/passo precedente, mai un crash.
 
-### Idea futura (da definire): motore di ricerca
+## Motore di ricerca (`searchService.js`, M7)
 
-L'utente vuole aggiungere un **motore di ricerca** al CLI, per trovare rapidamente un video nel catalogo (probabilmente per titolo/canale/tag, dato che "Guarda" oggi richiede di navigare canale per canale e "Catalogo" filtra solo per stato). Non ancora progettato: da definire come voce di menu, quali campi indicizzare, se ricerca esatta o fuzzy, e come si integra con la navigazione a menu esistente (es. `input` per il testo di ricerca + `select` sui risultati, sullo stesso modello di "Guarda"). Nessuna implementazione ora — solo appuntato per una definizione futura.
+Decisioni prese con l'utente:
+- **Campi cercati**: titolo, canale, tag, descrizione — non solo titolo/canale, per massimizzare le possibilità di trovare un video anche ricordandone solo un dettaglio.
+- **Ambito**: tutto il catalogo, qualunque stato (`new`/`pending`/`downloading`/`downloaded`/`failed`/`excluded`) — un solo posto per trovare qualsiasi video, non solo quelli scaricati.
+- **Tipo di corrispondenza**: fuzzy (tollerante a errori di battitura/ordine delle parole), non semplice sottostringa.
+
+**`core/src/services/searchService.js`** (nuovo): `searchVideos(query, { limit = 20 } = {})`. **Nessuna dipendenza esterna**: valutata la libreria `fuzzysort` ma scartata su richiesta esplicita dell'utente ("core non deve avere dipendenze") — `core` resta puro codice Node, coerente con la scelta originale di non usare `yt-dlp-wrap`/sqlite/altre librerie. Algoritmo scritto a mano:
+
+- Query divisa in parole (spazi), **semantica AND**: ogni parola deve trovare corrispondenza da qualche parte perché un video sia un risultato.
+- **Titolo/canale/tag** (campi brevi): corrispondenza fuzzy a **finestra scorrevole + distanza di Levenshtein** — per ogni parola, si scorrono sottostringhe del testo di lunghezza vicina a quella della parola (`editDistance` classico, due righe invece di una matrice completa) e si accetta se la distanza è entro una soglia proporzionale alla lunghezza (0 per parole ≤3 caratteri, 1 fino a 6, 2 oltre). Tollera errori di battitura reali (es. "sampuma" trova "Sampurna").
+- **Descrizione** (campo lungo, centinaia/migliaia di caratteri): **solo sottostringa esatta**, non fuzzy. Prima versione usava una sottosequenza libera su tutto il testo ("le lettere compaiono in ordine da qualche parte") — **bug reale trovato in fase di test**: con testi lunghi, quasi ogni parola breve trova una corrispondenza sparsa senza alcun senso (query di 2 parole tornava 20 risultati quasi casuali). Corretto restringendo la tolleranza a errori di battitura solo ai campi brevi, dove è economica e semanticamente sensata; la descrizione resta cercabile ma solo per frase/parola esatta.
+- Punteggio pesato per campo (titolo > canale > tag > descrizione) e per qualità del match (sottostringa esatta > fuzzy), risultati ordinati per rilevanza.
+
+Verificato con il catalogo reale dell'utente: `"bel gramar"` (typo) → 1 risultato corretto ("Miss Bell Teaches A Grammar Lesson"), invece dei 20 quasi-casuali della prima versione; `"sampuma"` (typo sul nome canale) → trova comunque il video del canale "Sampurna ASMR"; `"asmr"` → risultati ampi come atteso (quasi tutto il catalogo è a tema ASMR); query senza corrispondenze → 0 risultati puliti.
+
+Esportata da `core/src/index.js`.
+
+**CLI**: usa il prompt **`search`** di `@inquirer/prompts` (non `input`+`select` in due passaggi come altrove — qui il filtro dal vivo mentre si digita è il punto centrale della UX) con una funzione `source(input)` che chiama `core.searchVideos(input)` e mappa i risultati in scelte con icona di stato + titolo + canale. Selezionato un video, si presenta un sotto-`select` di azioni **contestuali allo stato attuale**, riusando la stessa logica già presente in "Rivedi novità" (per `new`/`pending`/`excluded`/`failed`: Scarica/Archivia/Riprova/Rimetti tra le novità, via `decideVideo`) e in "Guarda" (per `downloaded`: Video/Solo audio, via `playVideo`); per `downloading`, solo un messaggio informativo, nessuna azione (è già in corso). Tutte queste azioni richiamano le stesse funzioni `core` già scritte e testate — nessuna nuova logica di stato, solo un nuovo punto di ingresso per raggiungerle.
+
+### Idea in discussione: consultabilità di `media/videos/` da filesystem
+
+L'utente ha notato che `media/videos/` è poco consultabile aprendola direttamente in Esplora File: tutti i canali mescolati in un'unica cartella piatta, e il nome file è l'id YouTube (es. `88RAHq3prwo.mp4`), non il titolo. Ha chiesto di ragionare insieme su una soluzione, proponendo lui stesso l'idea di un comando di esportazione.
+
+Due strade valutate:
+1. **Cambiare l'archivio canonico** (es. `media/videos/<Canale>/<Titolo> [<id>].<ext>`, convenzione tipica di yt-dlp) — concettualmente più "corretto", ma richiede riscrivere la logica che oggi si aspetta `<id>.<ext>` esatto (`findDownloadedFiles`, `scanImportable`) e rendere di nuovo tutti i file già scaricati/importati (l'utente ha appena rinominato 49 file proprio nel formato attuale per l'importazione — un secondo giro di rinomina sarebbe spreco puro).
+2. **Comando di esportazione** (proposto dall'utente): l'archivio interno resta `<id>.<ext>`, invariato, senza toccare nulla del codice esistente. Nuova funzione che genera/aggiorna `media/esportati/<Canale>/<Titolo>.<ext>` tramite **hard link** (non copie): stesso contenuto su disco, occupazione di spazio a zero anche per file da diversi GB, creazione istantanea (`fs.linkSync`, funziona su Windows/NTFS senza privilegi di amministratore, a differenza dei symlink).
+
+**Raccomandazione**: opzione 2 — rischio minimo, nessun re-lavoro sui 50 video già a posto, risultato equivalente (cartella sfogliabile per canale con il titolo vero) a un costo di implementazione molto più basso. Dettagli implementativi da definire quando si passa a costruirla: dove agganciare la generazione/aggiornamento (comando dedicato nel menu vs automatico dopo ogni download), come gestire titoli duplicati nello stesso canale (già visto un caso reale, due video con titolo identico), sanificazione caratteri non validi per nomi file Windows.
 
 ## Logica di download e dedup
 
@@ -333,10 +362,11 @@ L'utente vuole aggiungere un **motore di ricerca** al CLI, per trovare rapidamen
 | M4 ✅ | `core`: `jobManager.js` (coda + EventEmitter + persistenza) + job `downloadPending`/`downloadSingle` + `decisionService.decideVideo()`. | Da uno script/test Node: `decideVideo` sposta `new → pending`; `downloadPending` scarica davvero un video pubblico e transita `pending → downloading → downloaded`; id non valido → `failed` + `attempts++`. |
 | M5 ✅ | `core`: `playbackService.js` (spawn VLC). | Verificata la logica (risoluzione path, controlli di esistenza); l'apertura effettiva di VLC non è stata eseguita in automatico per non aprire un'app grafica senza conferma esplicita dell'utente. |
 | M6 ✅ | `packages/cli/cli.js`: menu a frecce (`@inquirer/prompts`) — Gestisci fonti, Sincronizza, **Rivedi novità** (vista unica: revisione + coda + download, "Scarica in coda" nidificato qui), **Importa video già scaricati**, Guarda, Catalogo, Esci. Nuovo `sourceService.js` (sourcelist multi-playlist in `catalog.sources`), `importService.js` (import di video scaricati fuori dal tool), `listChannels`/`listVideosByChannel`, `playVideo` con modalità video/audio, metadati grezzi consolidati in `data/metadata.json` (`metadataStore.js`/`metadataService.js`, niente più `.info.json` sparsi accanto ai video). | Verificato con la playlist reale dell'utente: `addSource` (titolo recuperato, dedup), `syncSource`, download reale (dopo il fix `--js-runtimes node` + esclusione AV1), `listChannels`/`listVideosByChannel`, `playVideo` in entrambe le modalità (VLC aperto per davvero), `removeSource`, importazione di 49 video già scaricati manualmente dall'utente (rinominati ai rispettivi id tramite l'ordine grezzo della playlist), migrazione dei metadati grezzi in `data/metadata.json` (49 file, 23MB → 8.26MB), tutti i casi d'errore previsti. La navigazione a frecce vera e propria non è testabile in automatico — verificata solo l'assenza di errori all'avvio; l'utente l'ha provata di persona. |
-| M7 | `packages/server`: thin wrapper Express attorno a `@catalog/core` (stesse funzioni, esposte come REST) + bridge SSE sugli eventi di `jobManager` + static serving media con Range requests. | `Invoke-RestMethod` sugli endpoint restituisce gli stessi dati visti dal CLI; richiesta con header `Range` risponde `206`; stream SSE mostra i log di un job in corso. |
-| M8 | `packages/web`: SPA React (Vite) — `CatalogPage`, `VideoDetailPage` (con decisione su "novità" e player), `JobsPage`. | `npm run dev`, uso la WebGUI per rivedere una novità, deciderla, scaricarla, e riprodurla nel browser. |
-| M9 | Rifinitura: ricerca/filtri su CatalogPage, dettaglio errori + retry sia da CLI che da web, QA sui casi limite. | Passaggio manuale su tutti i flussi, CLI e web. |
-| M10 | Solo documentazione: verifica che il seam `sourceProviders` supporti in futuro un provider `channel`; nota dedicata in `documentazione.md`. | Solo lettura, nessuna verifica runtime. |
+| M7 ✅ | Motore di ricerca nel CLI: `core/src/services/searchService.js` (`searchVideos`, fuzzy scritto a mano — finestra scorrevole + distanza di Levenshtein su titolo/canale/tag, sottostringa esatta su descrizione — nessuna dipendenza esterna) + nuova voce menu "Cerca" (prompt `search` di `@inquirer/prompts`, azioni contestuali allo stato del risultato). | Ricerca reale contro il catalogo dell'utente: titolo con typo, nome canale con typo, termine generico con molti risultati, query senza corrispondenze. |
+| M8 | `packages/server`: thin wrapper Express attorno a `@catalog/core` (stesse funzioni, esposte come REST) + bridge SSE sugli eventi di `jobManager` + static serving media con Range requests. | `Invoke-RestMethod` sugli endpoint restituisce gli stessi dati visti dal CLI; richiesta con header `Range` risponde `206`; stream SSE mostra i log di un job in corso. |
+| M9 | `packages/web`: SPA React (Vite) — `CatalogPage`, `VideoDetailPage` (con decisione su "novità" e player), `JobsPage`. | `npm run dev`, uso la WebGUI per rivedere una novità, deciderla, scaricarla, e riprodurla nel browser. |
+| M10 | Rifinitura: ricerca/filtri su CatalogPage, dettaglio errori + retry sia da CLI che da web, QA sui casi limite. | Passaggio manuale su tutti i flussi, CLI e web. |
+| M11 | Solo documentazione: verifica che il seam `sourceProviders` supporti in futuro un provider `channel`; nota dedicata in `documentazione.md`. | Solo lettura, nessuna verifica runtime. |
 
 L'utente ha già in catalogo due fonti reali: "ToDownload" (1 video, in `pending`, ancora da scaricare — un tentativo reale ha incontrato un probabile throttling temporaneo di YouTube legato ai test ripetuti, non un problema di codice) e "bell asmr" (49 video, tutti `downloaded` — l'utente li aveva già scaricati manualmente prima di usare il CLI e li ha importati con "Importa video già scaricati").
 

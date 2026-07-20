@@ -1,4 +1,4 @@
-import { select, confirm, input } from '@inquirer/prompts';
+import { select, confirm, input, search } from '@inquirer/prompts';
 import * as core from '../../core/src/index.js';
 
 function formatDuration(seconds) {
@@ -140,6 +140,24 @@ const REVIEW_ACTIONS_BY_STATUS = {
 
 const DOWNLOAD_QUEUE = '__download_queue__';
 
+// Estratta da reviewFlow per essere riusata anche da searchFlow: mostra le
+// azioni valide per lo stato attuale di un video "in revisione" (new/pending/
+// excluded/failed) e applica la decisione scelta.
+async function applyReviewDecision(video) {
+  if (video.status === 'failed' && video.error?.message) {
+    console.log(`\n⚠️  Errore: ${video.error.message}\n`);
+  }
+  const decision = await select({
+    message: `${video.title ?? video.id} (attuale: ${REVIEW_STATUS_LABEL[video.status]})`,
+    choices: [...REVIEW_ACTIONS_BY_STATUS[video.status], { name: '← Torna alla lista', value: BACK }]
+  });
+  if (decision === BACK) return;
+
+  await core.decideVideo(video.id, decision);
+  const outcome = { download: 'in coda per il download', exclude: 'archiviato', undecided: 'rimesso tra le novità' }[decision];
+  console.log(`\n✔ "${video.title ?? video.id}" → ${outcome}.\n`);
+}
+
 async function runDownloadQueue() {
   const config = core.loadConfig();
   const maxAttempts = config.jobs.maxAttempts;
@@ -208,19 +226,24 @@ async function reviewFlow() {
     }
 
     const video = relevant.find((v) => v.id === choice);
-    if (video.status === 'failed' && video.error?.message) {
-      console.log(`\n⚠️  Errore: ${video.error.message}\n`);
-    }
-    const decision = await select({
-      message: `${video.title ?? video.id} (attuale: ${REVIEW_STATUS_LABEL[video.status]})`,
-      choices: [...REVIEW_ACTIONS_BY_STATUS[video.status], { name: '← Torna alla lista', value: BACK }]
-    });
-    if (decision === BACK) continue;
-
-    await core.decideVideo(video.id, decision);
-    const outcome = { download: 'in coda per il download', exclude: 'archiviato', undecided: 'rimesso tra le novità' }[decision];
-    console.log(`\n✔ "${video.title ?? video.id}" → ${outcome}.\n`);
+    await applyReviewDecision(video);
   }
+}
+
+// Estratta da watchChannelFlow per essere riusata anche da searchFlow.
+async function playVideoWithModeChoice(video) {
+  const mode = await select({
+    message: video.title ?? video.id,
+    choices: [
+      { name: 'Video', value: 'video' },
+      { name: 'Solo audio', value: 'audio' },
+      { name: '← Annulla', value: BACK }
+    ]
+  });
+  if (mode === BACK) return;
+
+  await core.playVideo(video.id, { mode });
+  console.log('\n▶ VLC avviato.\n');
 }
 
 async function watchChannelFlow(channelKey) {
@@ -242,18 +265,7 @@ async function watchChannelFlow(channelKey) {
     if (videoId === BACK) return;
 
     const video = videos.find((v) => v.id === videoId);
-    const mode = await select({
-      message: video.title ?? video.id,
-      choices: [
-        { name: 'Video', value: 'video' },
-        { name: 'Solo audio', value: 'audio' },
-        { name: '← Annulla', value: BACK }
-      ]
-    });
-    if (mode === BACK) continue;
-
-    await core.playVideo(videoId, { mode });
-    console.log('\n▶ VLC avviato.\n');
+    await playVideoWithModeChoice(video);
   }
 }
 
@@ -275,6 +287,54 @@ async function watchFlow() {
     if (channelKey === BACK) return;
 
     await watchChannelFlow(channelKey);
+  }
+}
+
+const ALL_STATUS_ICON = { new: '🆕', pending: '⬇️ ', downloading: '⏳ ', downloaded: '✅ ', failed: '⚠️ ', excluded: '🗄️ ' };
+const ALL_STATUS_LABEL_INLINE = {
+  new: 'nuovo',
+  pending: 'in coda',
+  downloading: 'in download',
+  downloaded: 'scaricato',
+  failed: 'fallito',
+  excluded: 'archiviato'
+};
+
+// Mostra le azioni disponibili per un video trovato dalla ricerca, a seconda
+// del suo stato attuale: riusa le stesse funzioni di "Rivedi novità" (per
+// new/pending/excluded/failed) e "Guarda" (per downloaded) — nessuna logica
+// nuova, solo un punto d'accesso in più alle stesse azioni già testate.
+async function presentSearchResultActions(videoId) {
+  const video = await core.getVideo(videoId);
+  if (video.status === 'downloaded') {
+    await playVideoWithModeChoice(video);
+  } else if (video.status in REVIEW_ACTIONS_BY_STATUS) {
+    await applyReviewDecision(video);
+  } else {
+    console.log(`\n"${video.title ?? video.id}" è attualmente in download: nessuna azione disponibile ora.\n`);
+  }
+}
+
+async function searchFlow() {
+  while (true) {
+    const choice = await search({
+      message: 'Cerca (titolo, canale, tag, descrizione)',
+      source: async (term) => {
+        if (!term) {
+          return [{ name: '← Torna al menu principale (digita per cercare)', value: BACK }];
+        }
+        const results = await core.searchVideos(term);
+        const choices = results.map((v) => ({
+          name: `${ALL_STATUS_ICON[v.status] ?? ''}${v.title ?? v.id} — ${v.channel?.name ?? 'canale sconosciuto'} (${ALL_STATUS_LABEL_INLINE[v.status] ?? v.status})`,
+          value: v.id
+        }));
+        choices.push({ name: '← Torna al menu principale', value: BACK });
+        return choices;
+      }
+    });
+    if (choice === BACK) return;
+
+    await presentSearchResultActions(choice);
   }
 }
 
@@ -343,6 +403,7 @@ const ACTIONS = {
   sources: manageSourcesFlow,
   sync: syncFlow,
   review: reviewFlow,
+  search: searchFlow,
   watch: watchFlow,
   catalog: catalogFlow,
   import: importFlow
@@ -357,6 +418,7 @@ async function mainMenu() {
         { name: 'Sincronizza', value: 'sync' },
         { name: 'Rivedi novità', value: 'review' },
         { name: 'Importa video già scaricati', value: 'import' },
+        { name: 'Cerca', value: 'search' },
         { name: 'Guarda', value: 'watch' },
         { name: 'Catalogo', value: 'catalog' },
         { name: 'Esci', value: 'exit' }

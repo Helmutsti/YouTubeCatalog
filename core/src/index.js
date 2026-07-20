@@ -8,6 +8,7 @@ import { decideVideo } from './services/decisionService.js';
 import { playVideo } from './services/playbackService.js';
 import { scanImportable, importLocalVideo } from './services/importService.js';
 import { getRawMetadata } from './services/metadataService.js';
+import { searchVideos } from './services/searchService.js';
 import { loadConfig, getPaths } from './config.js';
 
 registerJobHandler('downloadPending', downloadPendingJob);
@@ -41,6 +42,8 @@ export {
   importLocalVideo,
   // metadati grezzi consolidati (data/metadata.json)
   getRawMetadata,
+  // ricerca fuzzy multi-campo
+  searchVideos,
   // config/introspezione
   loadConfig,
   getPaths
