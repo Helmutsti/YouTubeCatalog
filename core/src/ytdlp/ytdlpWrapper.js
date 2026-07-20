@@ -68,9 +68,52 @@ export async function getPlaylistEntries(playlistUrl) {
   };
 }
 
+// Risolve id/titolo/canale/extractor di un singolo video da un URL qualunque,
+// senza scaricare nulla: usata dal download one-off per supportare qualunque
+// sito che yt-dlp sa gestire (YouTube, Rumble, ecc.), non solo YouTube. Gli
+// extractor-args specifici di YouTube (JS_RUNTIME_ARGS/PLAYER_CLIENT_ARGS) sono
+// innocui sugli altri siti: yt-dlp li ignora silenziosamente se l'extractor in
+// uso non è "youtube".
+export async function resolveVideoInfo(url) {
+  const paths = getPaths();
+  const args = [...JS_RUNTIME_ARGS, ...PLAYER_CLIENT_ARGS, '--skip-download', '-J'];
+  if (paths.cookiesPath) args.push('--cookies', paths.cookiesPath);
+  args.push(url);
+
+  const stdout = await new Promise((resolve, reject) => {
+    const proc = spawn(paths.ytdlpBinaryPath, args);
+    let out = '';
+    let err = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.stderr.on('data', (d) => { err += d.toString(); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(`yt-dlp (risoluzione video) terminato con codice ${code}: ${err.slice(-500)}`));
+    });
+  });
+
+  const info = JSON.parse(stdout);
+  if (info._type === 'playlist' || Array.isArray(info.entries)) {
+    throw new Error('Questo link punta a una playlist/canale, non a un singolo video — usa "Gestisci fonti" per una playlist.');
+  }
+
+  return {
+    id: info.id,
+    title: info.title ?? null,
+    extractor: info.extractor ?? null,
+    webpageUrl: info.webpage_url ?? url,
+    channelName: info.channel ?? info.uploader ?? null,
+    durationSeconds: info.duration ?? null
+  };
+}
+
 function buildFormatSelector(format, maxHeight) {
   if (!maxHeight) return format;
-  return `bv*[height<=${maxHeight}][vcodec!*=av01]+ba/b[height<=${maxHeight}][vcodec!*=av01]`;
+  // L'esclusione AV1 è un workaround specifico di YouTube (vedi PLAYER_CLIENT_ARGS
+  // sopra); su altri siti (es. Rumble) può escludere l'unico formato disponibile,
+  // quindi l'ultimo fallback ("b[height<=N]") non la applica.
+  return `bv*[height<=${maxHeight}][vcodec!*=av01]+ba/b[height<=${maxHeight}][vcodec!*=av01]/b[height<=${maxHeight}]`;
 }
 
 function parseProgressPercent(line) {
@@ -197,7 +240,7 @@ export function mapInfoJsonToVideoFields(info, { videoFile, thumbnailFile, sizeB
   };
 }
 
-function buildDownloadArgs(paths, config, formatSelector, videoId, { useCookies }) {
+function buildDownloadArgs(paths, config, formatSelector, url, { useCookies }) {
   const args = [
     ...JS_RUNTIME_ARGS,
     ...PLAYER_CLIENT_ARGS,
@@ -214,7 +257,7 @@ function buildDownloadArgs(paths, config, formatSelector, videoId, { useCookies 
   if (useCookies && paths.cookiesPath) {
     args.push('--cookies', paths.cookiesPath);
   }
-  args.push(`https://www.youtube.com/watch?v=${videoId}`);
+  args.push(url);
   return args;
 }
 
@@ -242,7 +285,12 @@ function runYtdlp(paths, args, { onLog, onProgress }) {
   });
 }
 
-export async function downloadVideo(videoId, { onLog = () => {}, onProgress = () => {} } = {}) {
+// videoId è l'id già risolto (da yt-dlp stesso, tramite resolveVideoInfo() o
+// l'enumerazione playlist) usato solo per ritrovare i file scritti da yt-dlp
+// dopo il download (-o "%(id)s.%(ext)s" produce sempre lo stesso id). url è il
+// link da cui scaricare per davvero — qualunque sito supportato da yt-dlp, non
+// solo YouTube.
+export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress = () => {} } = {}) {
   const paths = getPaths();
   const config = loadConfig();
   const formatSelector = buildFormatSelector(config.ytdlp.format, config.ytdlp.maxHeight);
@@ -250,20 +298,20 @@ export async function downloadVideo(videoId, { onLog = () => {}, onProgress = ()
   try {
     // Prima senza cookie: per contenuti pubblici (il caso comune) è più
     // affidabile — inviare i cookie del browser insieme al client "android_vr"
-    // usato per bypassare l'esperimento PO Token genera in pratica un mix
-    // sospetto (sessione desktop + identità client mobile) che YouTube rifiuta
-    // sistematicamente con HTTP 403 sulla CDN video, anche se le fasi di
-    // estrazione metadati precedenti vanno a buon fine (verificato). Se il primo
-    // tentativo fallisce e sono configurati dei cookie, si ritenta con quelli:
-    // restano necessari per i video privati/non listati del proprio account,
-    // lo scopo originale di core/cookies.txt.
+    // usato per bypassare l'esperimento PO Token usato da YouTube genera in
+    // pratica un mix sospetto (sessione desktop + identità client mobile) che
+    // YouTube rifiuta sistematicamente con HTTP 403 sulla CDN video, anche se
+    // le fasi di estrazione metadati precedenti vanno a buon fine (verificato).
+    // Se il primo tentativo fallisce e sono configurati dei cookie, si ritenta
+    // con quelli: restano necessari per i video privati/non listati del
+    // proprio account, lo scopo originale di core/cookies.txt.
     try {
-      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, videoId, { useCookies: false }), { onLog, onProgress });
+      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: false }), { onLog, onProgress });
     } catch (firstErr) {
       if (!paths.cookiesPath) throw firstErr;
       onLog('Primo tentativo (senza cookie) fallito, riprovo con i cookie (potrebbe essere un video privato/non listato)...');
       cleanupFailedDownloadArtifacts(paths, videoId);
-      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, videoId, { useCookies: true }), { onLog, onProgress });
+      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: true }), { onLog, onProgress });
     }
 
     const { videoFile, infoFile, thumbnailFile } = findDownloadedFiles(paths, videoId);

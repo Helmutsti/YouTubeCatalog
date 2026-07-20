@@ -31,7 +31,7 @@ export async function downloadPendingJob(params, { log, progress }) {
     });
 
     try {
-      const fields = await downloadVideo(id, { onLog: log, onProgress: progress });
+      const fields = await downloadVideo(id, candidate.webpageUrl, { onLog: log, onProgress: progress });
       await updateCatalog((cat) => {
         Object.assign(cat.videos[id], fields, {
           status: VIDEO_STATUS.DOWNLOADED,

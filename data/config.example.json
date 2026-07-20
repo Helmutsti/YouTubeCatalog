@@ -3,7 +3,7 @@
   "port": 3001,
   "ytdlp": {
     "binaryPath": "./tools/yt-dlp.exe",
-    "format": "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]",
+    "format": "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b",
     "mergeOutputFormat": "mp4",
     "maxHeight": null,
     "cookiesFile": null

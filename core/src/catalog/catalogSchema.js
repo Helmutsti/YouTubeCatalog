@@ -24,16 +24,22 @@ export function createNewVideoStub({
   playlistIndex,
   playlistId,
   playlistTitle,
-  sourceId
+  sourceId,
+  // Le fonti/playlist sono YouTube-only (v1), da cui i default qui sotto. Il
+  // download singolo one-off (qualunque sito supportato da yt-dlp, es. Rumble)
+  // passa questi tre esplicitamente, risolti da yt-dlp stesso.
+  webpageUrl,
+  originalUrl = null,
+  extractor = 'youtube'
 }) {
   const now = new Date().toISOString();
   return {
     id,
     title: title ?? null,
     description: null,
-    webpageUrl: `https://www.youtube.com/watch?v=${id}`,
-    originalUrl: null,
-    extractor: 'youtube',
+    webpageUrl: webpageUrl ?? `https://www.youtube.com/watch?v=${id}`,
+    originalUrl,
+    extractor,
     channel: {
       id: null,
       name: channelName ?? null,
