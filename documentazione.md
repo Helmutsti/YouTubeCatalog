@@ -213,6 +213,20 @@ Segnalato dall'utente: "Scarica video singolo" doveva accettare qualunque sito c
 
 **Verifica end-to-end reale eseguita** (non solo lettura del codice): `resolveVideoInfo()` testato contro un video YouTube reale e un video Rumble reale ("Winter-loving dog helps girls dig a snow fort", `rumble.com/vdmum1-...`) — entrambi risolti correttamente (id, titolo, canale, `extractor` giusto: `youtube` vs `RumbleEmbed`). Poi l'intera pipeline `prepareSingleVideoDownload` → `triggerJob('downloadSingle')` → download reale eseguita per entrambi i video: scaricati per davvero, mergiati, marcati `downloaded`, con `extractor`/`webpageUrl`/`originalUrl` corretti nel catalogo e `source: { sourceId: null, type: 'single' }`. File, entry di catalogo, entry di `data/metadata.json` e righe nel download-archive generati dal test sono stati rimossi al termine — nessun residuo nei dati reali dell'utente (il catalogo è tornato a 50/50 video, lo stato precedente al test).
 
-## Nota: reset della schermata CLI (rimandato)
+## Reset della schermata CLI
 
-L'utente ha chiesto anche un reset della schermata a ogni menu/sottomenu (i vecchi elenchi restano stampati sopra i nuovi, rendendo il terminale illeggibile dopo pochi giri). Progettazione discussa e già pronta (helper condivisi `clearScreen()`/`setMessage()` in `cli.js`, applicati a ogni `while(true)` di menu) — annotata in `PIANO.md` come idea in discussione, ma **non implementata in questa sessione**: l'utente ha chiesto esplicitamente di rimandarla.
+I menu (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano mai il terminale: ogni vecchia versione di un elenco (es. "Rivedi novità" dopo ogni decisione, "Guarda" scorrendo canali/video) restava stampata sopra le nuove e dopo pochi giri lo schermo diventava illeggibile. Richiesta rimandata in una sessione precedente, ora implementata seguendo il design già discusso in `PIANO.md`.
+
+**Due helper condivisi in `packages/cli/cli.js`**:
+- `clearScreen()` — pulisce il terminale (`console.clear()`, **solo se `process.stdout.isTTY`** per non rompere output rediretto/pipe) e subito dopo ristampa l'eventuale messaggio in sospeso.
+- `setMessage(text)` — mette in coda un messaggio "da leggere". Una singola variabile globale `pendingMessage` è sufficiente perché il CLI è bloccante (un solo flusso interattivo alla volta).
+
+**Applicazione**:
+- Ogni ciclo `while(true)` di menu/sottomenu (`mainMenu`, `manageSourcesFlow`, `reviewFlow`, `watchFlow`, `watchChannelFlow`, `searchFlow`) chiama `clearScreen()` come **prima istruzione**, prima di ricalcolare/ristampare l'elenco.
+- Ogni output "da leggere" non in tempo reale (conferme, riepiloghi, elenchi informativi di `listSourcesFlow`/`syncFlow`/`catalogFlow`, esiti di `addSource`/`removeSource`/`decideVideo`/`playVideo`, messaggi di errore del menu principale) è passato da `console.log` diretto a `setMessage()`, così sopravvive esattamente a una pulizia (ristampato una volta sopra il menu successivo, poi scartato) invece di sparire subito o restare per sempre.
+
+**Eccezione deliberata**: lo streaming live dei log di un job in corso (`runJobToCompletion`, righe di yt-dlp riga per riga) resta `console.log` diretto — deve scorrere in tempo reale, non ha senso metterlo in coda. Solo la riga di riepilogo finale del job (successo/fallimento) passa da `setMessage()`. Anche il messaggio d'errore mostrato prima del select in `applyReviewDecision` resta diretto: è contesto immediato del prompt che segue, non un esito post-azione.
+
+Le entry informative di flussi "usa e getta" (non-loop) come `syncFlow`/`catalogFlow`/`addSourceFlow` usano `setMessage()` e si affidano al `clearScreen()` del ciclo chiamante (mainMenu o il sottomenu) per la ristampa: il messaggio compare sopra il menu al giro successivo.
+
+Verificato: `node --check packages/cli/cli.js` passa. La navigazione interattiva vera e propria (frecce + pulizia schermo a ogni passo) va confermata dall'utente lanciando il CLI, non essendo testabile in automatico da qui.

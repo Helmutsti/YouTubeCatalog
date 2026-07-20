@@ -17,36 +17,60 @@ function formatDate(iso) {
 
 const BACK = '__back__';
 
+// --- Reset schermata + messaggio in sospeso ---------------------------------
+// I menu (@inquirer/prompts dentro cicli while(true)) non puliscono mai il
+// terminale: senza reset, ogni vecchia versione di un elenco resta stampata
+// sopra le nuove. clearScreen() pulisce (solo in un TTY) come prima istruzione
+// di ogni ciclo di menu; setMessage() mette in coda un output "da leggere"
+// (conferme, riepiloghi, elenchi informativi) che sopravvive esattamente a una
+// pulizia — ristampato una volta dopo il clear e poi scartato. Sicuro con una
+// singola variabile globale perché il CLI è bloccante: un solo flusso
+// interattivo alla volta.
+let pendingMessage = null;
+
+function setMessage(text) {
+  pendingMessage = text;
+}
+
+function clearScreen() {
+  if (process.stdout.isTTY) console.clear();
+  if (pendingMessage !== null) {
+    console.log(pendingMessage);
+    pendingMessage = null;
+  }
+}
+
 async function addSourceFlow() {
   const url = await input({ message: 'URL della playlist YouTube:' });
   const result = await core.addSource(url);
   if (result.alreadyExists) {
-    console.log(`\nLa fonte "${result.name}" è già presente.\n`);
+    setMessage(`\nLa fonte "${result.name}" è già presente.\n`);
   } else if (result.newCount > 0) {
-    console.log(`\n✔ Aggiunta "${result.name}" — ${result.newCount} video trovati come novità.`);
-    console.log(`  → Vai su "Rivedi novità" dal menu principale per deciderli (non serve "Sincronizza": è già stato fatto ora).\n`);
+    setMessage(
+      `\n✔ Aggiunta "${result.name}" — ${result.newCount} video trovati come novità.\n` +
+        `  → Vai su "Rivedi novità" dal menu principale per deciderli (non serve "Sincronizza": è già stato fatto ora).\n`
+    );
   } else {
-    console.log(`\n✔ Aggiunta "${result.name}" — nessun video trovato nella playlist.\n`);
+    setMessage(`\n✔ Aggiunta "${result.name}" — nessun video trovato nella playlist.\n`);
   }
 }
 
 async function listSourcesFlow() {
   const sources = await core.listSources();
-  console.log('');
   if (sources.length === 0) {
-    console.log('Nessuna fonte configurata.\n');
+    setMessage('\nNessuna fonte configurata.\n');
     return;
   }
-  for (const s of sources) {
-    console.log(`- ${s.name} (${s.videoCount} video) — ultima sync: ${formatDate(s.lastCheckedAt)}`);
-  }
-  console.log('');
+  const lines = sources.map(
+    (s) => `- ${s.name} (${s.videoCount} video) — ultima sync: ${formatDate(s.lastCheckedAt)}`
+  );
+  setMessage('\n' + lines.join('\n') + '\n');
 }
 
 async function removeSourceFlow() {
   const sources = await core.listSources();
   if (sources.length === 0) {
-    console.log('\nNessuna fonte da rimuovere.\n');
+    setMessage('\nNessuna fonte da rimuovere.\n');
     return;
   }
   const choice = await select({
@@ -66,11 +90,12 @@ async function removeSourceFlow() {
   if (!confirmed) return;
 
   await core.removeSource(choice);
-  console.log(`\n✔ Fonte "${source.name}" rimossa.\n`);
+  setMessage(`\n✔ Fonte "${source.name}" rimossa.\n`);
 }
 
 async function manageSourcesFlow() {
   while (true) {
+    clearScreen();
     const choice = await select({
       message: 'Gestisci fonti',
       choices: [
@@ -90,7 +115,7 @@ async function manageSourcesFlow() {
 async function syncFlow() {
   const sources = await core.listSources();
   if (sources.length === 0) {
-    console.log('\nNessuna fonte configurata. Aggiungine una da "Gestisci fonti".\n');
+    setMessage('\nNessuna fonte configurata. Aggiungine una da "Gestisci fonti".\n');
     return;
   }
 
@@ -105,12 +130,12 @@ async function syncFlow() {
   if (choice === BACK) return;
 
   const targets = choice === '__all__' ? sources : sources.filter((s) => s.id === choice);
-  console.log('');
+  const lines = [];
   for (const source of targets) {
     const result = await core.syncSource(source.id);
-    console.log(`${source.name}: ${result.newCount} novità, ${result.healedCount} auto-riparati.`);
+    lines.push(`${source.name}: ${result.newCount} novità, ${result.healedCount} auto-riparati.`);
   }
-  console.log('');
+  setMessage('\n' + lines.join('\n') + '\n');
 }
 
 const REVIEW_STATUS_ICON = { new: '🆕', pending: '⬇️ ', excluded: '🗄️ ', failed: '⚠️ ' };
@@ -168,7 +193,7 @@ async function applyReviewDecision(video) {
 
   await core.decideVideo(video.id, decision);
   const outcome = { download: 'in coda per il download', exclude: 'archiviato', undecided: 'rimesso tra le novità' }[decision];
-  console.log(`\n✔ "${video.title ?? video.id}" → ${outcome}.\n`);
+  setMessage(`\n✔ "${video.title ?? video.id}" → ${outcome}.\n`);
 }
 
 async function runDownloadQueue() {
@@ -178,7 +203,7 @@ async function runDownloadQueue() {
   const queued = all.filter((v) => v.status === 'pending' || (v.status === 'failed' && v.attempts < maxAttempts));
 
   if (queued.length === 0) {
-    console.log('\nNessun video in coda.\n');
+    setMessage('\nNessun video in coda.\n');
     return;
   }
 
@@ -189,9 +214,9 @@ async function runDownloadQueue() {
   console.log('');
   const job = await runJobToCompletion(jobId);
   if (job.status === 'failed') {
-    console.log(`\n✘ Job fallito: ${job.error?.message}\n`);
+    setMessage(`\n✘ Job fallito: ${job.error?.message}\n`);
   } else {
-    console.log('');
+    setMessage('\n✔ Download completato.\n');
   }
 }
 
@@ -202,20 +227,20 @@ async function singleDownloadFlow() {
   try {
     result = await core.prepareSingleVideoDownload(url);
   } catch (err) {
-    console.log(`\n✘ ${err.message}\n`);
+    setMessage(`\n✘ ${err.message}\n`);
     return;
   }
 
   if (result.action === 'already-downloaded') {
-    console.log(`\n"${result.title ?? result.videoId}" è già nell'archivio.\n`);
+    setMessage(`\n"${result.title ?? result.videoId}" è già nell'archivio.\n`);
     return;
   }
   if (result.action === 'already-downloading') {
-    console.log(`\n"${result.title ?? result.videoId}" è già in download in questo momento.\n`);
+    setMessage(`\n"${result.title ?? result.videoId}" è già in download in questo momento.\n`);
     return;
   }
   if (result.action === 'already-tracked') {
-    console.log(`\nQuesto video è già tracciato (stato: ${result.status}) tramite una fonte esistente — usa "Rivedi novità" per deciderlo.\n`);
+    setMessage(`\nQuesto video è già tracciato (stato: ${result.status}) tramite una fonte esistente — usa "Rivedi novità" per deciderlo.\n`);
     return;
   }
 
@@ -223,9 +248,9 @@ async function singleDownloadFlow() {
   console.log('');
   const job = await runJobToCompletion(jobId);
   if (job.status === 'failed') {
-    console.log(`\n✘ Download fallito: ${job.error?.message}\n`);
+    setMessage(`\n✘ Download fallito: ${job.error?.message}\n`);
   } else {
-    console.log(`\n✔ Video aggiunto all'archivio.\n`);
+    setMessage(`\n✔ Video aggiunto all'archivio.\n`);
   }
 }
 
@@ -233,6 +258,7 @@ async function singleDownloadFlow() {
 // stesso, nidificato qui invece che come voce separata del menu principale.
 async function reviewFlow() {
   while (true) {
+    clearScreen();
     const maxAttempts = core.loadConfig().jobs.maxAttempts;
     const relevant = (await core.listVideos()).filter((v) => v.status in REVIEW_STATUS_ICON);
     // Stesso criterio di idoneità usato dal job downloadPending: un "failed" con
@@ -243,7 +269,7 @@ async function reviewFlow() {
     ).length;
 
     if (relevant.length === 0) {
-      console.log('\nNessuna novità da rivedere e nessun video in coda al momento.\n');
+      setMessage('\nNessuna novità da rivedere e nessun video in coda al momento.\n');
       return;
     }
 
@@ -283,11 +309,12 @@ async function playVideoWithModeChoice(video) {
   if (mode === BACK) return;
 
   await core.playVideo(video.id, { mode });
-  console.log('\n▶ VLC avviato.\n');
+  setMessage('\n▶ VLC avviato.\n');
 }
 
 async function watchChannelFlow(channelKey) {
   while (true) {
+    clearScreen();
     const videos = await core.listVideosByChannel(channelKey, { status: 'downloaded' });
     if (videos.length === 0) return;
 
@@ -311,9 +338,10 @@ async function watchChannelFlow(channelKey) {
 
 async function watchFlow() {
   while (true) {
+    clearScreen();
     const channels = await core.listChannels({ status: 'downloaded' });
     if (channels.length === 0) {
-      console.log('\nNessun video scaricato ancora.\n');
+      setMessage('\nNessun video scaricato ancora.\n');
       return;
     }
 
@@ -351,12 +379,13 @@ async function presentSearchResultActions(videoId) {
   } else if (video.status in REVIEW_ACTIONS_BY_STATUS) {
     await applyReviewDecision(video);
   } else {
-    console.log(`\n"${video.title ?? video.id}" è attualmente in download: nessuna azione disponibile ora.\n`);
+    setMessage(`\n"${video.title ?? video.id}" è attualmente in download: nessuna azione disponibile ora.\n`);
   }
 }
 
 async function searchFlow() {
   while (true) {
+    clearScreen();
     const choice = await search({
       message: 'Cerca (titolo, canale, tag, descrizione)',
       source: async (term) => {
@@ -399,15 +428,12 @@ async function catalogFlow() {
   if (statusKey === BACK) return;
 
   const videos = statusKey === '__all__' ? await core.listVideos() : await core.listVideos({ status: statusKey });
-  console.log('');
   if (videos.length === 0) {
-    console.log('Nessun video in questo stato.\n');
+    setMessage('\nNessun video in questo stato.\n');
     return;
   }
-  for (const v of videos) {
-    console.log(`[${v.status}] ${v.title ?? v.id} — ${v.channel?.name ?? '?'}`);
-  }
-  console.log('');
+  const lines = videos.map((v) => `[${v.status}] ${v.title ?? v.id} — ${v.channel?.name ?? '?'}`);
+  setMessage('\n' + lines.join('\n') + '\n');
 }
 
 const ACTIONS = {
@@ -422,6 +448,7 @@ const ACTIONS = {
 
 async function mainMenu() {
   while (true) {
+    clearScreen();
     const choice = await select({
       message: 'Cosa vuoi fare?',
       choices: [
@@ -442,7 +469,7 @@ async function mainMenu() {
       await ACTIONS[choice]();
     } catch (err) {
       if (err?.name === 'ExitPromptError') throw err;
-      console.log(`\n✘ ${err.message}\n`);
+      setMessage(`\n✘ ${err.message}\n`);
     }
   }
 }
