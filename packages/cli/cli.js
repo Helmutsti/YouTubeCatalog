@@ -1,0 +1,389 @@
+import { select, confirm, input } from '@inquirer/prompts';
+import * as core from '../../core/src/index.js';
+
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '?';
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function formatDate(iso) {
+  return iso ? iso.slice(0, 10) : 'mai';
+}
+
+const BACK = '__back__';
+
+async function addSourceFlow() {
+  const url = await input({ message: 'URL della playlist YouTube:' });
+  const result = await core.addSource(url);
+  if (result.alreadyExists) {
+    console.log(`\nLa fonte "${result.name}" è già presente.\n`);
+  } else if (result.newCount > 0) {
+    console.log(`\n✔ Aggiunta "${result.name}" — ${result.newCount} video trovati come novità.`);
+    console.log(`  → Vai su "Rivedi novità" dal menu principale per deciderli (non serve "Sincronizza": è già stato fatto ora).\n`);
+  } else {
+    console.log(`\n✔ Aggiunta "${result.name}" — nessun video trovato nella playlist.\n`);
+  }
+}
+
+async function listSourcesFlow() {
+  const sources = await core.listSources();
+  console.log('');
+  if (sources.length === 0) {
+    console.log('Nessuna fonte configurata.\n');
+    return;
+  }
+  for (const s of sources) {
+    console.log(`- ${s.name} (${s.videoCount} video) — ultima sync: ${formatDate(s.lastCheckedAt)}`);
+  }
+  console.log('');
+}
+
+async function removeSourceFlow() {
+  const sources = await core.listSources();
+  if (sources.length === 0) {
+    console.log('\nNessuna fonte da rimuovere.\n');
+    return;
+  }
+  const choice = await select({
+    message: 'Quale fonte vuoi rimuovere?',
+    choices: [
+      ...sources.map((s) => ({ name: `${s.name} (${s.videoCount} video)`, value: s.id })),
+      { name: '← Annulla', value: BACK }
+    ]
+  });
+  if (choice === BACK) return;
+
+  const source = sources.find((s) => s.id === choice);
+  const confirmed = await confirm({
+    message: `Rimuovere "${source.name}"? I video già scaricati non verranno toccati.`,
+    default: false
+  });
+  if (!confirmed) return;
+
+  await core.removeSource(choice);
+  console.log(`\n✔ Fonte "${source.name}" rimossa.\n`);
+}
+
+async function manageSourcesFlow() {
+  while (true) {
+    const choice = await select({
+      message: 'Gestisci fonti',
+      choices: [
+        { name: 'Aggiungi fonte', value: 'add' },
+        { name: 'Elenca fonti', value: 'list' },
+        { name: 'Rimuovi fonte', value: 'remove' },
+        { name: '← Torna al menu principale', value: BACK }
+      ]
+    });
+    if (choice === BACK) return;
+    if (choice === 'add') await addSourceFlow();
+    if (choice === 'list') await listSourcesFlow();
+    if (choice === 'remove') await removeSourceFlow();
+  }
+}
+
+async function syncFlow() {
+  const sources = await core.listSources();
+  if (sources.length === 0) {
+    console.log('\nNessuna fonte configurata. Aggiungine una da "Gestisci fonti".\n');
+    return;
+  }
+
+  const choice = await select({
+    message: 'Sincronizza quale fonte?',
+    choices: [
+      { name: 'Tutte le fonti', value: '__all__' },
+      ...sources.map((s) => ({ name: s.name, value: s.id })),
+      { name: '← Torna', value: BACK }
+    ]
+  });
+  if (choice === BACK) return;
+
+  const targets = choice === '__all__' ? sources : sources.filter((s) => s.id === choice);
+  console.log('');
+  for (const source of targets) {
+    const result = await core.syncSource(source.id);
+    console.log(`${source.name}: ${result.newCount} novità, ${result.healedCount} auto-riparati.`);
+  }
+  console.log('');
+}
+
+const REVIEW_STATUS_ICON = { new: '🆕', pending: '⬇️ ', excluded: '🗄️ ', failed: '⚠️ ' };
+const REVIEW_STATUS_LABEL = { new: 'nuovo', pending: 'in coda', excluded: 'archiviato', failed: 'fallito' };
+
+// Azioni valide per stato attuale: da new si decide, da pending/excluded/failed si
+// può sia cambiare idea (tornare a "nuovo") sia spostarsi direttamente all'altro esito.
+const REVIEW_ACTIONS_BY_STATUS = {
+  new: [
+    { name: 'Scarica', value: 'download' },
+    { name: 'Archivia', value: 'exclude' }
+  ],
+  pending: [
+    { name: 'Archivia', value: 'exclude' },
+    { name: 'Rimetti tra le novità (annulla decisione)', value: 'undecided' }
+  ],
+  excluded: [
+    { name: 'Scarica', value: 'download' },
+    { name: 'Rimetti tra le novità (annulla decisione)', value: 'undecided' }
+  ],
+  failed: [
+    { name: 'Riprova (rimette in coda)', value: 'download' },
+    { name: 'Archivia', value: 'exclude' },
+    { name: 'Rimetti tra le novità (annulla decisione)', value: 'undecided' }
+  ]
+};
+
+const DOWNLOAD_QUEUE = '__download_queue__';
+
+async function runDownloadQueue() {
+  const config = core.loadConfig();
+  const maxAttempts = config.jobs.maxAttempts;
+  const all = await core.listVideos();
+  const queued = all.filter((v) => v.status === 'pending' || (v.status === 'failed' && v.attempts < maxAttempts));
+
+  if (queued.length === 0) {
+    console.log('\nNessun video in coda.\n');
+    return;
+  }
+
+  const proceed = await confirm({ message: `Scaricare ${queued.length} video ora?`, default: true });
+  if (!proceed) return;
+
+  const { jobId } = core.triggerJob('downloadPending', {});
+  console.log('');
+  await new Promise((resolve) => {
+    core.onJobLog(jobId, (line) => console.log(line));
+    core.onJobStatus(jobId, (status) => {
+      if (status === 'success' || status === 'failed') resolve();
+    });
+  });
+
+  const job = core.getJob(jobId);
+  if (job.status === 'failed') {
+    console.log(`\n✘ Job fallito: ${job.error?.message}\n`);
+  } else {
+    console.log('');
+  }
+}
+
+// Vista unica: novità da decidere + già decise (in coda/archiviate) + il download
+// stesso, nidificato qui invece che come voce separata del menu principale.
+async function reviewFlow() {
+  while (true) {
+    const maxAttempts = core.loadConfig().jobs.maxAttempts;
+    const relevant = (await core.listVideos()).filter((v) => v.status in REVIEW_STATUS_ICON);
+    // Stesso criterio di idoneità usato dal job downloadPending: un "failed" con
+    // tentativi esauriti non parte da solo, ma resta comunque visibile/rivedibile
+    // qui sopra (l'utente può comunque scegliere "Riprova" manualmente).
+    const queuedCount = relevant.filter(
+      (v) => v.status === 'pending' || (v.status === 'failed' && v.attempts < maxAttempts)
+    ).length;
+
+    if (relevant.length === 0) {
+      console.log('\nNessuna novità da rivedere e nessun video in coda al momento.\n');
+      return;
+    }
+
+    const choice = await select({
+      message: `Rivedi novità (${relevant.length})`,
+      choices: [
+        ...(queuedCount > 0 ? [{ name: `▶ Scarica in coda (${queuedCount})`, value: DOWNLOAD_QUEUE }] : []),
+        ...relevant.map((v) => ({
+          name: `${REVIEW_STATUS_ICON[v.status]} ${v.title ?? v.id} — ${v.channel?.name ?? 'canale sconosciuto'}`,
+          value: v.id
+        })),
+        { name: '← Torna al menu principale', value: BACK }
+      ]
+    });
+    if (choice === BACK) return;
+
+    if (choice === DOWNLOAD_QUEUE) {
+      await runDownloadQueue();
+      continue;
+    }
+
+    const video = relevant.find((v) => v.id === choice);
+    if (video.status === 'failed' && video.error?.message) {
+      console.log(`\n⚠️  Errore: ${video.error.message}\n`);
+    }
+    const decision = await select({
+      message: `${video.title ?? video.id} (attuale: ${REVIEW_STATUS_LABEL[video.status]})`,
+      choices: [...REVIEW_ACTIONS_BY_STATUS[video.status], { name: '← Torna alla lista', value: BACK }]
+    });
+    if (decision === BACK) continue;
+
+    await core.decideVideo(video.id, decision);
+    const outcome = { download: 'in coda per il download', exclude: 'archiviato', undecided: 'rimesso tra le novità' }[decision];
+    console.log(`\n✔ "${video.title ?? video.id}" → ${outcome}.\n`);
+  }
+}
+
+async function watchChannelFlow(channelKey) {
+  while (true) {
+    const videos = await core.listVideosByChannel(channelKey, { status: 'downloaded' });
+    if (videos.length === 0) return;
+
+    const channelName = videos[0].channel?.name ?? 'Canale';
+    const videoId = await select({
+      message: channelName,
+      choices: [
+        ...videos.map((v) => ({
+          name: `${v.title ?? v.id} — ${formatDuration(v.durationSeconds)} — ${v.uploadDate ?? 'data sconosciuta'}`,
+          value: v.id
+        })),
+        { name: '← Torna ai canali', value: BACK }
+      ]
+    });
+    if (videoId === BACK) return;
+
+    const video = videos.find((v) => v.id === videoId);
+    const mode = await select({
+      message: video.title ?? video.id,
+      choices: [
+        { name: 'Video', value: 'video' },
+        { name: 'Solo audio', value: 'audio' },
+        { name: '← Annulla', value: BACK }
+      ]
+    });
+    if (mode === BACK) continue;
+
+    await core.playVideo(videoId, { mode });
+    console.log('\n▶ VLC avviato.\n');
+  }
+}
+
+async function watchFlow() {
+  while (true) {
+    const channels = await core.listChannels({ status: 'downloaded' });
+    if (channels.length === 0) {
+      console.log('\nNessun video scaricato ancora.\n');
+      return;
+    }
+
+    const channelKey = await select({
+      message: 'Guarda — scegli un canale',
+      choices: [
+        ...channels.map((c) => ({ name: `${c.name} (${c.count})`, value: c.key })),
+        { name: '← Torna al menu principale', value: BACK }
+      ]
+    });
+    if (channelKey === BACK) return;
+
+    await watchChannelFlow(channelKey);
+  }
+}
+
+const STATUS_LABELS = {
+  __all__: 'Tutti',
+  new: 'Nuovi',
+  pending: 'In coda',
+  downloading: 'In download',
+  downloaded: 'Scaricati',
+  failed: 'Falliti',
+  excluded: 'Archiviati'
+};
+
+async function catalogFlow() {
+  const statusKey = await select({
+    message: 'Catalogo — filtra per stato',
+    choices: [
+      ...Object.entries(STATUS_LABELS).map(([value, name]) => ({ name, value })),
+      { name: '← Torna', value: BACK }
+    ]
+  });
+  if (statusKey === BACK) return;
+
+  const videos = statusKey === '__all__' ? await core.listVideos() : await core.listVideos({ status: statusKey });
+  console.log('');
+  if (videos.length === 0) {
+    console.log('Nessun video in questo stato.\n');
+    return;
+  }
+  for (const v of videos) {
+    console.log(`[${v.status}] ${v.title ?? v.id} — ${v.channel?.name ?? '?'}`);
+  }
+  console.log('');
+}
+
+async function importFlow() {
+  const candidates = await core.scanImportable();
+  if (candidates.length === 0) {
+    console.log('\nNessun file da importare trovato in media/videos/ (atteso: <id>.mp4, .mkv o .webm).\n');
+    return;
+  }
+
+  console.log(`\nTrovati ${candidates.length} file da importare:`);
+  for (const c of candidates) {
+    console.log(`- ${c.id}${c.knownTitle ? ` — ${c.knownTitle}` : ''} (${c.file})`);
+  }
+
+  const proceed = await confirm({
+    message: `Importarli tutti (recupero metadati da YouTube + calcolo hash, nessun ri-download)?`,
+    default: true
+  });
+  if (!proceed) return;
+
+  console.log('');
+  for (const c of candidates) {
+    try {
+      await core.importLocalVideo(c.id, { onLog: (line) => console.log(line) });
+    } catch (err) {
+      console.log(`✘ ${c.id}: ${err.message}`);
+    }
+  }
+  console.log('');
+}
+
+const ACTIONS = {
+  sources: manageSourcesFlow,
+  sync: syncFlow,
+  review: reviewFlow,
+  watch: watchFlow,
+  catalog: catalogFlow,
+  import: importFlow
+};
+
+async function mainMenu() {
+  while (true) {
+    const choice = await select({
+      message: 'Cosa vuoi fare?',
+      choices: [
+        { name: 'Gestisci fonti', value: 'sources' },
+        { name: 'Sincronizza', value: 'sync' },
+        { name: 'Rivedi novità', value: 'review' },
+        { name: 'Importa video già scaricati', value: 'import' },
+        { name: 'Guarda', value: 'watch' },
+        { name: 'Catalogo', value: 'catalog' },
+        { name: 'Esci', value: 'exit' }
+      ]
+    });
+
+    if (choice === 'exit') return;
+
+    try {
+      await ACTIONS[choice]();
+    } catch (err) {
+      if (err?.name === 'ExitPromptError') throw err;
+      console.log(`\n✘ ${err.message}\n`);
+    }
+  }
+}
+
+mainMenu()
+  .then(() => {
+    console.log('Ciao!');
+    process.exit(0);
+  })
+  .catch((err) => {
+    if (err?.name === 'ExitPromptError') {
+      console.log('\nCiao!');
+      process.exit(0);
+    }
+    console.error('Errore inatteso:', err);
+    process.exit(1);
+  });

@@ -1,0 +1,10 @@
+{
+  "name": "@catalog/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@catalog/core": "*",
+    "@inquirer/prompts": "^8.5.2"
+  }
+}

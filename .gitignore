@@ -1,0 +1,10 @@
+node_modules/
+.claude/
+media/
+data/catalog.json
+data/metadata.json
+data/config.json
+data/jobs/*.json
+tools/yt-dlp.exe
+core/cookies.txt
+.env

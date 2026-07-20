@@ -1,0 +1,13 @@
+{
+  "name": "youtube-catalog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "node packages/cli/cli.js"
+  },
+  "workspaces": [
+    "core",
+    "packages/*"
+  ]
+}
