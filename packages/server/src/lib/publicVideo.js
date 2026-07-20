@@ -1,0 +1,18 @@
+// video.localPath/thumbnail.localPath sono percorsi relativi a mediaRoot
+// (possono includere sottocartelle per creator, vedi "Archivio canonico per
+// creator" in documentazione.md). Qui si aggiunge l'URL pronto all'uso per il
+// frontend, incapsulando dove vive il media server-side.
+function encodeRelPath(relPath) {
+  return relPath
+    .split(/[\\/]/)
+    .map(encodeURIComponent)
+    .join('/');
+}
+
+export function toPublicVideo(video) {
+  return {
+    ...video,
+    videoUrl: video.video?.localPath ? `/media/videos/${encodeRelPath(video.video.localPath)}` : null,
+    thumbnailUrl: video.thumbnail?.localPath ? `/media/thumbnails/${encodeRelPath(video.thumbnail.localPath)}` : null
+  };
+}

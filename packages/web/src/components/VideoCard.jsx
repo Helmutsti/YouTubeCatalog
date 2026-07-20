@@ -1,0 +1,62 @@
+import { Link } from 'react-router-dom';
+import { Download, Archive, RotateCcw } from 'lucide-react';
+import { StatusBadge } from './StatusBadge.jsx';
+import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
+import { reviewActionsFor } from '../lib/reviewActions.js';
+
+const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
+
+export function VideoCard({ video, onDecide }) {
+  const dur = formatDuration(video.durationSeconds);
+  const date = videoDisplayDate(video);
+  const actions = reviewActionsFor(video.status);
+  const key = channelKey(video);
+
+  return (
+    <div className={`card${video.status === 'excluded' ? ' dimmed' : ''}`}>
+      <Link to={`/videos/${video.id}`} className="thumb">
+        {video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" loading="lazy" /> : null}
+        <StatusBadge status={video.status} />
+        {dur && <div className="dur">{dur}</div>}
+        {actions.length > 0 && (
+          <div className="card-actions">
+            {actions.map((a) => {
+              const Icon = ICONS[a.decision] ?? Download;
+              return (
+                <button
+                  key={a.decision}
+                  className="btn small"
+                  title={a.label}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDecide(video.id, a.decision);
+                  }}
+                >
+                  <Icon size={13} />
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Link>
+      <Link to={`/videos/${video.id}`} className="card-title">
+        {video.title ?? video.id}
+      </Link>
+      <div className="card-info">
+        {key ? (
+          <Link to={`/channels/${encodeURIComponent(key)}`} className="avatar">
+            {channelInitial(video)}
+          </Link>
+        ) : (
+          <div className="avatar">{channelInitial(video)}</div>
+        )}
+        <div>
+          <div className="card-meta">{video.channel?.name ?? 'Canale sconosciuto'}</div>
+          {date && <div className="card-meta">{date}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
