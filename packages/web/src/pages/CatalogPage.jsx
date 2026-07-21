@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVideos, listSources, setHidden, triggerJob } from '../api/client.js';
+import { listVideos, listSources, setHidden, triggerJob, refreshMetadata, deleteVideoFile } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
@@ -68,6 +68,17 @@ export function CatalogPage() {
       }
       if (kind === 'hide') {
         requestHide(visible.find((v) => v.id === id));
+        return;
+      }
+      if (kind === 'metadata') {
+        await refreshMetadata(id);
+        reload();
+        return;
+      }
+      if (kind === 'deletefile') {
+        if (!window.confirm('Cancellare il file scaricato dal disco? Metadati e copertina restano, il video resta in libreria.')) return;
+        await deleteVideoFile(id);
+        reload();
         return;
       }
       await setHidden(id, false); // unhide

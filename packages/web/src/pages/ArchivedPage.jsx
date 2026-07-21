@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVideos, setHidden, triggerJob } from '../api/client.js';
+import { listVideos, setHidden, triggerJob, refreshMetadata, deleteVideoFile } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
@@ -49,6 +49,17 @@ export function ArchivedPage() {
       }
       if (kind === 'hide') {
         requestHide(archived.find((v) => v.id === id));
+        return;
+      }
+      if (kind === 'metadata') {
+        await refreshMetadata(id);
+        reload();
+        return;
+      }
+      if (kind === 'deletefile') {
+        if (!window.confirm('Cancellare il file scaricato dal disco? Metadati e copertina restano, il video resta in libreria.')) return;
+        await deleteVideoFile(id);
+        reload();
         return;
       }
       await setHidden(id, false); // Ripristina (togli dall'archivio)

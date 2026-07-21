@@ -120,6 +120,10 @@ export function createNewVideoStub({
     // Flag ortogonali (M25)
     presence: PRESENCE.PRESENT,
     removedAt: null,
+    // Sync consecutive in cui il video non è stato trovato nella fonte (M31): si
+    // marca 'removed' solo dopo alcune assenze di fila, per evitare falsi
+    // positivi da glitch temporanei di YouTube. Azzerato appena ricompare.
+    missCount: 0,
     download: DOWNLOAD_STATE.NONE,
     hidden: false,
     // Metadati completi + copertina già arricchiti (M26)? null finché il job

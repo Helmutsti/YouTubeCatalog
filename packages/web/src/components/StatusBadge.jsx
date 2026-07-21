@@ -1,13 +1,22 @@
-import { CATEGORY_LABEL, statusColor } from '../lib/status.js';
+import { badgeState, BADGE_COLOR, BADGE_LABEL } from '../lib/status.js';
 
-// Mostra la categoria derivata di un video (M25). inline=true per un uso a
-// flusso normale (liste, righe) invece che come angolo sovrapposto a una
-// thumbnail (che richiede un genitore position:relative).
-export function StatusBadge({ category, inline }) {
-  if (!category) return null;
-  return (
-    <div className={inline ? 'badge-inline' : 'badge'} style={{ background: statusColor(category) }}>
-      {CATEGORY_LABEL[category] ?? category}
-    </div>
-  );
+// Badge di stato come PALLINO colorato (M31): scaricato = standard → nessun
+// badge; Su YouTube = verde, rimosso = arancione, errore = rosso, in download =
+// accento. Sulla copertina (default) mostra solo il pallino (con tooltip);
+// inline (liste/ricerca) mostra pallino + etichetta.
+export function StatusBadge({ video, inline }) {
+  const state = badgeState(video);
+  if (!state) return null;
+  const color = BADGE_COLOR[state];
+  const label = BADGE_LABEL[state];
+
+  if (inline) {
+    return (
+      <span className="badge-inline">
+        <span className="badge-dot-sm" style={{ background: color }}></span>
+        {label}
+      </span>
+    );
+  }
+  return <span className="badge-dot" style={{ background: color }} title={label}></span>;
 }

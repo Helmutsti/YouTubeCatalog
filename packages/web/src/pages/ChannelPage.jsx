@@ -59,7 +59,7 @@ export function ChannelPage() {
             <Link key={v.id} to={`/videos/${v.id}`} className="card">
               <div className="thumb">
                 {v.thumbnailUrl && <img src={v.thumbnailUrl} alt="" loading="lazy" />}
-                <StatusBadge category={v.category} />
+                <StatusBadge video={v} />
                 {formatDuration(v.durationSeconds) && <div className="dur">{formatDuration(v.durationSeconds)}</div>}
               </div>
               <div className="card-title">{v.title ?? v.id}</div>
