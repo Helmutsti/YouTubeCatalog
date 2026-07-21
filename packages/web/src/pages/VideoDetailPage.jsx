@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, RotateCcw, RefreshCw, Volume2, Video as VideoIcon, Play, PictureInPicture2 } from 'lucide-react';
+import { ArrowLeft, Download, Archive, RotateCcw, RefreshCw, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge } from 'lucide-react';
 import { getVideo, listVideosByChannel, decideVideo } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { reviewActionsFor } from '../lib/reviewActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
 
 const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
+const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 0.5, 0.75];
 
 export function VideoDetailPage() {
   const { id } = useParams();
@@ -18,6 +19,7 @@ export function VideoDetailPage() {
   const [hasStarted, setHasStarted] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [pipError, setPipError] = useState(null);
+  const [speedIndex, setSpeedIndex] = useState(0);
   const videoRef = useRef(null);
   const navigate = useNavigate();
 
@@ -30,6 +32,16 @@ export function VideoDetailPage() {
   useEffect(() => setAudioOnly(false), [id]);
   useEffect(() => setHasStarted(false), [id]);
   useEffect(() => setPipError(null), [id]);
+  // Il browser azzera playbackRate a 1x a ogni nuovo <video src>: si resetta lo
+  // stato in coppia, così l'etichetta del pulsante non mente sulla velocità
+  // reale quando si passa da un video all'altro.
+  useEffect(() => setSpeedIndex(0), [id]);
+
+  function cycleSpeed() {
+    const next = (speedIndex + 1) % SPEEDS.length;
+    setSpeedIndex(next);
+    if (videoRef.current) videoRef.current.playbackRate = SPEEDS[next];
+  }
 
   // Il pulsante PiP resta sincronizzato anche se l'utente chiude la finestra
   // PiP nativa del sistema operativo invece di usare di nuovo il pulsante.
@@ -170,6 +182,12 @@ export function VideoDetailPage() {
                 <button className="btn" onClick={togglePiP}>
                   <PictureInPicture2 size={14} />
                   {isPiP ? 'Esci da PiP' : 'Picture in Picture'}
+                </button>
+              )}
+              {video.status === 'downloaded' && (
+                <button className="btn" onClick={cycleSpeed} title="Cambia velocità di riproduzione">
+                  <Gauge size={14} />
+                  {SPEEDS[speedIndex]}x
                 </button>
               )}
               {actions.map((a) => {
