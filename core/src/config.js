@@ -8,6 +8,10 @@ const CORE_DIR = path.resolve(__dirname, '..');
 
 const DEFAULT_CONFIG = {
   mediaRoot: './media',
+  // Percorso dedicato ai soli file video (con sottocartelle per creator dentro).
+  // Se null → si usa mediaRoot/videos (retrocompatibile). Serve a tenere i video
+  // (grandi) su un disco separato dalle copertine/avatar (piccoli, sotto mediaRoot).
+  videosRoot: null,
   port: 3001,
   ytdlp: {
     binaryPath: './tools/yt-dlp.exe',
@@ -107,11 +111,39 @@ export function setMediaRoot(newPath) {
   return { mediaRoot: value, resolved, hasVideos, requiresRestart: true };
 }
 
+// Imposta la posizione della cartella dei VIDEO (videosRoot), separata dalle
+// copertine/avatar (che restano sotto mediaRoot). Stessa modalità "solo
+// ripuntamento" di setMediaRoot: non sposta file, valida e persiste. Le
+// sottocartelle per creator vivono direttamente dentro questa cartella.
+export function setVideosRoot(newPath) {
+  if (typeof newPath !== 'string' || !newPath.trim()) {
+    throw new Error('Percorso non valido.');
+  }
+  const value = newPath.trim();
+  const resolved = path.resolve(PROJECT_ROOT, value);
+  if (!existsSync(resolved)) {
+    throw new Error(
+      `Il percorso non esiste: ${resolved}. Crea o sposta prima la cartella dei video in questa posizione, poi imposta il percorso.`
+    );
+  }
+  if (!statSync(resolved).isDirectory()) {
+    throw new Error(`Il percorso non è una cartella: ${resolved}.`);
+  }
+  updateConfig({ videosRoot: value });
+  return { videosRoot: value, resolved, requiresRestart: true };
+}
+
 export function getPaths() {
   const config = loadConfig();
   const mediaRoot = path.resolve(PROJECT_ROOT, config.mediaRoot);
   const dataDir = path.join(PROJECT_ROOT, 'data');
-  const videosDir = path.join(mediaRoot, 'videos');
+  // I video possono vivere in un percorso dedicato (videosRoot), separato dalle
+  // copertine/avatar che restano sotto mediaRoot. Se videosRoot non è impostato
+  // si ricade sul classico mediaRoot/videos. video.localPath resta relativo a
+  // questa cartella (videosDir), qualunque sia la sua posizione.
+  const videosDir = config.videosRoot
+    ? path.resolve(PROJECT_ROOT, config.videosRoot)
+    : path.join(mediaRoot, 'videos');
   const thumbnailsDir = path.join(mediaRoot, 'thumbnails');
   const avatarsDir = path.join(mediaRoot, 'avatars');
   const jobsDir = path.join(dataDir, 'jobs');
