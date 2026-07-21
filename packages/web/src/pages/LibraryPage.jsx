@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, X } from 'lucide-react';
-import { listVideos, listSources, setHidden, triggerJob } from '../api/client.js';
+import { Download, X, Plus } from 'lucide-react';
+import { listVideos, listSources, setHidden, triggerJob, downloadSingle } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
+import { useJobStream } from '../hooks/useJobStream.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 
@@ -24,11 +25,53 @@ export function LibraryPage() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
+  // Aggiunta rapida (M29): incolla un link + checkbox "Download immediato".
+  const [addUrl, setAddUrl] = useState('');
+  const [immediate, setImmediate] = useState(true);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addNotice, setAddNotice] = useState(null);
+  const [dlJobId, setDlJobId] = useState(null);
+  const dlLive = useJobStream(dlJobId);
+  const downloading = !!dlJobId && dlLive.status !== 'success' && dlLive.status !== 'failed';
+
   function reload() {
     listVideos().then(setVideos).catch((e) => setError(e.message));
   }
   useEffect(reload, []);
   useEffect(() => { listSources().then(setSources).catch(() => {}); }, []);
+  // A fine download rapido, ricarica (il nuovo video ora è scaricato).
+  useEffect(() => {
+    if (dlJobId && (dlLive.status === 'success' || dlLive.status === 'failed')) reload();
+  }, [dlJobId, dlLive.status]);
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    if (!addUrl.trim()) return;
+    setAddBusy(true);
+    setError(null);
+    setAddNotice(null);
+    try {
+      const r = await downloadSingle(addUrl.trim(), immediate);
+      setAddUrl('');
+      if (r.action === 'download') {
+        setDlJobId(r.jobId);
+        setAddNotice(`"${r.title ?? r.videoId}" — download avviato.`);
+      } else if (r.action === 'added') {
+        setAddNotice(`"${r.title ?? r.videoId}" aggiunto alla libreria (senza scaricarlo).`);
+      } else if (r.action === 'already-downloaded') {
+        setAddNotice(`"${r.title ?? r.videoId}" è già in archivio.`);
+      } else if (r.action === 'already-downloading') {
+        setAddNotice(`"${r.title ?? r.videoId}" è già in download.`);
+      } else if (r.action === 'already-present') {
+        setAddNotice(`"${r.title ?? r.videoId}" è già in libreria.`);
+      }
+      reload();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAddBusy(false);
+    }
+  }
 
   const counts = useMemo(() => {
     const acc = {};
@@ -104,7 +147,31 @@ export function LibraryPage() {
   return (
     <>
       <div className="page-head"><h1>Libreria</h1></div>
+
+      <form className="form-row" onSubmit={handleAdd} style={{ marginBottom: 14 }}>
+        <div className="field" style={{ marginBottom: 0, flex: 1 }}>
+          <input
+            placeholder="Incolla un link (YouTube, Rumble…) o un id per aggiungere un video"
+            value={addUrl}
+            onChange={(e) => setAddUrl(e.target.value)}
+          />
+        </div>
+        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={immediate} onChange={(e) => setImmediate(e.target.checked)} />
+          Download immediato
+        </label>
+        <button className="btn btn-primary" type="submit" disabled={addBusy}>
+          {addBusy ? <span className="spinner"></span> : <><Plus size={14} />Aggiungi</>}
+        </button>
+      </form>
+
       {error && <div className="notice error">{error}</div>}
+      {addNotice && <div className="notice success">{addNotice}</div>}
+      {downloading && (
+        <div className="progress-bar" style={{ margin: '0 0 14px' }}>
+          <div style={{ width: `${dlLive.progress ?? 0}%` }}></div>
+        </div>
+      )}
 
       <StatusChips value={category} counts={counts} onChange={setCategory} />
 
