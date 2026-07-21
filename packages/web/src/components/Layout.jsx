@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Home, Rss, Search, Archive } from 'lucide-react';
 import { listChannels } from '../api/client.js';
 import { MobileNav } from './MobileNav.jsx';
 
 export function Layout() {
   const [channels, setChannels] = useState([]);
-  const [query, setQuery] = useState('');
+  const [searchParams] = useSearchParams();
+  const urlQ = searchParams.get('q') ?? '';
+  const [query, setQuery] = useState(urlQ);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -16,6 +18,12 @@ export function Layout() {
   useEffect(() => {
     listChannels().then(setChannels).catch(() => {});
   }, [location.pathname]);
+
+  // Unica barra di ricerca (punto 10): sincronizzata con la query attiva
+  // dell'URL — su /search?q=… mostra il termine cercato, altrove si svuota.
+  // Scatta solo al cambio di `q`, non a ogni tasto, quindi non disturba la
+  // digitazione (la ricerca parte solo su Invio, vedi submitSearch).
+  useEffect(() => setQuery(urlQ), [urlQ]);
 
   function submitSearch(e) {
     e.preventDefault();

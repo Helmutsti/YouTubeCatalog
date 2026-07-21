@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Download, EyeOff, Eye } from 'lucide-react';
+import { Download, EyeOff, Eye } from 'lucide-react';
 import { searchVideos, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
@@ -11,17 +11,15 @@ import { formatDuration } from '../lib/format.js';
 const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 
 export function SearchPage() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const q = params.get('q') ?? '';
-  const [input, setInput] = useState(q);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
 
   useTitle(q.trim() ? `Cerca: ${q.trim()}` : 'Cerca');
-  useEffect(() => setInput(q), [q]);
 
-  // Ricerca fuzzy multi-campo (M7): stesso motore usato dal CLI, filtro dal
-  // vivo con un piccolo debounce invece del prompt `search` a frecce.
+  // Ricerca fuzzy multi-campo (M7): stesso motore usato dal CLI. La query
+  // arriva dall'URL (`?q=`), impostata dall'unica barra in topbar (punto 10).
   useEffect(() => {
     const trimmed = q.trim();
     if (!trimmed) {
@@ -34,13 +32,6 @@ export function SearchPage() {
       .catch((e) => !cancelled && setError(e.message));
     return () => { cancelled = true; };
   }, [q]);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (input.trim() !== q) setParams(input.trim() ? { q: input.trim() } : {});
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [input]);
 
   async function reSearch() {
     const r = await searchVideos(q.trim());
@@ -69,15 +60,6 @@ export function SearchPage() {
   return (
     <>
       <div className="page-head"><h1>Cerca</h1></div>
-      <div className="search-box" style={{ maxWidth: 560, margin: '0 0 20px' }}>
-        <Search size={16} />
-        <input
-          autoFocus
-          placeholder="Titolo, creator, tag, descrizione…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
-      </div>
       {error && <div className="notice error">{error}</div>}
       {!q.trim() ? (
         <div className="empty-state">Scrivi qualcosa per cercare nel catalogo.</div>
