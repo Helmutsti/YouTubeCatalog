@@ -18,7 +18,10 @@ const DEFAULT_CONFIG = {
     format: 'bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b',
     mergeOutputFormat: 'mp4',
     maxHeight: null,
-    cookiesFile: null
+    cookiesFile: null,
+    // null = usa tools/ffmpeg.exe se presente, altrimenti ffmpeg nel PATH.
+    // Oppure un percorso esplicito (cartella o binario) di ffmpeg.
+    ffmpegLocation: null
   },
   playback: {
     vlcPath: 'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe'
@@ -164,6 +167,21 @@ export function getPaths() {
     cookiesPath = defaultCookiesPath;
   }
 
+  const ytdlpBinaryPath = path.resolve(PROJECT_ROOT, config.ytdlp.binaryPath);
+
+  // ffmpeg (usato da yt-dlp per fondere video+audio e convertire le copertine in
+  // jpg): se impostato in config lo si usa; altrimenti, se accanto a yt-dlp c'è un
+  // ffmpeg.exe (stessa cartella tools/), si passa quella cartella a yt-dlp via
+  // --ffmpeg-location — così l'app funziona senza installare ffmpeg nel PATH di
+  // sistema. Se nulla di tutto ciò, resta null e yt-dlp cerca ffmpeg nel PATH.
+  const toolsDir = path.dirname(ytdlpBinaryPath);
+  let ffmpegLocation = null;
+  if (config.ytdlp.ffmpegLocation) {
+    ffmpegLocation = path.resolve(PROJECT_ROOT, config.ytdlp.ffmpegLocation);
+  } else if (existsSync(path.join(toolsDir, 'ffmpeg.exe'))) {
+    ffmpegLocation = toolsDir;
+  }
+
   return {
     projectRoot: PROJECT_ROOT,
     coreDir: CORE_DIR,
@@ -175,9 +193,10 @@ export function getPaths() {
     catalogPath: path.join(dataDir, 'catalog.json'),
     metadataPath: path.join(dataDir, 'metadata.json'),
     jobsDir,
-    ytdlpBinaryPath: path.resolve(PROJECT_ROOT, config.ytdlp.binaryPath),
+    ytdlpBinaryPath,
     downloadArchivePath: path.join(mediaRoot, '.ytdlp-archive.txt'),
     cookiesPath,
+    ffmpegLocation,
     vlcPath: config.playback.vlcPath
   };
 }

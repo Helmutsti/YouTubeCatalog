@@ -129,6 +129,7 @@ export async function fetchVideoMetadata(videoId, url, { onLog = () => {} } = {}
     // sidecar .info.json viene poi consolidato in data/metadata.json e cancellato.
     '-o', path.join(paths.thumbnailsDir, '%(id)s.%(ext)s')
   ];
+  if (paths.ffmpegLocation) args.push('--ffmpeg-location', paths.ffmpegLocation);
   // I cookie qui sono innocui: l'estrazione dei soli metadati non scarica i byte
   // del video dalla CDN (dove il mix cookie+android_vr darebbe 403), quindi si
   // includono se presenti, come in resolveVideoInfo.
@@ -384,6 +385,7 @@ function buildDownloadArgs(paths, config, formatSelector, url, { useCookies }) {
     '-o', `thumbnail:${path.join(paths.thumbnailsDir, '%(id)s.%(ext)s')}`,
     '--download-archive', paths.downloadArchivePath
   ];
+  if (paths.ffmpegLocation) args.push('--ffmpeg-location', paths.ffmpegLocation);
   if (useCookies && paths.cookiesPath) {
     args.push('--cookies', paths.cookiesPath);
   }

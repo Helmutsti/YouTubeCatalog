@@ -6,7 +6,8 @@
     "format": "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b",
     "mergeOutputFormat": "mp4",
     "maxHeight": null,
-    "cookiesFile": null
+    "cookiesFile": null,
+    "ffmpegLocation": null
   },
   "playback": {
     "vlcPath": "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe"
