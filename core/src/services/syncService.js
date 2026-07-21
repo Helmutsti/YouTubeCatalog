@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
-import { createNewVideoStub, DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
+import { createNewVideoStub, DOWNLOAD_STATE, PRESENCE } from '../catalog/catalogSchema.js';
 import { listEntries } from '../sourceProviders/playlistProvider.js';
 
 export function extractPlaylistId(url) {
@@ -13,13 +13,23 @@ export function extractPlaylistId(url) {
   }
 }
 
-// Trasforma gli entries grezzi di una playlist in mutazioni sul catalogo (nuove
-// entry "new" + auto-guarigione dei "downloaded" il cui file è sparito). Usata
-// sia da syncSource (fonte già registrata) sia da sourceService.addSource
-// (registrazione + primo ingest in un solo passaggio) per non duplicare la logica.
+// Trasforma gli entries grezzi di una playlist in mutazioni sul catalogo:
+//  - nuove entry (present/none);
+//  - auto-guarigione dei "downloaded" il cui file è sparito (→ none);
+//  - detection "Rimosso" (M27): i video di QUESTA fonte non più presenti tra gli
+//    entries vengono marcati presence:'removed' (+ removedAt), MAI cancellati
+//    (file/metadati intatti); se un video prima rimosso ricompare, torna
+//    presence:'present' (reversibile).
+// Usata sia da syncSource (fonte già registrata) sia da sourceService.addSource
+// (primo ingest: nessun video preesistente della fonte, quindi la detection è
+// un no-op lì) per non duplicare la logica.
 export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
   let newCount = 0;
   let healedCount = 0;
+  let removedCount = 0;
+  let restoredCount = 0;
+  const now = () => new Date().toISOString();
+  const foundIds = new Set(entries.map((e) => e.id));
 
   for (const entry of entries) {
     const existing = catalog.videos[entry.id];
@@ -39,12 +49,21 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
       continue;
     }
 
+    // Ricomparso: era stato marcato "rimosso" in una sync precedente ma ora è di
+    // nuovo nella fonte → ripristina la presenza (reversibilità).
+    if (existing.presence === PRESENCE.REMOVED) {
+      existing.presence = PRESENCE.PRESENT;
+      existing.removedAt = null;
+      existing.updatedAt = now();
+      restoredCount += 1;
+    }
+
     if (existing.download === DOWNLOAD_STATE.DOWNLOADED) {
       const filePath = existing.video?.localPath ? path.join(paths.videosDir, existing.video.localPath) : null;
       if (!filePath || !existsSync(filePath)) {
         // File sparito dal disco: torna scaricabile (auto-guarigione).
         existing.download = DOWNLOAD_STATE.NONE;
-        existing.updatedAt = new Date().toISOString();
+        existing.updatedAt = now();
         healedCount += 1;
       }
     }
@@ -52,7 +71,22 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
     // lasciati invariati dalla sync
   }
 
-  return { newCount, healedCount };
+  // Sweep dei rimossi: video di questa fonte non più tra gli entries. Non
+  // cancella nulla — solo il flag presence, reversibile al prossimo ritrovamento.
+  for (const video of Object.values(catalog.videos)) {
+    if (
+      video.source?.sourceId === sourceMeta.id &&
+      !foundIds.has(video.id) &&
+      video.presence === PRESENCE.PRESENT
+    ) {
+      video.presence = PRESENCE.REMOVED;
+      video.removedAt = now();
+      video.updatedAt = now();
+      removedCount += 1;
+    }
+  }
+
+  return { newCount, healedCount, removedCount, restoredCount };
 }
 
 export async function syncSource(sourceId) {

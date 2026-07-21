@@ -62,10 +62,18 @@ export function SourcesPage() {
     try {
       const { results, jobId } = await syncSources(sourceId);
       const totals = Object.values(results).reduce(
-        (acc, r) => ({ newCount: acc.newCount + r.newCount, healedCount: acc.healedCount + r.healedCount }),
-        { newCount: 0, healedCount: 0 }
+        (acc, r) => ({
+          newCount: acc.newCount + r.newCount,
+          removedCount: acc.removedCount + (r.removedCount ?? 0),
+          restoredCount: acc.restoredCount + (r.restoredCount ?? 0),
+          healedCount: acc.healedCount + r.healedCount
+        }),
+        { newCount: 0, removedCount: 0, restoredCount: 0, healedCount: 0 }
       );
-      setNotice(`Sincronizzato: ${totals.newCount} nuovi, ${totals.healedCount} riparati. Arricchimento metadati in corso…`);
+      setNotice(
+        `Sincronizzato: ${totals.newCount} nuovi, ${totals.removedCount} rimossi, ` +
+        `${totals.restoredCount} ricomparsi, ${totals.healedCount} riparati. Arricchimento metadati in corso…`
+      );
       if (jobId) setActiveJobId(jobId);
       reload();
     } catch (e) {

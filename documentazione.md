@@ -641,3 +641,26 @@ Seconda tappa del ridisegno. Prima di M26 una fonte portava solo i metadati **le
 - **Job manager**: `triggerJob('enrichSource', {})` sul catalogo reale (tutti scaricati → 0 candidati) → `status: success`, `summary {enriched:0}` — registrazione ed eventi ok.
 - **Build** web di produzione pulita; `node --check` su tutti i file toccati.
 - **Non eseguito**: il click reale su "Sincronizza" nel browser con una fonte che porta video nuovi (mutarebbe il catalogo reale dell'utente e richiede il server riavviato) — da confermare dall'utente dopo il riavvio. Logica e wiring verificati.
+
+## M27 — Detection "Rimosso" nel refresh
+
+Terza tappa. Una sync (`syncSource`) ora rileva i video **spariti dalla fonte** e li marca `presence: 'removed'` (+ `removedAt`), **senza mai cancellare** file o metadati — è il cuore dell'obiettivo di preservazione: un creator cancella un video da YouTube, ma la nostra copia e la sua scheda restano.
+
+**Dove**: tutto in `syncService.ingestPlaylistEntries` (nessuna logica negli adapter). Dopo aver processato gli entries trovati:
+- **Sweep dei rimossi**: ogni video con `source.sourceId === <questa fonte>` **non presente** tra gli entries e ancora `present` → `presence: 'removed'`, `removedAt: now`. Non tocca `download` né i file su disco.
+- **Ripristino reversibile**: se un video prima `removed` **ricompare** tra gli entries, torna `presence: 'present'`, `removedAt: null`.
+
+Scelta (opzione A concordata): **reattivo al primo refresh mancante**, accettando possibili falsi positivi transitori (glitch di YouTube, video privato a tempo) perché **reversibili** al refresh successivo. `getPlaylistEntries` fallisce con eccezione se yt-dlp non enumera (rete/errore), quindi non si arriva mai al sweep con una lista vuota "per errore".
+
+`ingestPlaylistEntries` ora ritorna anche `removedCount`/`restoredCount`, esposti nei messaggi di CLI (`syncFlow`) e web (`SourcesPage`). `addSource` (primo ingest di una fonte nuova) non ha video preesistenti → detection no-op lì.
+
+La categoria derivata di un video rimosso è `removed` (la presenza vince sullo stato di download nella priorità di `videoCategory`): anche un video **scaricato** poi rimosso si mostra come "Rimosso", pur mantenendo il file riproducibile.
+
+### Verifica reale eseguita
+
+Test unitario della funzione pura su catalogo sintetico in memoria (nessun dato reale toccato, dir video temporanea):
+- **Sync 1** (R1 non più nella fonte): R1 → `removed` + `removedAt`; D1 (scaricato, ancora in fonte) resta `present`/`downloaded`, file su disco intatto. `removedCount:1`.
+- **Sync 2** (anche il video scaricato D1 sparisce): D1 → `removed`, ma **`download` resta `downloaded`, `localPath` intatto, file NON cancellato** — la copia locale sopravvive alla rimozione da YouTube.
+- **Sync 3** (R1 e D1 ricompaiono): entrambi ripristinati a `present`, `removedAt: null`, D1 ancora `downloaded`. `restoredCount:2`.
+
+`node --check` su `syncService.js`/`cli.js` ok. Verifica reale con una playlist che perde davvero un video: da confermare dall'utente su una fonte reale (non forzata per non mutare il catalogo).
