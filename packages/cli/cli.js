@@ -1,5 +1,23 @@
 import { select, confirm, input, search } from '@inquirer/prompts';
+import path from 'node:path';
 import * as core from '../../core/src/index.js';
+
+// Titolo da mostrare per un video: normalmente quello originale scaricato da
+// YouTube (video.title). Se manca, si ricava dal nome file già scelto da
+// yt-dlp sul disco (localPath) invece di mostrare il solo id — coerente con
+// "teniamo il titolo di yt-dlp come titolo di ripiego, mai una riscrittura
+// forzata". Il nome file ha forma "<Titolo> [<id>].<ext>": si toglie
+// l'estensione e il suffisso " [<id>]".
+function displayTitle(video) {
+  if (video.title) return video.title;
+  const localPath = video.video?.localPath;
+  if (localPath) {
+    const base = path.basename(localPath, path.extname(localPath));
+    const derived = base.replace(new RegExp(`\\s*\\[${video.id}\\]$`), '').trim();
+    if (derived) return derived;
+  }
+  return video.id;
+}
 
 function formatDuration(seconds) {
   if (seconds === null || seconds === undefined) return '?';
@@ -186,14 +204,14 @@ async function applyReviewDecision(video) {
     console.log(`\n⚠️  Errore: ${video.error.message}\n`);
   }
   const decision = await select({
-    message: `${video.title ?? video.id} (attuale: ${REVIEW_STATUS_LABEL[video.status]})`,
+    message: `${displayTitle(video)} (attuale: ${REVIEW_STATUS_LABEL[video.status]})`,
     choices: [...REVIEW_ACTIONS_BY_STATUS[video.status], { name: '← Torna alla lista', value: BACK }]
   });
   if (decision === BACK) return;
 
   await core.decideVideo(video.id, decision);
   const outcome = { download: 'in coda per il download', exclude: 'archiviato', undecided: 'rimesso tra le novità' }[decision];
-  setMessage(`\n✔ "${video.title ?? video.id}" → ${outcome}.\n`);
+  setMessage(`\n✔ "${displayTitle(video)}" → ${outcome}.\n`);
 }
 
 async function runDownloadQueue() {
@@ -278,7 +296,7 @@ async function reviewFlow() {
       choices: [
         ...(queuedCount > 0 ? [{ name: `▶ Scarica in coda (${queuedCount})`, value: DOWNLOAD_QUEUE }] : []),
         ...relevant.map((v) => ({
-          name: `${REVIEW_STATUS_ICON[v.status]} ${v.title ?? v.id} — ${v.channel?.name ?? 'creator sconosciuto'}`,
+          name: `${REVIEW_STATUS_ICON[v.status]} ${displayTitle(v)} — ${v.channel?.name ?? 'creator sconosciuto'}`,
           value: v.id
         })),
         { name: '← Torna al menu principale', value: BACK }
@@ -299,7 +317,7 @@ async function reviewFlow() {
 // Estratta da watchChannelFlow per essere riusata anche da searchFlow.
 async function playVideoWithModeChoice(video) {
   const mode = await select({
-    message: video.title ?? video.id,
+    message: displayTitle(video),
     choices: [
       { name: 'Video', value: 'video' },
       { name: 'Solo audio', value: 'audio' },
@@ -323,7 +341,7 @@ async function watchChannelFlow(channelKey) {
       message: channelName,
       choices: [
         ...videos.map((v) => ({
-          name: `${v.title ?? v.id} — ${formatDuration(v.durationSeconds)} — ${v.uploadDate ?? 'data sconosciuta'}`,
+          name: `${displayTitle(v)} — ${formatDuration(v.durationSeconds)} — ${v.uploadDate ?? 'data sconosciuta'}`,
           value: v.id
         })),
         { name: '← Torna ai creator', value: BACK }
@@ -379,7 +397,7 @@ async function presentSearchResultActions(videoId) {
   } else if (video.status in REVIEW_ACTIONS_BY_STATUS) {
     await applyReviewDecision(video);
   } else {
-    setMessage(`\n"${video.title ?? video.id}" è attualmente in download: nessuna azione disponibile ora.\n`);
+    setMessage(`\n"${displayTitle(video)}" è attualmente in download: nessuna azione disponibile ora.\n`);
   }
 }
 
@@ -394,7 +412,7 @@ async function searchFlow() {
         }
         const results = await core.searchVideos(term);
         const choices = results.map((v) => ({
-          name: `${ALL_STATUS_ICON[v.status] ?? ''}${v.title ?? v.id} — ${v.channel?.name ?? 'creator sconosciuto'} (${ALL_STATUS_LABEL_INLINE[v.status] ?? v.status})`,
+          name: `${ALL_STATUS_ICON[v.status] ?? ''}${displayTitle(v)} — ${v.channel?.name ?? 'creator sconosciuto'} (${ALL_STATUS_LABEL_INLINE[v.status] ?? v.status})`,
           value: v.id
         }));
         choices.push({ name: '← Torna al menu principale', value: BACK });
@@ -432,7 +450,7 @@ async function catalogFlow() {
     setMessage('\nNessun video in questo stato.\n');
     return;
   }
-  const lines = videos.map((v) => `[${v.status}] ${v.title ?? v.id} — ${v.channel?.name ?? '?'}`);
+  const lines = videos.map((v) => `[${v.status}] ${displayTitle(v)} — ${v.channel?.name ?? '?'}`);
   setMessage('\n' + lines.join('\n') + '\n');
 }
 
