@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { downloadSingle } from '../api/client.js';
-import { STATUS_LABEL } from '../lib/status.js';
 import { useJobStream } from '../hooks/useJobStream.js';
 import { JobHistory } from '../components/JobHistory.jsx';
 
@@ -73,11 +72,11 @@ export function SingleDownloadPage() {
           {result.action === 'already-downloading' && (
             <>"{result.title}" è già in download.</>
           )}
-          {result.action === 'already-tracked' && (
-            <>
-              "{result.title}" è già tracciato tramite una fonte esistente (stato: {STATUS_LABEL[result.status] ?? result.status}).{' '}
-              <Link to={`/videos/${result.videoId}`}>Rivedilo qui</Link>
-            </>
+          {result.action === 'already-present' && (
+            <>"{result.title}" è già in libreria. <Link to={`/videos/${result.videoId}`}>Vai al video</Link></>
+          )}
+          {result.action === 'added' && (
+            <>"{result.title}" aggiunto alla libreria. <Link to={`/videos/${result.videoId}`}>Vai al video</Link></>
           )}
         </div>
       )}

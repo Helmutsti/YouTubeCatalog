@@ -1,41 +1,41 @@
-// Un solo posto per etichette/colori di stato, riusato da badge, chip di
-// filtro e pillola di stato dei job — stessa terminologia della CLI
-// (packages/cli/cli.js: STATUS_LABELS/REVIEW_STATUS_LABEL) per non avere due
-// vocabolari diversi tra le due interfacce.
-export const STATUS_ORDER = ['new', 'pending', 'downloading', 'downloaded', 'failed', 'excluded'];
+// Un solo posto per etichette/colori delle CATEGORIE derivate (M25). La
+// categoria a una dimensione arriva già calcolata dal core (videoCategory,
+// esposta dal server come `video.category`): qui si mappano solo etichette,
+// colori e ordinamenti per le viste che mostrano un unico indicatore.
+export const CATEGORY_ORDER = ['available', 'downloaded', 'downloading', 'failed', 'hidden', 'removed'];
 
 // Ordine "quanto richiede attenzione ora" — usato dall'ordinamento "per stato"
-// in Home/pagina canale (M19): prima i problemi, poi cosa sta succedendo, poi
-// cosa aspetta un'azione, infine cosa è già a posto.
-export const STATUS_PRIORITY = ['failed', 'downloading', 'pending', 'new', 'downloaded', 'excluded'];
+// in Home/pagina canale (M19): prima i problemi/eventi, poi cosa aspetta
+// un'azione, infine cosa è già a posto/archiviato.
+export const CATEGORY_PRIORITY = ['failed', 'downloading', 'removed', 'available', 'downloaded', 'hidden'];
 
-export const STATUS_LABEL = {
-  new: 'Nuovo',
-  pending: 'In coda',
-  downloading: 'In download',
+export const CATEGORY_LABEL = {
+  available: 'Su YouTube',
   downloaded: 'Scaricato',
-  failed: 'Fallito',
-  excluded: 'Archiviato'
-};
-
-export const STATUS_LABEL_PLURAL = {
-  new: 'Nuovi',
-  pending: 'In coda',
   downloading: 'In download',
+  failed: 'Fallito',
+  hidden: 'Nascosto',
+  removed: 'Rimosso'
+};
+
+export const CATEGORY_LABEL_PLURAL = {
+  available: 'Su YouTube',
   downloaded: 'Scaricati',
+  downloading: 'In download',
   failed: 'Falliti',
-  excluded: 'Archiviati'
+  hidden: 'Nascosti',
+  removed: 'Rimossi'
 };
 
-export const STATUS_COLOR_VAR = {
-  new: '--st-new',
-  pending: '--st-pending',
-  downloading: '--st-downloading',
+export const CATEGORY_COLOR_VAR = {
+  available: '--st-new',
   downloaded: '--st-downloaded',
+  downloading: '--st-downloading',
   failed: '--st-failed',
-  excluded: '--st-excluded'
+  hidden: '--st-excluded',
+  removed: '--st-removed'
 };
 
-export function statusColor(status) {
-  return `var(${STATUS_COLOR_VAR[status] ?? '--faint'})`;
+export function statusColor(category) {
+  return `var(${CATEGORY_COLOR_VAR[category] ?? '--faint'})`;
 }

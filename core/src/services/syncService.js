@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
-import { createNewVideoStub, VIDEO_STATUS } from '../catalog/catalogSchema.js';
+import { createNewVideoStub, DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
 import { listEntries } from '../sourceProviders/playlistProvider.js';
 
 export function extractPlaylistId(url) {
@@ -39,15 +39,17 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
       continue;
     }
 
-    if (existing.status === VIDEO_STATUS.DOWNLOADED) {
+    if (existing.download === DOWNLOAD_STATE.DOWNLOADED) {
       const filePath = existing.video?.localPath ? path.join(paths.videosDir, existing.video.localPath) : null;
       if (!filePath || !existsSync(filePath)) {
-        existing.status = VIDEO_STATUS.PENDING;
+        // File sparito dal disco: torna scaricabile (auto-guarigione).
+        existing.download = DOWNLOAD_STATE.NONE;
         existing.updatedAt = new Date().toISOString();
         healedCount += 1;
       }
     }
-    // new / pending / downloading / failed / excluded: lasciati invariati
+    // altri stati di download (none/downloading/failed) e il flag hidden:
+    // lasciati invariati dalla sync
   }
 
   return { newCount, healedCount };

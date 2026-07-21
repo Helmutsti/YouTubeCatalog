@@ -1,30 +1,14 @@
-// Stesse transizioni di decisionService.decideVideo, stessa forma di
-// REVIEW_ACTIONS_BY_STATUS nel CLI (packages/cli/cli.js) — un solo posto,
-// riusato sia dalla card in griglia sia dalla pagina di dettaglio.
-export function reviewActionsFor(status) {
-  switch (status) {
-    case 'new':
-      return [
-        { decision: 'download', label: 'Scarica' },
-        { decision: 'exclude', label: 'Archivia' }
-      ];
-    case 'pending':
-      return [
-        { decision: 'exclude', label: 'Archivia' },
-        { decision: 'undecided', label: 'Rimetti tra le novità' }
-      ];
-    case 'excluded':
-      return [
-        { decision: 'download', label: 'Scarica' },
-        { decision: 'undecided', label: 'Rimetti tra le novità' }
-      ];
-    case 'failed':
-      return [
-        { decision: 'download', label: 'Riprova' },
-        { decision: 'exclude', label: 'Archivia' },
-        { decision: 'undecided', label: 'Rimetti tra le novità' }
-      ];
-    default:
-      return [];
+// Azioni per-video derivate dai flag ortogonali (M25). Un solo posto, riusato
+// da card in griglia, dettaglio e ricerca. Ogni azione ha un `kind` che la
+// pagina traduce nella chiamata API giusta:
+//   'download' → triggerJob('downloadSingle', { videoId })
+//   'hide'/'unhide' → setHidden(id, true/false)
+export function actionsFor(video) {
+  if (video.download === 'downloading') return []; // già in corso: nessuna azione
+  const actions = [];
+  if (video.download !== 'downloaded') {
+    actions.push({ kind: 'download', label: video.download === 'failed' ? 'Riprova' : 'Scarica' });
   }
+  actions.push(video.hidden ? { kind: 'unhide', label: 'Mostra' } : { kind: 'hide', label: 'Nascondi' });
+  return actions;
 }

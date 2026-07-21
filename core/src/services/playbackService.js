@@ -3,12 +3,12 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { getVideo } from './videoService.js';
-import { VIDEO_STATUS } from '../catalog/catalogSchema.js';
+import { DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
 
 export async function playVideo(id, { mode = 'video' } = {}) {
   const video = await getVideo(id);
-  if (video.status !== VIDEO_STATUS.DOWNLOADED || !video.video?.localPath) {
-    throw new Error(`Il video "${id}" non è ancora stato scaricato (stato attuale: "${video.status}")`);
+  if (video.download !== DOWNLOAD_STATE.DOWNLOADED || !video.video?.localPath) {
+    throw new Error(`Il video "${id}" non è ancora stato scaricato (stato download: "${video.download}")`);
   }
 
   const paths = getPaths();

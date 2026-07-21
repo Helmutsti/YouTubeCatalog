@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Download, Archive, RotateCcw } from 'lucide-react';
-import { searchVideos, decideVideo } from '../api/client.js';
+import { Search, Download, EyeOff, Eye } from 'lucide-react';
+import { searchVideos, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
-import { reviewActionsFor } from '../lib/reviewActions.js';
+import { actionsFor } from '../lib/reviewActions.js';
 import { formatDuration } from '../lib/format.js';
 
-const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
+const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
@@ -39,9 +39,13 @@ export function SearchPage() {
     return () => clearTimeout(timeout);
   }, [input]);
 
-  async function handleDecide(id, decision) {
+  async function handleAction(id, kind) {
     try {
-      await decideVideo(id, decision);
+      if (kind === 'download') {
+        await triggerJob('downloadSingle', { videoId: id });
+      } else {
+        await setHidden(id, kind === 'hide');
+      }
       const r = await searchVideos(q.trim());
       setResults(r);
     } catch (e) {
@@ -71,7 +75,7 @@ export function SearchPage() {
       ) : (
         <div className="list">
           {results.map((v) => {
-            const actions = reviewActionsFor(v.status);
+            const actions = actionsFor(v);
             return (
               <div key={v.id} className="list-row">
                 <Link to={`/videos/${v.id}`} className="res-thumb">
@@ -81,16 +85,16 @@ export function SearchPage() {
                 <Link to={`/videos/${v.id}`} style={{ flex: 1, minWidth: 0 }}>
                   <div className="card-title">{v.title ?? v.id}</div>
                   <div className="card-meta" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <StatusBadge status={v.status} inline />
+                    <StatusBadge category={v.category} inline />
                     {v.channel?.name ?? 'Creator sconosciuto'}
                   </div>
                 </Link>
                 {actions.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
                     {actions.map((a) => {
-                      const Icon = ICONS[a.decision] ?? Download;
+                      const Icon = ICONS[a.kind] ?? Download;
                       return (
-                        <button key={a.decision} className="btn small" title={a.label} onClick={() => handleDecide(v.id, a.decision)}>
+                        <button key={a.kind} className="btn small" title={a.label} onClick={() => handleAction(v.id, a.kind)}>
                           <Icon size={13} />
                         </button>
                       );

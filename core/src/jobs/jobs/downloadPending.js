@@ -1,18 +1,22 @@
-import { loadConfig } from '../../config.js';
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
-import { VIDEO_STATUS } from '../../catalog/catalogSchema.js';
+import { DOWNLOAD_STATE } from '../../catalog/catalogSchema.js';
 import { downloadVideo } from '../../ytdlp/ytdlpWrapper.js';
 
+// Download "in blocco" (M25): riceve una lista esplicita di id da scaricare
+// (params.videoIds) — è la selezione multipla della Libreria (M28). Il vecchio
+// concetto di coda "pending" è sparito col modello a flag ortogonali: non si
+// scansiona più il catalogo per stato, si scarica esattamente ciò che è stato
+// scelto. Salta gli id già scaricati o in download; l'ordine è quello passato.
 export async function downloadPendingJob(params, { log, progress }) {
-  const config = loadConfig();
-  const maxAttempts = config.jobs.maxAttempts;
+  const requestedIds = Array.isArray(params?.videoIds) ? params.videoIds : [];
   const catalog = await readCatalog();
-  const candidates = Object.values(catalog.videos).filter(
-    (v) => v.status === VIDEO_STATUS.PENDING || (v.status === VIDEO_STATUS.FAILED && v.attempts < maxAttempts)
-  );
+
+  const candidates = requestedIds
+    .map((id) => catalog.videos[id])
+    .filter((v) => v && v.download !== DOWNLOAD_STATE.DOWNLOADED && v.download !== DOWNLOAD_STATE.DOWNLOADING);
 
   if (candidates.length === 0) {
-    log('Nessun video in coda per il download.');
+    log('Nessun video da scaricare (lista vuota o già tutti scaricati).');
     return { downloaded: 0, failed: 0, total: 0, results: [] };
   }
 
@@ -20,10 +24,7 @@ export async function downloadPendingJob(params, { log, progress }) {
 
   let downloaded = 0;
   let failed = 0;
-  // Elenco per-video (M20): un job "in coda" processa più video insieme, a
-  // differenza di downloadSingle — senza tracciare qui quali id ha toccato,
-  // lo storico non potrebbe mai mostrarne la thumbnail, solo il riepilogo
-  // numerico già esistente.
+  // Elenco per-video (M20): lo storico mostra le thumbnail dei video toccati.
   const results = [];
 
   for (const candidate of candidates) {
@@ -31,7 +32,8 @@ export async function downloadPendingJob(params, { log, progress }) {
     log(`--- ${id}: ${candidate.title ?? '(titolo sconosciuto)'} ---`);
 
     await updateCatalog((cat) => {
-      cat.videos[id].status = VIDEO_STATUS.DOWNLOADING;
+      cat.videos[id].download = DOWNLOAD_STATE.DOWNLOADING;
+      cat.videos[id].error = null;
       cat.videos[id].updatedAt = new Date().toISOString();
     });
 
@@ -39,7 +41,7 @@ export async function downloadPendingJob(params, { log, progress }) {
       const fields = await downloadVideo(id, candidate.webpageUrl, { onLog: log, onProgress: progress });
       await updateCatalog((cat) => {
         Object.assign(cat.videos[id], fields, {
-          status: VIDEO_STATUS.DOWNLOADED,
+          download: DOWNLOAD_STATE.DOWNLOADED,
           updatedAt: new Date().toISOString(),
           error: null
         });
@@ -50,7 +52,7 @@ export async function downloadPendingJob(params, { log, progress }) {
     } catch (err) {
       await updateCatalog((cat) => {
         const v = cat.videos[id];
-        v.status = VIDEO_STATUS.FAILED;
+        v.download = DOWNLOAD_STATE.FAILED;
         v.attempts = (v.attempts ?? 0) + 1;
         v.error = { message: err.message, occurredAt: new Date().toISOString(), attempts: v.attempts };
         v.updatedAt = new Date().toISOString();

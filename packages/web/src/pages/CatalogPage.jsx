@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVideos, decideVideo, triggerJob } from '../api/client.js';
+import { listVideos, setHidden, triggerJob } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
@@ -22,7 +22,7 @@ export function CatalogPage() {
 
   const counts = useMemo(() => {
     const acc = {};
-    for (const v of videos ?? []) acc[v.status] = (acc[v.status] ?? 0) + 1;
+    for (const v of videos ?? []) acc[v.category] = (acc[v.category] ?? 0) + 1;
     return acc;
   }, [videos]);
 
@@ -42,30 +42,25 @@ export function CatalogPage() {
 
   const filtered = useMemo(() => {
     if (!videos) return [];
-    let list = status ? videos.filter((v) => v.status === status) : videos;
+    let list = status ? videos.filter((v) => v.category === status) : videos;
     if (channel) list = list.filter((v) => channelKey(v) === channel);
     return sortVideos(list, sort);
   }, [videos, status, channel, sort]);
 
-  async function handleDecide(id, decision) {
+  // kind: 'download' → scarica subito (job per-video); 'hide'/'unhide' → asse hidden.
+  async function handleAction(id, kind) {
     try {
-      await decideVideo(id, decision);
+      if (kind === 'download') {
+        const { jobId } = await triggerJob('downloadSingle', { videoId: id });
+        navigate(`/jobs?highlight=${jobId}`);
+        return;
+      }
+      await setHidden(id, kind === 'hide');
       reload();
     } catch (e) {
       setError(e.message);
     }
   }
-
-  async function startQueuedDownload() {
-    try {
-      const { jobId } = await triggerJob('downloadPending');
-      navigate(`/jobs?highlight=${jobId}`);
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  const pendingCount = counts.pending ?? 0;
 
   return (
     <>
@@ -83,12 +78,6 @@ export function CatalogPage() {
           {channelOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
         </select>
       </div>
-      {pendingCount > 0 && (
-        <div className="banner-cta">
-          <div className="label"><b>{pendingCount}</b> video in coda, pronti per il download.</div>
-          <button className="btn btn-primary" onClick={startQueuedDownload}>Scarica in coda ({pendingCount})</button>
-        </div>
-      )}
       {videos === null ? (
         <div className="empty-state"><span className="spinner"></span></div>
       ) : filtered.length === 0 ? (
@@ -96,7 +85,7 @@ export function CatalogPage() {
       ) : (
         <div className="grid">
           {filtered.map((v) => (
-            <VideoCard key={v.id} video={v} onDecide={handleDecide} />
+            <VideoCard key={v.id} video={v} onDecide={handleAction} />
           ))}
         </div>
       )}

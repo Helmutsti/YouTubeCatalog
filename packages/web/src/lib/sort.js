@@ -1,4 +1,4 @@
-import { STATUS_PRIORITY } from './status.js';
+import { CATEGORY_PRIORITY } from './status.js';
 
 // uploadDate è "YYYYMMDD" (formato yt-dlp) o già ISO — stessa normalizzazione
 // usata in format.js per la data mostrata in card/dettaglio.
@@ -31,7 +31,7 @@ export function sortVideos(videos, criterion) {
     case 'title':
       return list.sort((a, b) => (a.title ?? a.id).localeCompare(b.title ?? b.id, 'it', { sensitivity: 'base' }));
     case 'status':
-      return list.sort((a, b) => STATUS_PRIORITY.indexOf(a.status) - STATUS_PRIORITY.indexOf(b.status));
+      return list.sort((a, b) => CATEGORY_PRIORITY.indexOf(a.category) - CATEGORY_PRIORITY.indexOf(b.category));
     case 'addedAt':
     default:
       return list.sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));

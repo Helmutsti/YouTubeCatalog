@@ -46,7 +46,7 @@ export async function getChannelAvatarMap() {
 // fallimenti già usata altrove nel progetto (es. downloadPendingJob).
 export async function syncChannelAvatars({ force = false } = {}) {
   const paths = getPaths();
-  const channels = await listChannels({ status: 'downloaded' });
+  const channels = await listChannels({ download: 'downloaded' });
 
   let fetchedCount = 0;
   let skippedCount = 0;
@@ -65,7 +65,7 @@ export async function syncChannelAvatars({ force = false } = {}) {
     try {
       // listChannels() non porta l'URL del canale: lo si recupera dal primo
       // video scaricato di quel canale, che ha sempre channel.url/uploaderUrl.
-      const [sample] = await listVideosByChannel(channel.key, { status: 'downloaded' });
+      const [sample] = await listVideosByChannel(channel.key, { download: 'downloaded' });
       const channelUrl = sample?.channel?.url ?? sample?.channel?.uploaderUrl ?? null;
       if (!channelUrl) throw new Error('Nessun URL canale disponibile tra i video scaricati');
 

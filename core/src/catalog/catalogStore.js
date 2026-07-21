@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { getPaths } from '../config.js';
-import { createEmptyCatalog, VIDEO_STATUS } from './catalogSchema.js';
+import { createEmptyCatalog, DOWNLOAD_STATE, migrateVideoToFlags } from './catalogSchema.js';
 
 let catalog = null;
 let loadPromise = null;
@@ -17,8 +17,12 @@ function readCatalogFromDisk() {
 function reconcileOnLoad(cat) {
   let changed = false;
   for (const video of Object.values(cat.videos)) {
-    if (video.status === VIDEO_STATUS.DOWNLOADING) {
-      video.status = VIDEO_STATUS.PENDING;
+    // Migrazione una tantum (M25) dal vecchio `status` singolo ai flag ortogonali.
+    if (migrateVideoToFlags(video)) changed = true;
+    // Reconciliation: un download interrotto a metà (processo morto durante
+    // il download) va riportato a "none" e rifatto da zero al prossimo trigger.
+    if (video.download === DOWNLOAD_STATE.DOWNLOADING) {
+      video.download = DOWNLOAD_STATE.NONE;
       video.updatedAt = new Date().toISOString();
       changed = true;
     }

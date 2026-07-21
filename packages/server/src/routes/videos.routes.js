@@ -2,10 +2,10 @@ import { Router } from 'express';
 import {
   listVideos,
   getVideo,
-  listNew,
+  listAvailable,
   listChannels,
   listVideosByChannel,
-  decideVideo,
+  setVideoHidden,
   playVideo,
   searchVideos,
   getRawMetadata,
@@ -20,15 +20,15 @@ import { toPublicVideo } from '../lib/publicVideo.js';
 export const videosRouter = Router();
 
 videosRouter.get('/videos', asyncRoute(async (req, res) => {
-  const [videos, avatars] = await Promise.all([
-    listVideos({ status: req.query.status || undefined }),
-    getChannelAvatarMap()
-  ]);
+  // Il catalogo intero viene passato al frontend, che filtra per categoria
+  // derivata client-side (i video sono già tutti in memoria, vedi CatalogPage/
+  // Libreria). Nessun filtro server-side sullo stato: gli assi sono ortogonali.
+  const [videos, avatars] = await Promise.all([listVideos(), getChannelAvatarMap()]);
   res.json(videos.map((v) => toPublicVideo(v, avatars)));
 }));
 
-videosRouter.get('/videos/new', asyncRoute(async (req, res) => {
-  const [videos, avatars] = await Promise.all([listNew(), getChannelAvatarMap()]);
+videosRouter.get('/videos/available', asyncRoute(async (req, res) => {
+  const [videos, avatars] = await Promise.all([listAvailable(), getChannelAvatarMap()]);
   res.json(videos.map((v) => toPublicVideo(v, avatars)));
 }));
 
@@ -37,7 +37,11 @@ videosRouter.get('/videos/new', asyncRoute(async (req, res) => {
 // "Scarica video singolo" nel CLI. Route separata da /videos/:id perché non
 // opera su un id già noto al client, ma su un URL incollato.
 videosRouter.post('/videos/download-single', asyncRoute(async (req, res) => {
-  const result = await prepareSingleVideoDownload(req.body?.url);
+  // download !== false: default true (scarica subito). Il checkbox "Download
+  // immediato" NON spuntato (M29) invia download:false → il video viene solo
+  // aggiunto alla libreria (action 'added'), senza lanciare alcun job.
+  const wantDownload = req.body?.download !== false;
+  const result = await prepareSingleVideoDownload(req.body?.url, { download: wantDownload });
   if (result.action === 'download') {
     const { jobId } = triggerJob('downloadSingle', { videoId: result.videoId });
     res.json({ ...result, jobId });
@@ -54,7 +58,7 @@ videosRouter.get('/search', asyncRoute(async (req, res) => {
 
 videosRouter.get('/channels', asyncRoute(async (req, res) => {
   const [channels, avatars] = await Promise.all([
-    listChannels({ status: req.query.status || undefined }),
+    listChannels(),
     getChannelAvatarMap()
   ]);
   res.json(channels.map((c) => ({
@@ -74,7 +78,7 @@ videosRouter.post('/channels/avatars/sync', asyncRoute(async (req, res) => {
 
 videosRouter.get('/channels/:key/videos', asyncRoute(async (req, res) => {
   const [videos, avatars] = await Promise.all([
-    listVideosByChannel(req.params.key, { status: req.query.status || undefined }),
+    listVideosByChannel(req.params.key),
     getChannelAvatarMap()
   ]);
   res.json(videos.map((v) => toPublicVideo(v, avatars)));
@@ -90,8 +94,10 @@ videosRouter.get('/videos/:id/metadata', asyncRoute(async (req, res) => {
   res.json(raw ?? null);
 }));
 
-videosRouter.post('/videos/:id/decision', asyncRoute(async (req, res) => {
-  const [video, avatars] = await Promise.all([decideVideo(req.params.id, req.body?.decision), getChannelAvatarMap()]);
+// Nasconde/mostra un video (asse `hidden` del modello a flag, M25) — sostituisce
+// il vecchio /decision (new/pending/excluded, ciclo di revisione ora rimosso).
+videosRouter.post('/videos/:id/hidden', asyncRoute(async (req, res) => {
+  const [video, avatars] = await Promise.all([setVideoHidden(req.params.id, req.body?.hidden === true), getChannelAvatarMap()]);
   res.json(toPublicVideo(video, avatars));
 }));
 
