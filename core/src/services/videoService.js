@@ -29,7 +29,11 @@ export function channelKey(video) {
   return video.channel?.id ?? video.channel?.name ?? null;
 }
 
-export async function listChannels({ download = DOWNLOAD_STATE.DOWNLOADED } = {}) {
+// Default: TUTTI i creator (qualunque stato di download), così un creator appena
+// aggiunto compare subito anche se non ha ancora video scaricati. I contesti
+// "solo scaricati" (Guarda nel CLI, foto creator) passano esplicitamente
+// { download: 'downloaded' }.
+export async function listChannels({ download } = {}) {
   const videos = await listVideos({ download });
   const channels = new Map();
 
@@ -45,7 +49,9 @@ export async function listChannels({ download = DOWNLOAD_STATE.DOWNLOADED } = {}
   return [...channels.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
-export async function listVideosByChannel(channelKeyValue, { download = DOWNLOAD_STATE.DOWNLOADED } = {}) {
+// Default: tutti i video del creator (qualunque stato); i contesti "solo
+// scaricati" passano esplicitamente { download: 'downloaded' }.
+export async function listVideosByChannel(channelKeyValue, { download } = {}) {
   const videos = await listVideos({ download });
   return videos.filter((v) => channelKey(v) === channelKeyValue);
 }
