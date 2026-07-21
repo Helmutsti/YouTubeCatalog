@@ -654,3 +654,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .modal h3 { margin: 0 0 10px; font-size: 17px; color: #fff; }
 .modal p { margin: 0 0 18px; font-size: 13.5px; color: var(--ink2); line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* Sync contestuale alla sorgente (barra + esito sulla riga) */
+.spin { animation: spin 1s linear infinite; }
+.source-block { margin-bottom: 10px; }
+.source-block .source-row { margin-bottom: 0; }
+.source-result { font-size: 12px; margin: 6px 2px 0; color: var(--st-downloaded); }
+.source-result.err { color: var(--st-failed); }
