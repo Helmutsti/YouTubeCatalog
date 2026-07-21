@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { listVideosByChannel } from '../api/client.js';
+import { StatusBadge } from '../components/StatusBadge.jsx';
 import { formatDuration, videoDisplayDate } from '../lib/format.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 
-// Equivalente di "Guarda" nel CLI: solo i video scaricati di quel canale,
-// pensato per la riproduzione, non per la revisione delle novità.
+// Pagina del creator: TUTTI i suoi video (scaricati e non), non solo gli
+// scaricati — così un creator appena aggiunto mostra subito i suoi video
+// "disponibili". Esclude solo i nascosti (visibili unicamente in Libreria).
 export function ChannelPage() {
   const { key } = useParams();
   const [videos, setVideos] = useState(null);
@@ -18,7 +20,10 @@ export function ChannelPage() {
     listVideosByChannel(key).then(setVideos).catch((e) => setError(e.message));
   }, [key]);
 
-  const sorted = useMemo(() => (videos ? sortVideos(videos, sort) : []), [videos, sort]);
+  const sorted = useMemo(
+    () => (videos ? sortVideos(videos.filter((v) => !v.hidden), sort) : []),
+    [videos, sort]
+  );
 
   if (error) return <div className="notice error">{error}</div>;
   if (!videos) return <div className="empty-state"><span className="spinner"></span></div>;
@@ -36,24 +41,25 @@ export function ChannelPage() {
         </div>
         <div>
           <div className="chan-name">{name}</div>
-          <div className="chan-count">{videos.length} video scaricat{videos.length === 1 ? 'o' : 'i'}</div>
+          <div className="chan-count">{sorted.length} video</div>
         </div>
       </div>
-      {videos.length > 0 && (
+      {sorted.length > 0 && (
         <div className="filter-bar">
           <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Ordina per">
             {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
       )}
-      {videos.length === 0 ? (
-        <div className="empty-state">Nessun video scaricato per questo creator.</div>
+      {sorted.length === 0 ? (
+        <div className="empty-state">Nessun video per questo creator.</div>
       ) : (
         <div className="grid">
           {sorted.map((v) => (
             <Link key={v.id} to={`/videos/${v.id}`} className="card">
               <div className="thumb">
                 {v.thumbnailUrl && <img src={v.thumbnailUrl} alt="" loading="lazy" />}
+                <StatusBadge category={v.category} />
                 {formatDuration(v.durationSeconds) && <div className="dur">{formatDuration(v.durationSeconds)}</div>}
               </div>
               <div className="card-title">{v.title ?? v.id}</div>
