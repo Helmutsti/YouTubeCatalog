@@ -28,7 +28,7 @@
 
   --radius-card: 12px;
   --radius-pill: 999px;
-  --sidebar-w: 216px;
+  --sidebar-w: 248px;
 }
 
 * { box-sizing: border-box; }
@@ -166,6 +166,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background: #3a2a24;
   overflow: hidden;
 }
+/* Avatar creator nella sidebar leggermente più grandi delle altre sedi
+   (card/dettaglio restano invariate: .avatar è condiviso, quindi si scope solo
+   la sidebar). */
+.side-item .avatar { width: 32px; height: 32px; font-size: 13px; }
 
 /* Foto profilo reale del canale (M14): riempie il contenitore .avatar/.d-avatar/
    .chan-avatar già circolare, a qualunque delle tre taglie. Se assente si
