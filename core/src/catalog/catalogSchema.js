@@ -122,6 +122,10 @@ export function createNewVideoStub({
     removedAt: null,
     download: DOWNLOAD_STATE.NONE,
     hidden: false,
+    // Metadati completi + copertina già arricchiti (M26)? null finché il job
+    // enrichSource non li estrae (i nuovi stub nascono solo con i campi leggeri
+    // dell'enumerazione flat-playlist: id/titolo/durata/canale).
+    enrichedAt: null,
     source: { sourceId: sourceId ?? null, type: 'playlist' },
     addedAt: now,
     updatedAt: now,
