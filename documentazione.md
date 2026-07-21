@@ -664,3 +664,24 @@ Test unitario della funzione pura su catalogo sintetico in memoria (nessun dato 
 - **Sync 3** (R1 e D1 ricompaiono): entrambi ripristinati a `present`, `removedAt: null`, D1 ancora `downloaded`. `restoredCount:2`.
 
 `node --check` su `syncService.js`/`cli.js` ok. Verifica reale con una playlist che perde davvero un video: da confermare dall'utente su una fonte reale (non forzata per non mutare il catalogo).
+
+## M28 — Pagina "Libreria"
+
+Quarta tappa: la pagina `/library` (finora placeholder vuoto, M23) diventa la **vista centrale** sull'intero catalogo, sfruttando il modello a flag di M25.
+
+**Contenuto** (`packages/web/src/pages/LibraryPage.jsx`):
+- **Filtri**: chip per categoria derivata (riuso `StatusChips`: Su YouTube / Scaricati / In download / Falliti / Nascosti / Rimossi) + dropdown **creator** (derivato dai video caricati) + dropdown **sorgente** (da `listSources`, più "Singoli (senza sorgente)" per `source.sourceId === null`).
+- **Ordinamento**: riuso `lib/sort.js` (M19).
+- **Azioni rapide per-video**: stesse di Home (`actionsFor` → Scarica/Nascondi/Mostra), via `VideoCard`.
+- **Selezione multipla → download in blocco**: `VideoCard` esteso con checkbox opzionale (`selected`/`onToggleSelect`); una barra "N selezionati" con "Scarica selezionati" lancia `triggerJob('downloadPending', { videoIds })` (il job salta i già scaricati/in-download) e porta alla pagina Job. "Seleziona scaricabili (N)" seleziona in un colpo tutti i non-scaricati in vista.
+
+**"Novità" come filtro derivato**: non è più uno stato persistito né una vista dedicata — è semplicemente il filtro categoria "Su YouTube" (`available`). Il vecchio ciclo "Rivedi novità"/coda del web era già stato smontato in M25 (banner "Scarica in coda" rimosso); qui la Libreria lo sostituisce del tutto come luogo dove si rivede e si agisce.
+
+La logica di filtro/ordinamento è tutta client-side su dati già caricati (nessuna modifica server), coerente con M19; la categoria arriva già calcolata dal core (`video.category`).
+
+### Verifica eseguita
+
+- **Download in blocco** via job manager: `triggerJob('downloadPending', { videoIds })` con 3 id già scaricati → il job li salta (`total:0`, `status:success`) — conferma il percorso della selezione multipla end-to-end.
+- `listSources` restituisce le 3 fonti reali con nome e conteggio (usate dal filtro sorgente).
+- Build di produzione web pulita; nuovo CSS `.card-select`/`.card.selected` (checkbox in alto a destra, non sovrapposta alla badge in alto a sinistra).
+- **Verifica browser rimandata alla sessione combinata finale** (M28+M29+M30) su porte libere: il server dell'utente occupa la :3001 con codice pre-M25, quindi un test browser full-stack per-milestone non è pulito. Logica e build verificate.
