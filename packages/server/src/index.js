@@ -5,6 +5,7 @@ import { sourcesRouter } from './routes/sources.routes.js';
 import { jobsRouter } from './routes/jobs.routes.js';
 import { libraryRouter } from './routes/library.routes.js';
 import { backupRouter } from './routes/backup.routes.js';
+import { configRouter } from './routes/config.routes.js';
 import { mountMediaRoutes } from './media/mediaRoutes.js';
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api', sourcesRouter);
 app.use('/api', jobsRouter);
 app.use('/api', libraryRouter);
 app.use('/api', backupRouter);
+app.use('/api', configRouter);
 mountMediaRoutes(app);
 
 const config = loadConfig();
