@@ -119,6 +119,12 @@ export function VideoDetailPage() {
 
           {notice && <div className="notice success" style={{ marginTop: 16 }}>{notice}</div>}
 
+          {video.status === 'failed' && video.error && (
+            <div className="notice error" style={{ marginTop: 16 }}>
+              Download fallito ({video.attempts} tentativ{video.attempts === 1 ? 'o' : 'i'}): {video.error}
+            </div>
+          )}
+
           {(video.description || video.tags?.length > 0) && (
             <div className="d-desc">
               {video.description && (<><span className="label">Descrizione</span>{video.description}</>)}
