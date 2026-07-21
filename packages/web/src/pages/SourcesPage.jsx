@@ -140,11 +140,14 @@ export function SourcesPage() {
       {error && <div className="notice error">{error}</div>}
       {notice && <div className="notice success">{notice}</div>}
 
-      {enriching && (
+      {(busy || enriching) && (
         <div style={{ margin: '4px 0 20px' }}>
-          <div className="hint" style={{ marginBottom: 6 }}>Arricchimento metadati e copertine…</div>
-          <div className="progress-bar">
-            <div style={{ width: `${live.progress ?? 0}%` }}></div>
+          <div className="hint" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="spinner"></span>
+            {enriching ? 'Arricchimento metadati e copertine…' : 'Sincronizzazione in corso…'}
+          </div>
+          <div className={`progress-bar${enriching ? '' : ' indeterminate'}`}>
+            <div style={enriching ? { width: `${live.progress ?? 0}%` } : undefined}></div>
           </div>
         </div>
       )}
