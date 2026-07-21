@@ -90,6 +90,20 @@ function locateCurrentFile(paths, video) {
   return { abs: match, rel: path.relative(paths.videosDir, match).split(path.sep).join('/') };
 }
 
+// Un file e' "gia' organizzato" se si trova in una sottocartella (creator) e il
+// nome contiene il marker "[<id>]" - non serve che coincida carattere per
+// carattere con targetRelPath(). yt-dlp sanifica i titoli a modo suo (es. "|"
+// diventa "｜", pipe a tutta larghezza, non lo spazio scelto da sanitizeName())
+// e quel nome, gia' assegnato da yt-dlp al momento del download, resta buono
+// per sempre: non va "corretto" solo per farlo combaciare col nostro
+// sanitizzatore. targetRelPath() resta il nome di ripiego per i file ancora
+// piatti nella radice (vecchio layout) che vanno organizzati da zero.
+function isAlreadyOrganized(current, videoId) {
+  const hasSubfolder = current.rel.includes('/');
+  const hasIdMarker = path.basename(current.rel).includes(`[${videoId}]`);
+  return hasSubfolder && hasIdMarker;
+}
+
 // Rimuove le sottocartelle vuote rimaste sotto videosDir dopo gli spostamenti
 // (la root videosDir stessa non viene mai rimossa).
 function pruneEmptyDirs(dir, root) {
@@ -120,16 +134,16 @@ export async function reorganizeLibrary({ dryRun = false } = {}) {
       missing.push(video.id);
       continue;
     }
-    const toRel = targetRelPath(video);
-    const toAbs = path.join(paths.videosDir, toRel);
-    if (path.resolve(current.abs) === path.resolve(toAbs)) {
-      // Il file e' al posto giusto; allinea comunque il localPath se era diverso
-      // (es. registrato con separatori o forma diversa).
-      if (video.video.localPath !== toRel && !dryRun) {
+    if (isAlreadyOrganized(current, video.id)) {
+      // Il file e' gia' in un posto valido (creator/... [id].ext); allinea
+      // comunque il localPath se era diverso (es. registrato con separatori
+      // o forma diversa) ma non lo si rinomina mai per farlo combaciare con
+      // targetRelPath().
+      if (video.video.localPath !== current.rel && !dryRun) {
         await updateCatalog((cat) => {
           const v = cat.videos[video.id];
           if (v) {
-            v.video.localPath = toRel;
+            v.video.localPath = current.rel;
             v.updatedAt = new Date().toISOString();
           }
         });
@@ -137,6 +151,8 @@ export async function reorganizeLibrary({ dryRun = false } = {}) {
       alreadyOk++;
       continue;
     }
+    const toRel = targetRelPath(video);
+    const toAbs = path.join(paths.videosDir, toRel);
     moves.push({ id: video.id, from: current.rel, to: toRel, fromAbs: current.abs, toAbs });
   }
 
