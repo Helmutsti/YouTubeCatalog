@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Plus, ImageIcon } from 'lucide-react';
 import { listSources, addSource, removeSource, syncSources, syncChannelAvatars, getJob, downloadSingle } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
+import { useTitle } from '../hooks/useTitle.js';
 import { JobHistory } from '../components/JobHistory.jsx';
 
 // Riconosce se l'input incollato è una PLAYLIST (→ nuova sorgente) o un SINGOLO
@@ -32,6 +33,7 @@ export function SourcesPage() {
   const [results, setResults] = useState({});
   const [rowErrors, setRowErrors] = useState({});
   const live = useJobStream(activeJobId);
+  useTitle('Sorgenti');
 
   function reload() {
     return listSources().then((s) => { setSources(s); return s; }).catch((e) => setError(e.message));

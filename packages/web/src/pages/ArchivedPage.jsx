@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { listVideos, setHidden, triggerJob, refreshMetadata, deleteVideoFile } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
+import { useTitle } from '../hooks/useTitle.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 
@@ -16,6 +17,7 @@ export function ArchivedPage() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
+  useTitle('Archiviati');
 
   function reload() {
     listVideos().then(setVideos).catch((e) => setError(e.message));

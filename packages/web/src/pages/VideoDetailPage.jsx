@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge } from 'lucide-react';
-import { getVideo, listVideosByChannel, setHidden, triggerJob } from '../api/client.js';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown } from 'lucide-react';
+import { getVideo, listVideosByChannel, setHidden, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
+import { useTitle } from '../hooks/useTitle.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
+const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
 
 export function VideoDetailPage() {
   const { id } = useParams();
@@ -106,6 +108,12 @@ export function VideoDetailPage() {
         requestHide(video);
         return;
       }
+      if (kind === 'metadata') {
+        await refreshMetadata(id);
+        setNotice('Metadati aggiornati.');
+        reload();
+        return;
+      }
       await setHidden(id, false); // unhide
       setNotice(`${label}: fatto.`);
       reload();
@@ -123,6 +131,8 @@ export function VideoDetailPage() {
       setHidden(id, true).then(reload).catch((e) => setError(e.message));
     }
   }
+
+  useTitle(video?.title ?? null);
 
   if (error) {
     return (
@@ -246,19 +256,6 @@ export function VideoDetailPage() {
             </div>
           </div>
 
-          {hideAction && (
-            <div className="d-archive-row">
-              {hideAction.kind === 'hide' ? (
-                <button className="btn btn-brick" onClick={handleArchive}>
-                  <Archive size={14} />Archivia
-                </button>
-              ) : (
-                <button className="btn" onClick={() => handleAction('unhide', 'Ripristinato')}>
-                  <ArchiveRestore size={14} />Ripristina
-                </button>
-              )}
-            </div>
-          )}
 
           {notice && <div className="notice success" style={{ marginTop: 16 }}>{notice}</div>}
           {pipError && <div className="notice error" style={{ marginTop: 16 }}>{pipError}</div>}
@@ -293,6 +290,56 @@ export function VideoDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Box stato e sincronizzazione del singolo video (M35) */}
+          <div className="d-desc">
+            <span className="label">Stato e sincronizzazione</span>
+            <div className="tech-grid">
+              <div>
+                <span className="tech-key">Presenza</span>
+                <span className="tech-val">
+                  {video.presence === 'removed'
+                    ? `Rimosso da YouTube${video.removedAt ? ` · ${new Date(video.removedAt).toLocaleDateString('it-IT')}` : ''}`
+                    : 'Presente su YouTube'}
+                </span>
+              </div>
+              <div>
+                <span className="tech-key">Download</span>
+                <span className="tech-val">{DOWNLOAD_LABEL[video.download] ?? video.download}</span>
+              </div>
+              <div>
+                <span className="tech-key">Archiviato</span>
+                <span className="tech-val">{video.hidden ? 'Sì' : 'No'}</span>
+              </div>
+              <div>
+                <span className="tech-key">Metadati aggiornati</span>
+                <span className="tech-val">{video.enrichedAt ? new Date(video.enrichedAt).toLocaleString('it-IT') : '—'}</span>
+              </div>
+              <div>
+                <span className="tech-key">Sorgente</span>
+                <span className="tech-val">
+                  {video.source?.sourceId
+                    ? (video.playlistContext?.playlistTitle ?? video.source.sourceId)
+                    : (video.source?.type === 'single' ? 'Video singolo' : '—')}
+                </span>
+              </div>
+            </div>
+            <div className="sync-actions">
+              <button className="btn" onClick={() => handleAction('metadata')}>
+                <FileDown size={14} />Scarica metadati
+              </button>
+              {hideAction?.kind === 'hide' && (
+                <button className="btn btn-brick" onClick={handleArchive}>
+                  <Archive size={14} />Archivia
+                </button>
+              )}
+              {hideAction?.kind === 'unhide' && (
+                <button className="btn" onClick={() => handleAction('unhide', 'Ripristinato')}>
+                  <ArchiveRestore size={14} />Ripristina
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {related.length > 0 && (

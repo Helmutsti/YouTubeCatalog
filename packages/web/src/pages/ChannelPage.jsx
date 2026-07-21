@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { listVideosByChannel } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
+import { useTitle } from '../hooks/useTitle.js';
 import { formatDuration, videoDisplayDate } from '../lib/format.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 
@@ -24,6 +25,8 @@ export function ChannelPage() {
     () => (videos ? sortVideos(videos.filter((v) => !v.hidden), sort) : []),
     [videos, sort]
   );
+
+  useTitle(videos?.[0]?.channel?.name ?? decodeURIComponent(key));
 
   if (error) return <div className="notice error">{error}</div>;
   if (!videos) return <div className="empty-state"><span className="spinner"></span></div>;

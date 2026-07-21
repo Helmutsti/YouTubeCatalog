@@ -154,15 +154,15 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .side-empty { padding: 4px 12px; font-size: 12px; color: var(--faint); }
 
 .avatar {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px;
   color: #fff;
   background: #3a2a24;
   overflow: hidden;
@@ -170,7 +170,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* Avatar creator nella sidebar leggermente più grandi delle altre sedi
    (card/dettaglio restano invariate: .avatar è condiviso, quindi si scope solo
    la sidebar). */
-.side-item .avatar { width: 32px; height: 32px; font-size: 13px; }
+.side-item .avatar { width: 38px; height: 38px; font-size: 15px; }
 
 /* Foto profilo reale del canale (M14): riempie il contenitore .avatar/.d-avatar/
    .chan-avatar già circolare, a qualunque delle tre taglie. Se assente si
@@ -515,9 +515,9 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .d-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
 .d-chan { display: flex; align-items: center; gap: 10px; }
 .d-avatar {
-  width: 38px; height: 38px; border-radius: 50%;
+  width: 48px; height: 48px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 15px; color: #fff; background: #3a2a24;
+  font-weight: 700; font-size: 19px; color: #fff; background: #3a2a24;
 }
 .d-chan-name { font-weight: 600; font-size: 14px; color: var(--ink); }
 .d-meta { font-size: 12.5px; color: var(--muted); }
@@ -552,9 +552,9 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .banner { height: 110px; border-radius: 12px; background: linear-gradient(120deg, #1c1c20, #232327); position: relative; margin-bottom: -34px; }
 .chan-head { display: flex; align-items: flex-end; gap: 18px; padding: 0 6px; position: relative; margin-bottom: 18px; }
 .chan-avatar {
-  width: 84px; height: 84px; border-radius: 50%; background: #3a2a24;
+  width: 108px; height: 108px; border-radius: 50%; background: #3a2a24;
   border: 4px solid var(--page-bg); display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 30px; color: #fff;
+  font-weight: 700; font-size: 40px; color: #fff;
 }
 .chan-name { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 10px; }
 .chan-count { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
@@ -694,3 +694,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* Placeholder "non disponibile": niente più bande oblique; con copertina, uno
    sfondo scuro (impostato inline) così la scritta resta leggibile. */
 .player-placeholder { background: #0a0a0b; }
+
+/* Box "Stato e sincronizzazione" nel dettaglio video (M35) */
+.sync-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }

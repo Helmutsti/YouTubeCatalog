@@ -5,6 +5,7 @@ import { searchVideos, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
+import { useTitle } from '../hooks/useTitle.js';
 import { formatDuration } from '../lib/format.js';
 
 const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
@@ -16,6 +17,7 @@ export function SearchPage() {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
 
+  useTitle(q.trim() ? `Cerca: ${q.trim()}` : 'Cerca');
   useEffect(() => setInput(q), [q]);
 
   // Ricerca fuzzy multi-campo (M7): stesso motore usato dal CLI, filtro dal
