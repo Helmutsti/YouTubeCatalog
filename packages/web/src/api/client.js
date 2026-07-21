@@ -61,3 +61,15 @@ export const reorganizeLibrary = (dryRun) =>
 
 export const syncChannelAvatars = (force) =>
   request('/api/channels/avatars/sync', { method: 'POST', body: JSON.stringify(force ? { force } : {}) });
+
+// Backup: il download avviene via link diretto (<a href={BACKUP_URL}>), così il
+// browser scarica il .zip con il nome dato dall'header Content-Disposition.
+export const BACKUP_URL = '/api/backup';
+// Ripristino: invia il file .zip grezzo (Content-Type application/zip). Il
+// server salva una copia di sicurezza e sostituisce i file; richiede riavvio.
+export const restoreBackup = (file) =>
+  request('/api/backup/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip' },
+    body: file
+  });

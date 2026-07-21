@@ -13,6 +13,7 @@ import { getRawMetadata, refreshVideoMetadata } from './services/metadataService
 import { searchVideos } from './services/searchService.js';
 import { reorganizeLibrary, deleteVideoFile } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
+import { createBackup, restoreBackup } from './services/backupService.js';
 import { loadConfig, getPaths } from './config.js';
 
 registerJobHandler('downloadPending', downloadPendingJob);
@@ -67,6 +68,9 @@ export {
   // manutenzione: foto profilo dei canali (M14)
   syncChannelAvatars,
   getChannelAvatarMap,
+  // backup/ripristino del catalogo in .zip (M36)
+  createBackup,
+  restoreBackup,
   // config/introspezione
   loadConfig,
   getPaths

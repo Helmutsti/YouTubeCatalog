@@ -1,5 +1,6 @@
 import { select, confirm, input, search } from '@inquirer/prompts';
 import path from 'node:path';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import * as core from '../../core/src/index.js';
 
 // Titolo da mostrare per un video: normalmente quello originale scaricato da
@@ -507,6 +508,63 @@ async function reorganizeFlow() {
   setMessage(`\n✔ Riorganizzati ${res.moved} file per creator.${extra}\n`);
 }
 
+// --- Backup / Ripristino (M36) ---------------------------------------------
+// Salva/legge un archivio .zip con catalogo + metadati + storico job (niente
+// media, niente config/cookie). Il ripristino sostituisce i file dopo una copia
+// di sicurezza e richiede il riavvio del processo (stato in memoria).
+async function saveBackupFlow() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const dest = await input({
+    message: 'Percorso del file .zip da creare:',
+    default: path.resolve(process.cwd(), `ondo-backup-${stamp}.zip`)
+  });
+  const zip = core.createBackup();
+  writeFileSync(dest, zip);
+  setMessage(`\n✔ Backup salvato in ${dest} (${(zip.length / 1024).toFixed(0)} KB).\n`);
+}
+
+async function restoreBackupFlow() {
+  const src = await input({ message: 'Percorso del backup .zip da ripristinare:' });
+  if (!src || !existsSync(src)) {
+    setMessage('\n✘ File non trovato.\n');
+    return;
+  }
+  const confirmed = await confirm({
+    message:
+      'Il ripristino sostituisce catalogo, metadati e storico job attuali (viene salvata una copia di sicurezza). Continuare?',
+    default: false
+  });
+  if (!confirmed) return;
+  const result = core.restoreBackup(readFileSync(src));
+  setMessage(
+    `\n✔ Ripristinati: ${result.restored.join(', ')}.\n` +
+      `  Copia di sicurezza: ${result.safetyDir}\n` +
+      `  ⚠ Riavvia il server/CLI per applicare le modifiche.\n`
+  );
+}
+
+async function backupFlow() {
+  while (true) {
+    clearScreen();
+    const choice = await select({
+      message: 'Backup / Ripristino',
+      choices: [
+        { name: 'Salva backup su file…', value: 'save' },
+        { name: 'Ripristina da file…', value: 'restore' },
+        { name: '← Torna', value: BACK }
+      ]
+    });
+    if (choice === BACK) return;
+    try {
+      if (choice === 'save') await saveBackupFlow();
+      else await restoreBackupFlow();
+    } catch (err) {
+      if (err?.name === 'ExitPromptError') throw err;
+      setMessage(`\n✘ ${err.message}\n`);
+    }
+  }
+}
+
 const ACTIONS = {
   sources: manageSourcesFlow,
   singleDownload: singleDownloadFlow,
@@ -515,7 +573,8 @@ const ACTIONS = {
   search: searchFlow,
   watch: watchFlow,
   catalog: catalogFlow,
-  reorganize: reorganizeFlow
+  reorganize: reorganizeFlow,
+  backup: backupFlow
 };
 
 async function mainMenu() {
@@ -532,6 +591,7 @@ async function mainMenu() {
         { name: 'Guarda', value: 'watch' },
         { name: 'Catalogo', value: 'catalog' },
         { name: 'Riorganizza libreria (per creator)', value: 'reorganize' },
+        { name: 'Backup / Ripristino', value: 'backup' },
         { name: 'Esci', value: 'exit' }
       ]
     });

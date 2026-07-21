@@ -7,6 +7,7 @@ import { ChannelPage } from './pages/ChannelPage.jsx';
 import { SourcesPage } from './pages/SourcesPage.jsx';
 import { JobsPage } from './pages/JobsPage.jsx';
 import { ArchivedPage } from './pages/ArchivedPage.jsx';
+import { SettingsPage } from './pages/SettingsPage.jsx';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/sources" element={<SourcesPage />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/archived" element={<ArchivedPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>
   );
