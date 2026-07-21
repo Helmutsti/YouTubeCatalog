@@ -73,6 +73,17 @@ export function JobsPage() {
               <span className="job-type">{JOB_TYPE_LABEL[j.type] ?? j.type}</span>
               <span className="job-time">{j.startedAt ? new Date(j.startedAt).toLocaleString('it-IT') : ''}</span>
             </div>
+            {j.thumbnails?.length > 0 && (
+              <div className="job-thumbs">
+                {j.thumbnails.map((url) => (
+                  <div key={url} className="job-thumb"><img src={url} alt="" loading="lazy" /></div>
+                ))}
+                {j.thumbnailsMore > 0 && <span className="job-thumb-more">+{j.thumbnailsMore} altri</span>}
+              </div>
+            )}
+            {j.status === 'failed' && j.error && (
+              <div className="job-error-inline">{j.error.message}</div>
+            )}
             {expanded === j.id && (
               <div className="job-log">
                 {j.logLines.map((line, i) => <div key={i} className="line">{line}</div>)}

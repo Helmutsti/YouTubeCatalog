@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { triggerJob, getJob, listJobs, onJobLog, onJobProgress, onJobStatus } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
+import { toPublicJob, toPublicJobs } from '../lib/publicJob.js';
 
 export const jobsRouter = Router();
 
 jobsRouter.get('/jobs', asyncRoute(async (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : undefined;
-  res.json(listJobs(limit));
+  res.json(await toPublicJobs(listJobs(limit)));
 }));
 
 jobsRouter.post('/jobs', asyncRoute(async (req, res) => {
@@ -20,7 +21,7 @@ jobsRouter.get('/jobs/:id', asyncRoute(async (req, res) => {
     res.status(404).json({ error: `Job non trovato: "${req.params.id}"` });
     return;
   }
-  res.json(job);
+  res.json(await toPublicJob(job));
 }));
 
 // Bridge SSE sugli eventi in tempo reale di jobManager (log/progress/status)

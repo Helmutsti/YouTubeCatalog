@@ -4,6 +4,11 @@
 // vocabolari diversi tra le due interfacce.
 export const STATUS_ORDER = ['new', 'pending', 'downloading', 'downloaded', 'failed', 'excluded'];
 
+// Ordine "quanto richiede attenzione ora" — usato dall'ordinamento "per stato"
+// in Home/pagina canale (M19): prima i problemi, poi cosa sta succedendo, poi
+// cosa aspetta un'azione, infine cosa è già a posto.
+export const STATUS_PRIORITY = ['failed', 'downloading', 'pending', 'new', 'downloaded', 'excluded'];
+
 export const STATUS_LABEL = {
   new: 'Nuovo',
   pending: 'In coda',

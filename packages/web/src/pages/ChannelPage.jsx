@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { listVideosByChannel } from '../api/client.js';
 import { formatDuration, videoDisplayDate } from '../lib/format.js';
+import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 
 // Equivalente di "Guarda" nel CLI: solo i video scaricati di quel canale,
 // pensato per la riproduzione, non per la revisione delle novità.
@@ -10,11 +11,14 @@ export function ChannelPage() {
   const { key } = useParams();
   const [videos, setVideos] = useState(null);
   const [error, setError] = useState(null);
+  const [sort, setSort] = useState('addedAt');
 
   useEffect(() => {
     setVideos(null);
     listVideosByChannel(key).then(setVideos).catch((e) => setError(e.message));
   }, [key]);
+
+  const sorted = useMemo(() => (videos ? sortVideos(videos, sort) : []), [videos, sort]);
 
   if (error) return <div className="notice error">{error}</div>;
   if (!videos) return <div className="empty-state"><span className="spinner"></span></div>;
@@ -35,11 +39,18 @@ export function ChannelPage() {
           <div className="chan-count">{videos.length} video scaricat{videos.length === 1 ? 'o' : 'i'}</div>
         </div>
       </div>
+      {videos.length > 0 && (
+        <div className="filter-bar">
+          <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Ordina per">
+            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      )}
       {videos.length === 0 ? (
         <div className="empty-state">Nessun video scaricato per questo creator.</div>
       ) : (
         <div className="grid">
-          {videos.map((v) => (
+          {sorted.map((v) => (
             <Link key={v.id} to={`/videos/${v.id}`} className="card">
               <div className="thumb">
                 {v.thumbnailUrl && <img src={v.thumbnailUrl} alt="" loading="lazy" />}
