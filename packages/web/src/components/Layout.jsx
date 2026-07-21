@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Home, Rss, Search, Archive } from 'lucide-react';
+import { Home, Rss, Search, Archive, Settings } from 'lucide-react';
 import { listChannels } from '../api/client.js';
 import { MobileNav } from './MobileNav.jsx';
 
@@ -51,6 +51,7 @@ export function Layout() {
           <NavLink to="/" end className={navCls}><Home size={16} />Home</NavLink>
           <NavLink to="/sources" className={navCls}><Rss size={16} />Sorgenti</NavLink>
           <NavLink to="/archived" className={navCls}><Archive size={16} />Archiviati</NavLink>
+          <NavLink to="/settings" className={navCls}><Settings size={16} />Impostazioni</NavLink>
           <div className="side-div"></div>
           <div className="side-sec">Creator</div>
           {channels.length === 0 && <div className="side-empty">Nessun creator ancora</div>}
