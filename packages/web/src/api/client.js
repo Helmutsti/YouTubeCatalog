@@ -29,6 +29,9 @@ export const setHidden = (id, hidden) =>
 // Cancella solo il file scaricato (M30); la scheda resta in libreria.
 export const deleteVideoFile = (id) =>
   request(`/api/videos/${encodeURIComponent(id)}/file`, { method: 'DELETE' });
+// Aggiorna metadati + copertina (M31); sui rimossi funge da ri-verifica.
+export const refreshMetadata = (id) =>
+  request(`/api/videos/${encodeURIComponent(id)}/metadata/refresh`, { method: 'POST' });
 // download:false → aggiunge solo il video alla libreria senza scaricarlo
 // (checkbox "Download immediato" non spuntato, M29). Default: scarica subito.
 export const downloadSingle = (url, download = true) =>

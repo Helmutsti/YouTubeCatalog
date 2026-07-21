@@ -23,6 +23,12 @@ export function extractPlaylistId(url) {
 // Usata sia da syncSource (fonte già registrata) sia da sourceService.addSource
 // (primo ingest: nessun video preesistente della fonte, quindi la detection è
 // un no-op lì) per non duplicare la logica.
+// Sync consecutive in cui un video deve risultare assente PRIMA di essere
+// marcato "rimosso": un paio di tentativi di grazia, per non etichettare a causa
+// di un glitch temporaneo di YouTube (una playlist che "perde" un video per una
+// sync). Marcato removed quando missCount raggiunge questa soglia.
+const REMOVED_MISS_THRESHOLD = 2;
+
 export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
   let newCount = 0;
   let healedCount = 0;
@@ -49,8 +55,9 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
       continue;
     }
 
-    // Ricomparso: era stato marcato "rimosso" in una sync precedente ma ora è di
-    // nuovo nella fonte → ripristina la presenza (reversibilità).
+    // Ritrovato: azzera il contatore di assenze. Se era già stato marcato
+    // "rimosso", ripristina la presenza (reversibilità).
+    existing.missCount = 0;
     if (existing.presence === PRESENCE.REMOVED) {
       existing.presence = PRESENCE.PRESENT;
       existing.removedAt = null;
@@ -71,18 +78,22 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
     // lasciati invariati dalla sync
   }
 
-  // Sweep dei rimossi: video di questa fonte non più tra gli entries. Non
-  // cancella nulla — solo il flag presence, reversibile al prossimo ritrovamento.
+  // Sweep dei possibili rimossi: video di questa fonte non più tra gli entries.
+  // Si conta l'assenza (missCount) e si marca "removed" solo dopo alcune sync
+  // consecutive di assenza (periodo di grazia). Non cancella mai nulla.
   for (const video of Object.values(catalog.videos)) {
     if (
       video.source?.sourceId === sourceMeta.id &&
       !foundIds.has(video.id) &&
       video.presence === PRESENCE.PRESENT
     ) {
-      video.presence = PRESENCE.REMOVED;
-      video.removedAt = now();
+      video.missCount = (video.missCount ?? 0) + 1;
       video.updatedAt = now();
-      removedCount += 1;
+      if (video.missCount >= REMOVED_MISS_THRESHOLD) {
+        video.presence = PRESENCE.REMOVED;
+        video.removedAt = now();
+        removedCount += 1;
+      }
     }
   }
 

@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, EyeOff, Eye, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge } from 'lucide-react';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge } from 'lucide-react';
 import { getVideo, listVideosByChannel, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 
-const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 
 export function VideoDetailPage() {
@@ -115,6 +114,16 @@ export function VideoDetailPage() {
     }
   }
 
+  // Archivia dalla pagina video: volutamente defilato e con conferma (per gli
+  // scaricati la conferma è il modale "Vuoi tenere il video?"; per gli altri un
+  // confirm), così non è un click accidentale.
+  function handleArchive() {
+    if (video.download === 'downloaded') { requestHide(video); return; }
+    if (window.confirm(`Archiviare "${video.title ?? video.id}"? Andrà tra gli Archiviati (puoi ripristinarlo).`)) {
+      setHidden(id, true).then(reload).catch((e) => setError(e.message));
+    }
+  }
+
   if (error) {
     return (
       <>
@@ -128,6 +137,8 @@ export function VideoDetailPage() {
   const key = channelKey(video);
   const actions = actionsFor(video);
   const isDownloaded = video.download === 'downloaded';
+  const downloadAction = actions.find((a) => a.kind === 'download');
+  const hideAction = actions.find((a) => a.kind === 'hide' || a.kind === 'unhide');
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
 
@@ -178,8 +189,15 @@ export function VideoDetailPage() {
                 <span>Download in corso — vedi la <Link to="/jobs">pagina Job</Link> per il log live.</span>
               </div>
             ) : (
-              <div className="player-placeholder">
-                <StatusBadge category={video.category} />
+              <div
+                className="player-placeholder"
+                style={video.thumbnailUrl ? {
+                  backgroundImage: `linear-gradient(rgba(8,8,10,.82), rgba(8,8,10,.82)), url("${video.thumbnailUrl}")`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                } : undefined}
+              >
+                <StatusBadge video={video} inline />
                 <span>Non ancora disponibile per la riproduzione.</span>
               </div>
             )}
@@ -220,18 +238,27 @@ export function VideoDetailPage() {
                   {SPEEDS[speedIndex]}x
                 </button>
               )}
-              {actions.map((a) => {
-                const Icon = ICONS[a.kind] ?? Download;
-                const cls = a.kind === 'download' ? 'btn btn-primary' : 'btn';
-                return (
-                  <button key={a.kind} className={cls} onClick={() => handleAction(a.kind, a.label)}>
-                    <Icon size={14} />
-                    {a.label}
-                  </button>
-                );
-              })}
+              {downloadAction && (
+                <button className="btn btn-primary" onClick={() => handleAction('download', downloadAction.label)}>
+                  <Download size={14} />{downloadAction.label}
+                </button>
+              )}
             </div>
           </div>
+
+          {hideAction && (
+            <div className="d-archive-row">
+              {hideAction.kind === 'hide' ? (
+                <button className="btn btn-brick" onClick={handleArchive}>
+                  <Archive size={14} />Archivia
+                </button>
+              ) : (
+                <button className="btn" onClick={() => handleAction('unhide', 'Ripristinato')}>
+                  <ArchiveRestore size={14} />Ripristina
+                </button>
+              )}
+            </div>
+          )}
 
           {notice && <div className="notice success" style={{ marginTop: 16 }}>{notice}</div>}
           {pipError && <div className="notice error" style={{ marginTop: 16 }}>{pipError}</div>}

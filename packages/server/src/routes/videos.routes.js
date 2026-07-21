@@ -10,6 +10,7 @@ import {
   playVideo,
   searchVideos,
   getRawMetadata,
+  refreshVideoMetadata,
   prepareSingleVideoDownload,
   triggerJob,
   syncChannelAvatars,
@@ -93,6 +94,13 @@ videosRouter.get('/videos/:id', asyncRoute(async (req, res) => {
 videosRouter.get('/videos/:id/metadata', asyncRoute(async (req, res) => {
   const raw = await getRawMetadata(req.params.id);
   res.json(raw ?? null);
+}));
+
+// "Aggiorna metadati" (M31): ri-scarica metadati + copertina; sui rimossi fa da
+// ri-verifica (ripristina se il video è tornato, altrimenti non tocca nulla).
+videosRouter.post('/videos/:id/metadata/refresh', asyncRoute(async (req, res) => {
+  const [video, avatars] = await Promise.all([refreshVideoMetadata(req.params.id), getChannelAvatarMap()]);
+  res.json(toPublicVideo(video, avatars));
 }));
 
 // Nasconde/mostra un video (asse `hidden` del modello a flag, M25) — sostituisce

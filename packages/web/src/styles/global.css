@@ -676,3 +676,21 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* Copertine in bianco e nero nella pagina Archiviati (colore al passaggio del mouse) */
 .grayscale-grid .thumb img { filter: grayscale(1); transition: filter .2s ease; }
 .grayscale-grid .card:hover .thumb img { filter: grayscale(0); }
+
+/* M31: badge a pallino, "Su YouTube" verde, tasto archivia defilato, menu danger, placeholder scuro */
+:root { --st-available: oklch(0.72 0.14 145); }
+
+.badge-dot { position: absolute; left: 8px; top: 8px; width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,.4); z-index: 2; }
+.badge-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; padding: 0; border-radius: 0; background: transparent; color: var(--ink2); }
+.badge-dot-sm { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.btn-brick { color: #d98b7a; border-color: color-mix(in oklch, #a34a34 55%, transparent); background: color-mix(in oklch, #a34a34 12%, transparent); }
+.btn-brick:hover { background: color-mix(in oklch, #a34a34 24%, transparent); color: #ecaa98; }
+.d-archive-row { margin-top: 12px; }
+
+.menu-item.danger, .menu-item.danger svg { color: var(--st-failed); }
+.menu-item.danger:hover { background: color-mix(in oklch, var(--st-failed) 14%, transparent); }
+
+/* Placeholder "non disponibile": niente più bande oblique; con copertina, uno
+   sfondo scuro (impostato inline) così la scritta resta leggibile. */
+.player-placeholder { background: #0a0a0b; }

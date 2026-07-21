@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MoreVertical, Download, Archive, ArchiveRestore, User } from 'lucide-react';
+import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Trash2 } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
 import { actionsFor } from '../lib/reviewActions.js';
@@ -19,6 +19,8 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
   const date = videoDisplayDate(video);
   const actions = actionsFor(video);
   const key = channelKey(video);
+  const isRemoved = video.presence === 'removed';
+  const isDownloaded = video.download === 'downloaded';
 
   function act(kind) {
     setMenuOpen(false);
@@ -39,7 +41,7 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
             onChange={(e) => { e.stopPropagation(); onToggleSelect(video.id); }}
           />
         )}
-        <StatusBadge category={video.category} />
+        <StatusBadge video={video} />
         {dur && <div className="dur">{dur}</div>}
       </Link>
       <Link to={`/videos/${video.id}`} className="card-title">
@@ -82,10 +84,20 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
                     </button>
                   );
                 })}
+                {/* Aggiorna metadati: anche sui rimossi (ri-verifica) */}
+                <button className="menu-item" onClick={() => act('metadata')}>
+                  <FileDown size={15} />Aggiorna metadati
+                </button>
                 {key && (
                   <Link className="menu-item" to={`/channels/${encodeURIComponent(key)}`} onClick={() => setMenuOpen(false)}>
                     <User size={15} />Mostra profilo
                   </Link>
+                )}
+                {/* Cancella (solo il file): solo per gli scaricati e mai sui rimossi */}
+                {isDownloaded && !isRemoved && (
+                  <button className="menu-item danger" onClick={() => act('deletefile')}>
+                    <Trash2 size={15} />Cancella video
+                  </button>
                 )}
               </div>
             </>

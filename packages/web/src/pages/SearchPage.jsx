@@ -96,7 +96,7 @@ export function SearchPage() {
                 <Link to={`/videos/${v.id}`} style={{ flex: 1, minWidth: 0 }}>
                   <div className="card-title">{v.title ?? v.id}</div>
                   <div className="card-meta" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <StatusBadge category={v.category} inline />
+                    <StatusBadge video={v} inline />
                     {v.channel?.name ?? 'Creator sconosciuto'}
                   </div>
                 </Link>

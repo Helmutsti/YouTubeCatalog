@@ -28,7 +28,7 @@ export const CATEGORY_LABEL_PLURAL = {
 };
 
 export const CATEGORY_COLOR_VAR = {
-  available: '--st-new',
+  available: '--st-available',
   downloaded: '--st-downloaded',
   downloading: '--st-downloading',
   failed: '--st-failed',
@@ -39,3 +39,30 @@ export const CATEGORY_COLOR_VAR = {
 export function statusColor(category) {
   return `var(${CATEGORY_COLOR_VAR[category] ?? '--faint'})`;
 }
+
+// Stato mostrato dal badge (pallino) sulla copertina — INDIPENDENTE dal flag
+// "nascosto" (quello lo comunica la pagina Archiviati + il b/n): riflette solo
+// presenza su YouTube / stato di download. Uno scaricato è lo standard → nessun
+// badge (null). Su YouTube = verde, rimosso = arancione, errore = rosso.
+export function badgeState(video) {
+  if (!video) return null;
+  if (video.presence === 'removed') return 'removed';
+  if (video.download === 'failed') return 'failed';
+  if (video.download === 'downloading') return 'downloading';
+  if (video.download === 'downloaded') return null;
+  return 'available';
+}
+
+export const BADGE_LABEL = {
+  available: 'Su YouTube',
+  removed: 'Rimosso',
+  failed: 'Errore download',
+  downloading: 'In download'
+};
+
+export const BADGE_COLOR = {
+  available: 'var(--st-available)',
+  removed: 'var(--st-removed)',
+  failed: 'var(--st-failed)',
+  downloading: 'var(--st-downloading)'
+};

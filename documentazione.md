@@ -751,3 +751,25 @@ Round di richieste dell'utente che ridefiniscono la navigazione web attorno al p
 ### Verifica
 
 Build di produzione web pulita; `node --check` su tutti i file core toccati; `/api/channels` restituisce 10 creator (incluso quello con soli video "disponibili"); `/api/jobs` — i job `enrichSource` presenti vengono nascosti dalla Cronologia lato client. Server riavviato per caricare i cambi core (`videoService`/`channelAvatarService`/`enrichSource`). Verifica visiva completa nel browser a carico dell'utente (il server dell'utente occupa la :3001).
+
+## M32 — Rifiniture UX (grazia sui rimossi, menu ⋮ esteso, badge a pallino, archivia defilato)
+
+Round di rifiniture su richiesta dell'utente, sopra M31.
+
+**"Rimosso" con periodo di grazia**: prima un video assente da una sync veniva marcato `removed` subito (falsi positivi su glitch temporanei di YouTube — l'utente ne ha notati 2). Ora `syncService.ingestPlaylistEntries` conta le assenze consecutive (`missCount`, nuovo campo nello stub) e marca `removed` solo al raggiungimento di **`REMOVED_MISS_THRESHOLD = 2`** (un paio di tentativi). Al primo ritrovamento `missCount` si azzera e, se era `removed`, si ripristina `present`.
+
+**Menu ⋮ esteso** (`VideoCard`) con due voci:
+- **"Aggiorna metadati"** (`refreshVideoMetadata`, nuova in `metadataService`, esposta via `POST /api/videos/:id/metadata/refresh`): ri-scarica metadati completi + copertina. Mostrata **anche sui rimossi**, dove funge da **ri-verifica**: se il video è di nuovo raggiungibile viene ripristinato (`present`), se resta irraggiungibile ed era `removed` **non si tocca nulla** (stato confermato); su un video non rimosso un errore reale viene propagato.
+- **"Cancella video"** = `deleteVideoFile` (M30): cancella **solo il file** dal disco (`download→none`), lasciando scheda, metadati e copertina. Mostrata solo per gli scaricati e **mai sui rimossi** (i rimossi vanno preservati). Conferma via `window.confirm`.
+
+**Badge a pallino** (`StatusBadge` + `badgeState` in `lib/status`): il badge sulla copertina non è più una pillola di testo ma un **pallino colorato**, e — punto chiave — è **indipendente dal flag `hidden`** (quello lo comunicano la pagina Archiviati e il bianco/nero). Regole: scaricato = **nessun badge** (è lo standard), *Su YouTube* = **verde** (nuova var `--st-available`), *rimosso* = **arancione**, *errore download* = **rosso**, in download = accento. Inline (ricerca/placeholder) mostra pallino + etichetta.
+
+**Pagina video**: il tasto per archiviare era troppo accessibile (in mezzo alle azioni di riproduzione). Spostato in una riga **a sé sotto**, allineato a sinistra, stile **rosso mattone** (`.btn-brick`) e **con conferma** (per gli scaricati la conferma è il modale "Vuoi tenere il video?" di M30; per gli altri un `window.confirm`). Le azioni di download/riproduzione restano a destra; "Ripristina" (per un archiviato) resta un pulsante normale. Inoltre il placeholder **"Non ancora disponibile per la riproduzione"** ora mostra la **copertina del video molto scurita** (overlay nero all'82%) invece delle bande oblique, così la scritta resta leggibile.
+
+### Verifica
+
+Test unitario del periodo di grazia su catalogo sintetico: sync assente 1 → `present/miss1`; assente 2 → `removed/miss2`; ricompare → `present/miss0` (ripristinato). Build di produzione web pulita; `node --check` su core/server toccati. Server riavviato per i cambi core (grace period, `refreshVideoMetadata`). Verifica visiva nel browser a carico dell'utente (server utente su :3001).
+
+### Backlog aggiornato
+
+Aggiunti: titolo scheda browser dinamico; anteprima video sulla card/player (da ragionare); foto profilo del creator più grande.

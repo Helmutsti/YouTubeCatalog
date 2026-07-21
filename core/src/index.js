@@ -9,7 +9,7 @@ import { listSources, addSource, removeSource } from './services/sourceService.j
 import { setVideoHidden } from './services/decisionService.js';
 import { playVideo } from './services/playbackService.js';
 import { prepareSingleVideoDownload } from './services/singleVideoService.js';
-import { getRawMetadata } from './services/metadataService.js';
+import { getRawMetadata, refreshVideoMetadata } from './services/metadataService.js';
 import { searchVideos } from './services/searchService.js';
 import { reorganizeLibrary, deleteVideoFile } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
@@ -56,6 +56,8 @@ export {
   prepareSingleVideoDownload,
   // metadati grezzi consolidati (data/metadata.json)
   getRawMetadata,
+  // "Aggiorna metadati": ri-scarica metadati+copertina (ri-verifica i rimossi)
+  refreshVideoMetadata,
   // ricerca fuzzy multi-campo
   searchVideos,
   // manutenzione archivio: riorganizzazione per creator (layout canonico)
