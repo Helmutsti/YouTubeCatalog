@@ -7,7 +7,7 @@ import { reviewActionsFor } from '../lib/reviewActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
 
 const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
-const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 0.5, 0.75];
+const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 
 export function VideoDetailPage() {
   const { id } = useParams();
