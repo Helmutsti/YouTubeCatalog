@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { listJobs } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
+import { JobHistory } from '../components/JobHistory.jsx';
 
-const JOB_TYPE_LABEL = { downloadPending: 'Scarica in coda', downloadSingle: 'Scarica video singolo' };
 const JOB_STATUS_LABEL = { queued: 'In coda', running: 'In corso', success: 'Completato', failed: 'Fallito' };
 const JOB_STATUS_COLOR = {
   queued: 'var(--st-pending)',
@@ -13,25 +11,14 @@ const JOB_STATUS_COLOR = {
 };
 
 // Job in corso: log/progresso in tempo reale via SSE (stesso EventEmitter a
-// cui il CLI si iscrive in-process). Storico: snapshot già persistito da
-// jobManager, nessuno stream necessario.
+// cui il CLI si iscrive in-process). Storico: componente condiviso JobHistory
+// (snapshot persistito, con cancellazione). Il job evidenziato è escluso dallo
+// storico finché è "in corso" (mostrato nella card live sopra); quando termina,
+// il cambio di `live.status` fa ricaricare lo storico.
 export function JobsPage() {
   const [params] = useSearchParams();
   const highlight = params.get('highlight');
-  const [jobs, setJobs] = useState(null);
-  const [expanded, setExpanded] = useState(null);
   const live = useJobStream(highlight);
-
-  function reload() {
-    listJobs().then(setJobs).catch(() => {});
-  }
-  useEffect(reload, []);
-
-  useEffect(() => {
-    if (live.status === 'success' || live.status === 'failed') reload();
-  }, [live.status]);
-
-  const history = (jobs ?? []).filter((j) => j.id !== highlight);
 
   return (
     <>
@@ -58,41 +45,7 @@ export function JobsPage() {
         </div>
       )}
 
-      <div className="side-sec" style={{ padding: '0 0 10px' }}>Storico</div>
-      {jobs === null ? (
-        <div className="empty-state"><span className="spinner"></span></div>
-      ) : history.length === 0 ? (
-        <div className="empty-state">Nessun job eseguito finora.</div>
-      ) : (
-        history.map((j) => (
-          <div key={j.id} className="job-card">
-            <div className="job-card-head" style={{ cursor: 'pointer' }} onClick={() => setExpanded(expanded === j.id ? null : j.id)}>
-              <span className="job-status" style={{ background: JOB_STATUS_COLOR[j.status] ?? 'var(--faint)' }}>
-                {JOB_STATUS_LABEL[j.status] ?? j.status}
-              </span>
-              <span className="job-type">{JOB_TYPE_LABEL[j.type] ?? j.type}</span>
-              <span className="job-time">{j.startedAt ? new Date(j.startedAt).toLocaleString('it-IT') : ''}</span>
-            </div>
-            {j.thumbnails?.length > 0 && (
-              <div className="job-thumbs">
-                {j.thumbnails.map((url) => (
-                  <div key={url} className="job-thumb"><img src={url} alt="" loading="lazy" /></div>
-                ))}
-                {j.thumbnailsMore > 0 && <span className="job-thumb-more">+{j.thumbnailsMore} altri</span>}
-              </div>
-            )}
-            {j.status === 'failed' && j.error && (
-              <div className="job-error-inline">{j.error.message}</div>
-            )}
-            {expanded === j.id && (
-              <div className="job-log">
-                {j.logLines.map((line, i) => <div key={i} className="line">{line}</div>)}
-                {j.error && <div className="line err">{j.error.message}</div>}
-              </div>
-            )}
-          </div>
-        ))
-      )}
+      <JobHistory excludeId={highlight} refreshKey={live.status} />
     </>
   );
 }

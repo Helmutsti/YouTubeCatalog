@@ -1,4 +1,4 @@
-import { registerJobHandler, triggerJob, getJob, listJobs, onJobLog, onJobStatus, onJobProgress } from './jobs/jobManager.js';
+import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, clearJobs, onJobLog, onJobStatus, onJobProgress } from './jobs/jobManager.js';
 import { downloadPendingJob } from './jobs/jobs/downloadPending.js';
 import { downloadSingleJob } from './jobs/jobs/downloadSingle.js';
 import { listVideos, getVideo, listNew, listChannels, listVideosByChannel, channelKey } from './services/videoService.js';
@@ -35,6 +35,8 @@ export {
   triggerJob,
   getJob,
   listJobs,
+  deleteJob,
+  clearJobs,
   onJobLog,
   onJobStatus,
   onJobProgress,

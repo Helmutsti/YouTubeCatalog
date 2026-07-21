@@ -44,6 +44,8 @@ export const triggerJob = (type, params) =>
   request('/api/jobs', { method: 'POST', body: JSON.stringify({ type, params }) });
 export const listJobs = () => request('/api/jobs');
 export const getJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`);
+export const deleteJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const clearJobs = () => request('/api/jobs', { method: 'DELETE' });
 
 export const reorganizeLibrary = (dryRun) =>
   request('/api/library/reorganize', { method: 'POST', body: JSON.stringify({ dryRun }) });

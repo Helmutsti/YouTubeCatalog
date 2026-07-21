@@ -1,17 +1,27 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { downloadSingle } from '../api/client.js';
 import { STATUS_LABEL } from '../lib/status.js';
+import { useJobStream } from '../hooks/useJobStream.js';
+import { JobHistory } from '../components/JobHistory.jsx';
 
 // Equivalente di "Scarica video singolo" nel CLI: un link incollato, scaricato
 // subito senza passare da una fonte/sync di playlist. Qualunque sito
 // supportato da yt-dlp (YouTube, Rumble, ecc.), non solo YouTube.
+//
+// L'utente resta sulla pagina dopo aver avviato un download (nessun redirect):
+// l'input resta disponibile per accodare altri video, l'avanzamento del job
+// attivo è mostrato con la sola barra di caricamento (niente box di log), e lo
+// storico completo è sempre visibile sotto.
 export function SingleDownloadPage() {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
-  const navigate = useNavigate();
+  const [activeJobId, setActiveJobId] = useState(null);
+  const live = useJobStream(activeJobId);
+
+  const downloading = !!activeJobId && live.status !== 'success' && live.status !== 'failed';
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -22,7 +32,8 @@ export function SingleDownloadPage() {
     try {
       const r = await downloadSingle(url.trim());
       if (r.action === 'download') {
-        navigate(`/jobs?highlight=${r.jobId}`);
+        setActiveJobId(r.jobId);
+        setUrl(''); // l'input resta, pronto per il prossimo link da accodare
         return;
       }
       setResult(r);
@@ -60,7 +71,7 @@ export function SingleDownloadPage() {
             <>"{result.title}" è già in archivio. <Link to={`/videos/${result.videoId}`}>Vai al video</Link></>
           )}
           {result.action === 'already-downloading' && (
-            <>"{result.title}" è già in download. <Link to="/jobs">Vai ai job</Link></>
+            <>"{result.title}" è già in download.</>
           )}
           {result.action === 'already-tracked' && (
             <>
@@ -70,6 +81,19 @@ export function SingleDownloadPage() {
           )}
         </div>
       )}
+
+      {downloading && (
+        <div className="progress-bar" style={{ marginTop: 20 }}>
+          <div style={{ width: `${live.progress ?? 0}%` }}></div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 28 }}>
+        <JobHistory
+          excludeId={downloading ? activeJobId : undefined}
+          refreshKey={`${activeJobId ?? ''}:${live.status ?? ''}`}
+        />
+      </div>
     </>
   );
 }

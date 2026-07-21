@@ -577,6 +577,27 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .job-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .job-thumb-more { font-size: 11px; color: var(--faint); }
 .job-error-inline { font-size: 12px; color: var(--st-failed); margin: -2px 0 10px; }
+.btn-sm { height: 30px; padding: 0 10px; font-size: 12px; gap: 5px; }
+.job-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 7px; flex: none;
+  background: transparent; border: 1px solid transparent; color: var(--faint); cursor: pointer;
+}
+.job-del:hover { color: var(--st-failed); border-color: var(--border); background: var(--panel2); }
+.job-del:disabled { opacity: .5; cursor: default; }
+.hist-head { display: flex; align-items: center; justify-content: space-between; }
+.job-hist { display: flex; align-items: stretch; padding: 0; overflow: hidden; min-height: 76px; }
+.job-hist-cover { flex: none; width: 132px; align-self: stretch; position: relative; overflow: hidden; background: var(--panel2); }
+/* Immagine in posizione assoluta: riempie sempre il box (guidato in altezza dal
+   corpo, non dall'immagine) con object-fit cover, così copertine di dimensioni
+   sorgente diverse risultano tutte uniformi e ritagliate, mai distorte. */
+.job-hist-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.job-hist-cover.empty { display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px; color: var(--faint); font-size: 10.5px; }
+.job-hist-body { flex: 1 1 auto; min-width: 0; padding: 14px 16px; }
+.job-hist-head { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.job-hist-title { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 600; color: #fff; line-height: 1.35; }
+.job-hist-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.job-hist-more { font-size: 11.5px; color: var(--faint); margin-top: 8px; }
 
 /* ===== Sidebar disclosure on mobile ===== */
 .mobile-nav { display: none; }
