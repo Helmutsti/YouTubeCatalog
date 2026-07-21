@@ -5,6 +5,7 @@ import { listVideos, listSources, setHidden, triggerJob, downloadSingle } from '
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { useJobStream } from '../hooks/useJobStream.js';
+import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 
@@ -24,6 +25,7 @@ export function LibraryPage() {
   const [selected, setSelected] = useState(() => new Set());
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
 
   // Aggiunta rapida (M29): incolla un link + checkbox "Download immediato".
   const [addUrl, setAddUrl] = useState('');
@@ -124,7 +126,11 @@ export function LibraryPage() {
         navigate(`/jobs?highlight=${jobId}`);
         return;
       }
-      await setHidden(id, kind === 'hide');
+      if (kind === 'hide') {
+        requestHide((videos ?? []).find((v) => v.id === id));
+        return;
+      }
+      await setHidden(id, false); // unhide
       reload();
     } catch (e) {
       setError(e.message);
@@ -220,6 +226,7 @@ export function LibraryPage() {
           ))}
         </div>
       )}
+      {modal}
     </>
   );
 }

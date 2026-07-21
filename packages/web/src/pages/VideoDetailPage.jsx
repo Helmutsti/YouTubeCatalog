@@ -4,6 +4,7 @@ import { ArrowLeft, Download, EyeOff, Eye, Volume2, Video as VideoIcon, Play, Pi
 import { getVideo, listVideosByChannel, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
+import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 
 const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
@@ -93,6 +94,8 @@ export function VideoDetailPage() {
       .catch(() => setRelated([]));
   }, [video]);
 
+  const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
+
   async function handleAction(kind, label) {
     try {
       if (kind === 'download') {
@@ -100,7 +103,11 @@ export function VideoDetailPage() {
         navigate(`/jobs?highlight=${jobId}`);
         return;
       }
-      await setHidden(id, kind === 'hide');
+      if (kind === 'hide') {
+        requestHide(video);
+        return;
+      }
+      await setHidden(id, false); // unhide
       setNotice(`${label}: fatto.`);
       reload();
     } catch (e) {
@@ -279,6 +286,7 @@ export function VideoDetailPage() {
           </div>
         )}
       </div>
+      {modal}
     </>
   );
 }

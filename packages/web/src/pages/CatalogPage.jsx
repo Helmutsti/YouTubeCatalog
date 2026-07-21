@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { listVideos, setHidden, triggerJob } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
+import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 
@@ -13,6 +14,7 @@ export function CatalogPage() {
   const [channel, setChannel] = useState('');
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
 
   function reload() {
     listVideos().then(setVideos).catch((e) => setError(e.message));
@@ -47,7 +49,8 @@ export function CatalogPage() {
     return sortVideos(list, sort);
   }, [videos, status, channel, sort]);
 
-  // kind: 'download' → scarica subito (job per-video); 'hide'/'unhide' → asse hidden.
+  // kind: 'download' → scarica subito (job per-video); 'hide' → chiede "Vuoi
+  // tenere il video?" se scaricato (M30); 'unhide' → mostra.
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
@@ -55,7 +58,11 @@ export function CatalogPage() {
         navigate(`/jobs?highlight=${jobId}`);
         return;
       }
-      await setHidden(id, kind === 'hide');
+      if (kind === 'hide') {
+        requestHide((videos ?? []).find((v) => v.id === id));
+        return;
+      }
+      await setHidden(id, false); // unhide
       reload();
     } catch (e) {
       setError(e.message);
@@ -89,6 +96,7 @@ export function CatalogPage() {
           ))}
         </div>
       )}
+      {modal}
     </>
   );
 }

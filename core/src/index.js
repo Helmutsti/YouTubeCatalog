@@ -11,7 +11,7 @@ import { playVideo } from './services/playbackService.js';
 import { prepareSingleVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata } from './services/metadataService.js';
 import { searchVideos } from './services/searchService.js';
-import { reorganizeLibrary } from './services/libraryService.js';
+import { reorganizeLibrary, deleteVideoFile } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { loadConfig, getPaths } from './config.js';
 
@@ -60,6 +60,8 @@ export {
   searchVideos,
   // manutenzione archivio: riorganizzazione per creator (layout canonico)
   reorganizeLibrary,
+  // cancella solo il file scaricato (M30), mantenendo la scheda in libreria
+  deleteVideoFile,
   // manutenzione: foto profilo dei canali (M14)
   syncChannelAvatars,
   getChannelAvatarMap,
