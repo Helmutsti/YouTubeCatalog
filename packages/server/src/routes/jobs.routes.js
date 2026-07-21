@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { triggerJob, getJob, listJobs, onJobLog, onJobProgress, onJobStatus } from '@catalog/core';
+import { triggerJob, getJob, listJobs, deleteJob, clearJobs, onJobLog, onJobProgress, onJobStatus } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
 import { toPublicJob, toPublicJobs } from '../lib/publicJob.js';
 
@@ -13,6 +13,17 @@ jobsRouter.get('/jobs', asyncRoute(async (req, res) => {
 jobsRouter.post('/jobs', asyncRoute(async (req, res) => {
   const { type, params } = req.body ?? {};
   res.json(triggerJob(type, params));
+}));
+
+// Svuota lo storico (tutti i job terminati). Registrata prima di
+// "/jobs/:id" cosi' il DELETE senza id non viene catturato dalla rotta con
+// parametro.
+jobsRouter.delete('/jobs', asyncRoute(async (req, res) => {
+  res.json(clearJobs());
+}));
+
+jobsRouter.delete('/jobs/:id', asyncRoute(async (req, res) => {
+  res.json(deleteJob(req.params.id));
 }));
 
 jobsRouter.get('/jobs/:id', asyncRoute(async (req, res) => {

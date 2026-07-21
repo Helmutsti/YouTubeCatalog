@@ -75,7 +75,9 @@ export function getPaths() {
   mkdirSync(videosDir, { recursive: true });
   mkdirSync(thumbnailsDir, { recursive: true });
   mkdirSync(avatarsDir, { recursive: true });
-  mkdirSync(jobsDir, { recursive: true });
+  // Nota: data/jobs/ (vecchio layout "un file per job") NON viene più creata —
+  // lo storico vive in data/jobs.json (jobManager). Il path jobsDir resta
+  // esposto solo per la migrazione una tantum dal vecchio layout, se presente.
 
   const defaultCookiesPath = path.join(CORE_DIR, 'cookies.txt');
   let cookiesPath = null;
