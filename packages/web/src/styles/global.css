@@ -11,8 +11,8 @@
   --faint: #6a6a72;
   --page-bg: #0a0a0b;
 
-  --accent: oklch(0.74 0.15 55);
-  --accent-ink: oklch(0.85 0.09 55);
+  --accent: #9184d9;
+  --accent-ink: #b6ade3;
   --accent-contrast: #111;
 
   /* Stato dei video — palette semantica separata dall'accento del brand
@@ -45,7 +45,7 @@ button { font-family: inherit; }
 img { max-width: 100%; display: block; }
 
 .display, .logo, h1, h2, h3, .card-title, .chip, .btn, .d-title {
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: 'Sora', system-ui, sans-serif;
 }
 
 ::selection { background: var(--accent); color: var(--accent-contrast); }
@@ -76,16 +76,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   z-index: 20;
 }
 .logo {
-  font-weight: 700;
-  font-size: 19px;
-  letter-spacing: -0.01em;
-  color: #fff;
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
 }
-.logo .accent { color: var(--accent); }
+.logo img { height: 22px; width: auto; display: block; }
 
 .search-box {
   flex: 1;
@@ -343,7 +338,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.small { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
 .btn-primary { background: var(--accent); color: var(--accent-contrast); border-color: transparent; }
-.btn-primary:hover { filter: brightness(1.08); }
+/* background esplicito: senza, il generico ".btn:hover" (stessa specificità,
+   ma dichiarato prima) vince e sostituisce lo sfondo colorato con quello
+   scuro quasi nero dei bottoni normali — testo scuro su sfondo scuro,
+   illeggibile. Bug reale segnalato dall'utente, pre-esistente al rebrand. */
+.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
 .btn-danger { color: var(--st-failed); border-color: color-mix(in oklch, var(--st-failed) 45%, transparent); background: transparent; }
 .btn-danger:hover { background: color-mix(in oklch, var(--st-failed) 12%, transparent); }
 .btn-ghost { border-color: transparent; background: var(--panel2); }
