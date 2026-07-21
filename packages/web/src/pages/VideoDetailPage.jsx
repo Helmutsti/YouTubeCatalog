@@ -87,7 +87,9 @@ export function VideoDetailPage() {
 
           <div className="d-row">
             <div className="d-chan">
-              <div className="d-avatar">{channelInitial(video)}</div>
+              <div className="d-avatar">
+                {video.channel?.avatarUrl ? <img className="avatar-photo" src={video.channel.avatarUrl} alt="" /> : channelInitial(video)}
+              </div>
               <div>
                 {key ? (
                   <Link to={`/channels/${encodeURIComponent(key)}`} className="d-chan-name">{video.channel?.name ?? 'Canale sconosciuto'}</Link>

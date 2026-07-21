@@ -1,3 +1,5 @@
+import { channelKey } from '@catalog/core';
+
 // video.localPath/thumbnail.localPath sono percorsi relativi a mediaRoot
 // (possono includere sottocartelle per creator, vedi "Archivio canonico per
 // creator" in documentazione.md). Qui si aggiunge l'URL pronto all'uso per il
@@ -9,10 +11,16 @@ function encodeRelPath(relPath) {
     .join('/');
 }
 
-export function toPublicVideo(video) {
+export function toPublicVideo(video, channelAvatars = {}) {
+  const key = channelKey(video);
+  const avatar = key ? channelAvatars[key] : null;
   return {
     ...video,
     videoUrl: video.video?.localPath ? `/media/videos/${encodeRelPath(video.video.localPath)}` : null,
-    thumbnailUrl: video.thumbnail?.localPath ? `/media/thumbnails/${encodeRelPath(video.thumbnail.localPath)}` : null
+    thumbnailUrl: video.thumbnail?.localPath ? `/media/thumbnails/${encodeRelPath(video.thumbnail.localPath)}` : null,
+    channel: {
+      ...video.channel,
+      avatarUrl: avatar?.localPath ? `/media/avatars/${encodeRelPath(avatar.localPath)}` : null
+    }
   };
 }

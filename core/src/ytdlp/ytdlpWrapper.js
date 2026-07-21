@@ -108,6 +108,53 @@ export async function resolveVideoInfo(url) {
   };
 }
 
+// Risolve la foto profilo di un canale interrogando l'URL del canale stesso
+// (M14): i metadati per-video (mapInfoJsonToVideoFields) non contengono
+// alcun campo avatar (verificato su data/metadata.json reale), quindi serve
+// un'interrogazione dedicata. --playlist-items 0 evita di enumerare i video
+// del canale, economico come getPlaylistEntries.
+export async function resolveChannelAvatar(channelUrl) {
+  const paths = getPaths();
+  const args = [...JS_RUNTIME_ARGS, '--playlist-items', '0', '-J'];
+  if (paths.cookiesPath) args.push('--cookies', paths.cookiesPath);
+  args.push(channelUrl);
+
+  const stdout = await new Promise((resolve, reject) => {
+    const proc = spawn(paths.ytdlpBinaryPath, args);
+    let out = '';
+    let err = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.stderr.on('data', (d) => { err += d.toString(); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(`yt-dlp (risoluzione avatar canale) terminato con codice ${code}: ${err.slice(-500)}`));
+    });
+  });
+
+  const data = JSON.parse(stdout);
+  return { avatarUrl: pickAvatarUrl(data) };
+}
+
+// L'avatar del canale non ha una chiave dedicata: vive dentro l'array
+// "thumbnails" (condiviso con l'immagine banner) taggato con id
+// "avatar_uncropped" — verificato empiricamente contro un canale reale
+// (yt-dlp 2026.07.04). Fallback difensivo su un id che contiene "avatar" per
+// eventuali variazioni future, poi sulla thumbnail quadrata più grande
+// (l'avatar è sempre 1:1, a differenza del banner che è molto più largo che
+// alto) per non restare senza nulla se yt-dlp cambiasse convenzione di id.
+function pickAvatarUrl(data) {
+  const thumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
+  const uncropped = thumbs.find((t) => t.id === 'avatar_uncropped');
+  if (uncropped) return uncropped.url;
+  const avatarLike = thumbs.find((t) => /avatar/i.test(t.id ?? ''));
+  if (avatarLike) return avatarLike.url;
+  const square = thumbs
+    .filter((t) => t.width && t.height && t.width === t.height)
+    .sort((a, b) => b.width - a.width)[0];
+  return square?.url ?? null;
+}
+
 function buildFormatSelector(format, maxHeight) {
   if (!maxHeight) return format;
   // L'esclusione AV1 è un workaround specifico di YouTube (vedi PLAYER_CLIENT_ARGS

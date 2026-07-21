@@ -69,10 +69,12 @@ export function getPaths() {
   const dataDir = path.join(PROJECT_ROOT, 'data');
   const videosDir = path.join(mediaRoot, 'videos');
   const thumbnailsDir = path.join(mediaRoot, 'thumbnails');
+  const avatarsDir = path.join(mediaRoot, 'avatars');
   const jobsDir = path.join(dataDir, 'jobs');
 
   mkdirSync(videosDir, { recursive: true });
   mkdirSync(thumbnailsDir, { recursive: true });
+  mkdirSync(avatarsDir, { recursive: true });
   mkdirSync(jobsDir, { recursive: true });
 
   const defaultCookiesPath = path.join(CORE_DIR, 'cookies.txt');
@@ -90,6 +92,7 @@ export function getPaths() {
     mediaRoot,
     videosDir,
     thumbnailsDir,
+    avatarsDir,
     dataDir,
     catalogPath: path.join(dataDir, 'catalog.json'),
     metadataPath: path.join(dataDir, 'metadata.json'),

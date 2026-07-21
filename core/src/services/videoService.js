@@ -18,7 +18,7 @@ export async function listNew() {
   return listVideos({ status: 'new' });
 }
 
-function channelKey(video) {
+export function channelKey(video) {
   return video.channel?.id ?? video.channel?.name ?? null;
 }
 

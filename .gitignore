@@ -1,7 +1,7 @@
 node_modules/
 dist/
 .claude/
-media/
+/media/
 data/catalog.json
 data/metadata.json
 data/config.json

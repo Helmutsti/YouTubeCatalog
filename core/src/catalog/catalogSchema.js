@@ -12,6 +12,7 @@ export function createEmptyCatalog() {
     version: 1,
     videos: {},
     sources: {},
+    channelAvatars: {},
     meta: { lastUpdated: new Date().toISOString() }
   };
 }

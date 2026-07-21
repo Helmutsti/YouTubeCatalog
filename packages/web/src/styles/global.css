@@ -169,7 +169,13 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   font-size: 10px;
   color: #fff;
   background: #3a2a24;
+  overflow: hidden;
 }
+
+/* Foto profilo reale del canale (M14): riempie il contenitore .avatar/.d-avatar/
+   .chan-avatar già circolare, a qualunque delle tre taglie. Se assente si
+   ricade sull'iniziale-lettera esistente (children testuali del contenitore). */
+.avatar-photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
 
 .main {
   flex: 1;
