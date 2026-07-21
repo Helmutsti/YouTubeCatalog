@@ -25,6 +25,7 @@
   --st-downloaded: oklch(0.72 0.14 145);
   --st-failed: oklch(0.66 0.19 25);
   --st-excluded: #5a5a62;
+  --st-removed: oklch(0.70 0.15 55); /* "rimosso da YouTube" (M25): ambra, distinto dal rosso "fallito" */
 
   --radius-card: 12px;
   --radius-pill: 999px;

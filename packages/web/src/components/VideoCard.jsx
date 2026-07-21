@@ -1,36 +1,36 @@
 import { Link } from 'react-router-dom';
-import { Download, Archive, RotateCcw } from 'lucide-react';
+import { Download, EyeOff, Eye } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
-import { reviewActionsFor } from '../lib/reviewActions.js';
+import { actionsFor } from '../lib/reviewActions.js';
 
-const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
+const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 
 export function VideoCard({ video, onDecide }) {
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
-  const actions = reviewActionsFor(video.status);
+  const actions = actionsFor(video);
   const key = channelKey(video);
 
   return (
-    <div className={`card${video.status === 'excluded' ? ' dimmed' : ''}`}>
+    <div className={`card${video.hidden ? ' dimmed' : ''}`}>
       <Link to={`/videos/${video.id}`} className="thumb">
         {video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" loading="lazy" /> : null}
-        <StatusBadge status={video.status} />
+        <StatusBadge category={video.category} />
         {dur && <div className="dur">{dur}</div>}
         {actions.length > 0 && (
           <div className="card-actions">
             {actions.map((a) => {
-              const Icon = ICONS[a.decision] ?? Download;
+              const Icon = ICONS[a.kind] ?? Download;
               return (
                 <button
-                  key={a.decision}
+                  key={a.kind}
                   className="btn small"
                   title={a.label}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    onDecide(video.id, a.decision);
+                    onDecide(video.id, a.kind);
                   }}
                 >
                   <Icon size={13} />

@@ -1,5 +1,5 @@
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
-import { VIDEO_STATUS } from '../../catalog/catalogSchema.js';
+import { DOWNLOAD_STATE } from '../../catalog/catalogSchema.js';
 import { downloadVideo } from '../../ytdlp/ytdlpWrapper.js';
 
 export async function downloadSingleJob(params, { log, progress }) {
@@ -13,7 +13,8 @@ export async function downloadSingleJob(params, { log, progress }) {
   log(`--- ${videoId}: ${video.title ?? '(titolo sconosciuto)'} ---`);
 
   await updateCatalog((cat) => {
-    cat.videos[videoId].status = VIDEO_STATUS.DOWNLOADING;
+    cat.videos[videoId].download = DOWNLOAD_STATE.DOWNLOADING;
+    cat.videos[videoId].error = null;
     cat.videos[videoId].updatedAt = new Date().toISOString();
   });
 
@@ -21,7 +22,7 @@ export async function downloadSingleJob(params, { log, progress }) {
     const fields = await downloadVideo(videoId, video.webpageUrl, { onLog: log, onProgress: progress });
     await updateCatalog((cat) => {
       Object.assign(cat.videos[videoId], fields, {
-        status: VIDEO_STATUS.DOWNLOADED,
+        download: DOWNLOAD_STATE.DOWNLOADED,
         updatedAt: new Date().toISOString(),
         error: null
       });
@@ -31,7 +32,7 @@ export async function downloadSingleJob(params, { log, progress }) {
   } catch (err) {
     await updateCatalog((cat) => {
       const v = cat.videos[videoId];
-      v.status = VIDEO_STATUS.FAILED;
+      v.download = DOWNLOAD_STATE.FAILED;
       v.attempts = (v.attempts ?? 0) + 1;
       v.error = { message: err.message, occurredAt: new Date().toISOString(), attempts: v.attempts };
       v.updatedAt = new Date().toISOString();

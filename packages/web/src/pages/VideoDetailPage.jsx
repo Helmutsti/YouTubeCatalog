@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, RotateCcw, RefreshCw, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge } from 'lucide-react';
-import { getVideo, listVideosByChannel, decideVideo } from '../api/client.js';
+import { ArrowLeft, Download, EyeOff, Eye, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge } from 'lucide-react';
+import { getVideo, listVideosByChannel, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
-import { reviewActionsFor } from '../lib/reviewActions.js';
+import { actionsFor } from '../lib/reviewActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 
-const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
+const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 
 export function VideoDetailPage() {
@@ -93,10 +93,15 @@ export function VideoDetailPage() {
       .catch(() => setRelated([]));
   }, [video]);
 
-  async function handleDecide(decision, label) {
+  async function handleAction(kind, label) {
     try {
-      await decideVideo(id, decision);
-      setNotice(decision === 'download' ? `Aggiunto alla coda. Vai su Home per avviare il download.` : `${label}: fatto.`);
+      if (kind === 'download') {
+        const { jobId } = await triggerJob('downloadSingle', { videoId: id });
+        navigate(`/jobs?highlight=${jobId}`);
+        return;
+      }
+      await setHidden(id, kind === 'hide');
+      setNotice(`${label}: fatto.`);
       reload();
     } catch (e) {
       setError(e.message);
@@ -114,7 +119,8 @@ export function VideoDetailPage() {
   if (!video) return <div className="empty-state"><span className="spinner"></span></div>;
 
   const key = channelKey(video);
-  const actions = reviewActionsFor(video.status);
+  const actions = actionsFor(video);
+  const isDownloaded = video.download === 'downloaded';
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
 
@@ -141,7 +147,7 @@ export function VideoDetailPage() {
       <div className="detail-body" style={{ marginTop: 16 }}>
         <div className="player-col">
           <div className={`player-frame${audioOnly ? ' audio-only' : ''}`}>
-            {video.status === 'downloaded' && video.videoUrl ? (
+            {isDownloaded && video.videoUrl ? (
               <>
                 <video
                   ref={videoRef}
@@ -159,14 +165,14 @@ export function VideoDetailPage() {
                   </button>
                 )}
               </>
-            ) : video.status === 'downloading' ? (
+            ) : video.download === 'downloading' ? (
               <div className="player-placeholder">
                 <span className="spinner"></span>
                 <span>Download in corso — vedi la <Link to="/jobs">pagina Job</Link> per il log live.</span>
               </div>
             ) : (
               <div className="player-placeholder">
-                <StatusBadge status={video.status} />
+                <StatusBadge category={video.category} />
                 <span>Non ancora disponibile per la riproduzione.</span>
               </div>
             )}
@@ -189,29 +195,29 @@ export function VideoDetailPage() {
               </div>
             </div>
             <div className="d-actions">
-              {video.status === 'downloaded' && (
+              {isDownloaded && (
                 <button className="btn" onClick={() => setAudioOnly((v) => !v)}>
                   {audioOnly ? <VideoIcon size={14} /> : <Volume2 size={14} />}
                   {audioOnly ? 'Video' : 'Solo audio'}
                 </button>
               )}
-              {video.status === 'downloaded' && document.pictureInPictureEnabled && (
+              {isDownloaded && document.pictureInPictureEnabled && (
                 <button className="btn" onClick={togglePiP}>
                   <PictureInPicture2 size={14} />
                   {isPiP ? 'Esci da PiP' : 'Picture in Picture'}
                 </button>
               )}
-              {video.status === 'downloaded' && (
+              {isDownloaded && (
                 <button className="btn" onClick={cycleSpeed} title="Cambia velocità di riproduzione">
                   <Gauge size={14} />
                   {SPEEDS[speedIndex]}x
                 </button>
               )}
               {actions.map((a) => {
-                const Icon = ICONS[a.decision] ?? Download;
-                const cls = a.decision === 'exclude' ? 'btn btn-danger' : a.decision === 'download' ? 'btn btn-primary' : 'btn';
+                const Icon = ICONS[a.kind] ?? Download;
+                const cls = a.kind === 'download' ? 'btn btn-primary' : 'btn';
                 return (
-                  <button key={a.decision} className={cls} onClick={() => handleDecide(a.decision, a.label)}>
+                  <button key={a.kind} className={cls} onClick={() => handleAction(a.kind, a.label)}>
                     <Icon size={14} />
                     {a.label}
                   </button>
@@ -223,7 +229,7 @@ export function VideoDetailPage() {
           {notice && <div className="notice success" style={{ marginTop: 16 }}>{notice}</div>}
           {pipError && <div className="notice error" style={{ marginTop: 16 }}>{pipError}</div>}
 
-          {video.status === 'failed' && video.error && (
+          {video.download === 'failed' && video.error && (
             <div className="notice error" style={{ marginTop: 16 }}>
               Download fallito ({video.attempts} tentativ{video.attempts === 1 ? 'o' : 'i'}): {video.error}
             </div>

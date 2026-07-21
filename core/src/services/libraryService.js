@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync } from 'node:
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
-import { VIDEO_STATUS } from '../catalog/catalogSchema.js';
+import { DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
 
 // Nomi riservati di Windows (case-insensitive): non possono essere usati come
 // nome di file/cartella nemmeno con estensione.
@@ -128,7 +128,7 @@ export async function reorganizeLibrary({ dryRun = false } = {}) {
   let alreadyOk = 0;
 
   for (const video of Object.values(catalog.videos)) {
-    if (video.status !== VIDEO_STATUS.DOWNLOADED) continue;
+    if (video.download !== DOWNLOAD_STATE.DOWNLOADED) continue;
     const current = locateCurrentFile(paths, video);
     if (!current) {
       missing.push(video.id);

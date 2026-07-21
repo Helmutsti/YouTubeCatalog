@@ -1,4 +1,4 @@
-import { channelKey } from '@catalog/core';
+import { channelKey, videoCategory } from '@catalog/core';
 
 // video.localPath/thumbnail.localPath sono percorsi relativi a mediaRoot
 // (possono includere sottocartelle per creator, vedi "Archivio canonico per
@@ -16,6 +16,10 @@ export function toPublicVideo(video, channelAvatars = {}) {
   const avatar = key ? channelAvatars[key] : null;
   return {
     ...video,
+    // Categoria derivata dai flag ortogonali (M25): calcolata nel core, così il
+    // frontend mostra badge/chip/ordina senza reimplementare la regola. I flag
+    // grezzi (presence/download/hidden/removedAt) restano comunque nell'oggetto.
+    category: videoCategory(video),
     videoUrl: video.video?.localPath ? `/media/videos/${encodeRelPath(video.video.localPath)}` : null,
     thumbnailUrl: video.thumbnail?.localPath ? `/media/thumbnails/${encodeRelPath(video.thumbnail.localPath)}` : null,
     channel: {

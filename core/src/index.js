@@ -1,10 +1,11 @@
 import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, clearJobs, onJobLog, onJobStatus, onJobProgress } from './jobs/jobManager.js';
 import { downloadPendingJob } from './jobs/jobs/downloadPending.js';
 import { downloadSingleJob } from './jobs/jobs/downloadSingle.js';
-import { listVideos, getVideo, listNew, listChannels, listVideosByChannel, channelKey } from './services/videoService.js';
+import { listVideos, getVideo, listAvailable, listChannels, listVideosByChannel, channelKey } from './services/videoService.js';
+import { videoCategory, VIDEO_CATEGORY, PRESENCE, DOWNLOAD_STATE } from './catalog/catalogSchema.js';
 import { syncSource } from './services/syncService.js';
 import { listSources, addSource, removeSource } from './services/sourceService.js';
-import { decideVideo } from './services/decisionService.js';
+import { setVideoHidden } from './services/decisionService.js';
 import { playVideo } from './services/playbackService.js';
 import { prepareSingleVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata } from './services/metadataService.js';
@@ -20,17 +21,24 @@ export {
   // catalogo
   listVideos,
   getVideo,
-  listNew,
+  listAvailable,
   listChannels,
   listVideosByChannel,
   channelKey,
+  // derivazione dei flag ortogonali (M25): la regola vive nel core, gli adapter
+  // (server/CLI/web) la consumano invece di reimplementarla
+  videoCategory,
+  VIDEO_CATEGORY,
+  PRESENCE,
+  DOWNLOAD_STATE,
   // fonti (sourcelist)
   listSources,
   addSource,
   removeSource,
-  // sincronizzazione e decisioni
+  // sincronizzazione
   syncSource,
-  decideVideo,
+  // stato: nascondere/mostrare un video (asse `hidden`)
+  setVideoHidden,
   // job (download)
   triggerJob,
   getJob,

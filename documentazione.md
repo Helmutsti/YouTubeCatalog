@@ -570,3 +570,45 @@ Il punto 6 del backlog chiedeva due cose per la pagina "Scarica video singolo": 
 - La verifica visiva/click nel browser **non è stata eseguita in automatico**: in questa sessione non era disponibile alcuno strumento di automazione browser (dichiarato apertamente, non spuntato come fatto).
 
 **Nota operativa**: durante la verifica è emerso che un server era già in ascolto sulla `:3001` con il codice pre-migrazione (la nuova istanza dava `EADDRINUSE` e le richieste colpivano quello vecchio, che mostrava 1 solo job e nessun titolo). È il caso classico del `CLAUDE.md` sui processi da riavviare: **il server e/o CLI già in esecuzione vanno riavviati** per caricare il nuovo `jobManager` e leggere `data/jobs.json`.
+
+## M25 — Modello di stato a flag ortogonali + migrazione
+
+Riscrittura del "punto 1" del progetto (l'area sorgenti + il download), prima tappa di un piano a quattro (M25→M28, vedi `PIANO.md`). Il modello a **singolo `status` lineare** (`new/pending/downloading/downloaded/failed/excluded`) non sapeva esprimere stati che nella realtà **coesistono**: un video può essere insieme "presente su YouTube" *e* "scaricato"; "nascosto" è indipendente dall'essere scaricato. M25 smonta `status` in **assi ortogonali** sullo schema del video.
+
+**Decisione di fondo** (scelta con l'utente tra le opzioni consigliate): tre assi indipendenti invece di un enum unico —
+
+- `presence`: `'present' | 'removed'` (presenza su YouTube, la aggiorneranno le sync in M27) + `removedAt`.
+- `download`: `'none' | 'downloading' | 'downloaded' | 'failed'` (l'ex pipeline di download lato server).
+- `hidden`: booleano ("nascosto", sostituisce l'ex `excluded`).
+
+Il flag `local`/Electron, inizialmente previsto, è stato **rimosso dal piano** su richiesta dell'utente: resta fuori finché non si affronterà quel lato del progetto (lo schema resta comunque estendibile).
+
+**Categoria derivata** (`videoCategory` in `catalogSchema.js`): un unico punto nel core collassa i tre assi in una categoria a una dimensione (`available/downloaded/downloading/failed/hidden/removed`) per le viste/badge/ordinamenti che mostrano un solo indicatore. Priorità: `removed > downloading > failed > hidden > downloaded > available`. Così CLI e web (adapter) **non reimplementano la regola** — la consumano soltanto (principio ribadito dall'utente: la logica vive nel core).
+
+### Core (il grosso del lavoro)
+
+- **`catalogSchema.js`**: nuove costanti `PRESENCE`/`DOWNLOAD_STATE`/`VIDEO_CATEGORY`, `videoCategory()`/`isDownloaded()`, `createNewVideoStub()` ora crea i flag (`present/none/hidden:false`, niente più `status`/`decidedAt`), e `migrateVideoToFlags()` (migrazione idempotente dal vecchio `status`: mappa `downloaded→{present,downloaded}`, `new`/`pending→{present,none}`, `excluded→{present,none,hidden}`, `failed→{present,failed}`, `downloading→{present,none}`; cancella `status`/`decidedAt`).
+- **`catalogStore.js`**: `reconcileOnLoad()` ora migra ogni video ai flag al primo avvio (una tantum, trasparente, stesso pattern di M14/M24) e la reconciliation degli interrotti passa da `downloading→pending` a `downloading→none`.
+- **`decisionService.js`**: `decideVideo` (ciclo new/pending/excluded, rimosso) sostituito da `setVideoHidden(id, hidden)` — l'unico stato "deciso" persistente è ora nascondi/mostra; scaricare è un'azione via job, non una decisione.
+- **`videoService.js`**: `listVideos({presence, download, hidden})` filtra per flag (AND); `listNew()` → `listAvailable()` (present+none+non nascosto); `listChannels`/`listVideosByChannel` filtrano per `{download:'downloaded'}`.
+- **Job**: `downloadSingle.js` usa l'asse `download`; `downloadPending.js` **rifatto** — riceve una lista esplicita `params.videoIds` (la selezione multipla di M28) invece di scansionare lo stato `pending`, che non esiste più.
+- **`singleVideoService.js`**: `prepareSingleVideoDownload(input, { download = true })` — con `download:false` aggiunge solo lo stub `present/none` senza lanciare job (base per il checkbox "Download immediato" di M29); un id già in libreria ma non scaricato ora è scaricabile direttamente (niente più rimando a "Rivedi novità").
+- **`playbackService.js`**/**`libraryService.js`**/**`syncService.js`**/**`channelAvatarService.js`**: adeguati all'asse `download` (guarigione file sparito: `downloaded→none`).
+- **`index.js`**: esporta `setVideoHidden`, `listAvailable`, `videoCategory`, `VIDEO_CATEGORY`, `PRESENCE`, `DOWNLOAD_STATE`; rimossi `decideVideo`/`listNew`.
+
+### Adapter (server → web → CLI)
+
+- **Server**: `publicVideo.js` aggiunge `category` (derivata nel core) a ogni video, oltre ai flag grezzi già presenti; `videos.routes.js` — `/videos` non filtra più server-side (il frontend filtra per categoria), nuovo `POST /videos/:id/hidden` al posto di `/decision`, `/videos/download-single` accetta `download` (default true), `listNew`→`listAvailable`.
+- **Web**: `lib/status.js` riscritto per **categorie** (`CATEGORY_ORDER/LABEL/LABEL_PLURAL/PRIORITY/COLOR_VAR`), nuovo colore `--st-removed` (ambra); `lib/reviewActions.js` → `actionsFor(video)` che deriva le azioni dai flag (`download`/`hide`/`unhide`); `StatusBadge`/`StatusChips` per categoria; `VideoCard`/`CatalogPage`/`SearchPage`/`VideoDetailPage` usano `video.category` e le nuove azioni (icone `Download`/`EyeOff`/`Eye`); rimosso il banner "Scarica in coda" (niente più coda pending); `SingleDownloadPage` senza il ramo `already-tracked`, con i nuovi esiti `added`/`already-present`.
+- **CLI** (`cli.js`): mappe icona/etichetta per categoria (via `core.videoCategory`), `cliActions(video)` deriva le azioni dai flag, `applyReviewDecision` scarica direttamente (job) o nasconde/mostra, `runDownloadQueue` raccoglie gli id `available`/`failed` e li passa a `downloadPending({videoIds})`, `catalogFlow` filtra per categoria.
+
+### Verifica end-to-end reale eseguita
+
+- **Migrazione sintetica**: tutte e sei le vecchie categorie mappate correttamente ai flag + categoria derivata; idempotente al secondo giro; `createNewVideoStub` genera i nuovi flag e non i vecchi campi.
+- **Migrazione reale sul catalogo dell'utente** (backup `data/catalog.backup-M25-*.json` fatto prima): **64/64 video migrati, 0 residui `status`/`decidedAt`, stessi id, 3 sorgenti intatte**, tutti categoria `downloaded`, schema conforme al 100%. Conteggio prima/dopo invariato.
+- **Operazioni core**: `setVideoHidden` reale (categoria `downloaded↔hidden`) con ripristino; `prepareSingleVideoDownload(download:false)` su id già scaricato → `already-downloaded` senza mutazioni.
+- **Server (istanza di test su :3002, per non toccare quella dell'utente su :3001)**: `GET /api/videos` porta `category`+flag e nessun `status`; `POST /videos/:id/hidden` commuta correttamente; `download-single {download:false}` su già scaricato → `already-downloaded`; `/channels` ok.
+- **Build**: build di produzione web pulita; `node --check` su tutti i file core/server/cli toccati.
+- **Non eseguito**: la verifica visiva/click nel browser a stack completo — il server dell'utente occupava la `:3001` con codice pre-M25 (dichiarato apertamente, non spuntato come fatto). L'API e la build sono verificate; l'UI renderizzata no.
+
+**Nota operativa (concorrenza `CLAUDE.md`)**: durante la verifica un server era già in ascolto sulla `:3001` con il **codice pre-M25** e il **catalogo in memoria pre-migrazione**. Va **riavviato** per caricare il codice M25 e il catalogo migrato. Nessun rischio di perdita dati: la migrazione è idempotente e rieseguita a ogni avvio del codice nuovo — se il vecchio server riscrivesse lo schema vecchio nel frattempo, il riavvio lo ri-migra. Il file di backup resta in `data/` finché l'utente non lo rimuove.

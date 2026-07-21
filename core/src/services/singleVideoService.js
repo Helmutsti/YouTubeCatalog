@@ -1,5 +1,5 @@
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
-import { createNewVideoStub, VIDEO_STATUS } from '../catalog/catalogSchema.js';
+import { createNewVideoStub, DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
 import { resolveVideoInfo } from '../ytdlp/ytdlpWrapper.js';
 
 const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
@@ -22,13 +22,18 @@ function normalizeToUrl(input) {
   }
 }
 
-// Prepara il download one-off di un singolo video, senza passare da una fonte
+// Aggiunge un singolo video da un link, senza passare da una fonte
 // (sourcelist/sync di playlist). Accetta qualunque sito supportato da yt-dlp
 // (YouTube, Rumble, ecc.) — l'id/titolo/canale vengono risolti da yt-dlp
-// stesso, non indovinati con un regex specifico di YouTube. Non scarica
-// direttamente: il chiamante, se action === 'download', lancia il job già
-// esistente 'downloadSingle'.
-export async function prepareSingleVideoDownload(input) {
+// stesso, non indovinati con un regex specifico di YouTube.
+//
+// opts.download (default true): se true il video va scaricato subito (il
+// chiamante, ricevuto action === 'download', lancia il job 'downloadSingle');
+// se false il video viene solo AGGIUNTO alla libreria (stub present/none,
+// nessun job) — è il caso "Download immediato" NON spuntato di M29, reso
+// possibile dal modello a flag (un video può esistere "presente ma non
+// scaricato"). Non crea mai una fonte: nessuna sync enumererà mai questo id.
+export async function prepareSingleVideoDownload(input, { download = true } = {}) {
   const url = normalizeToUrl(input);
   if (!url) {
     throw new Error('URL non riconosciuto: incolla un link (YouTube, Rumble o un altro sito supportato da yt-dlp) oppure un id YouTube di 11 caratteri.');
@@ -43,15 +48,16 @@ export async function prepareSingleVideoDownload(input) {
   const existing = catalog.videos[info.id];
 
   if (existing) {
-    if (existing.status === VIDEO_STATUS.DOWNLOADED) {
+    if (existing.download === DOWNLOAD_STATE.DOWNLOADED) {
       return { videoId: info.id, action: 'already-downloaded', title: existing.title };
     }
-    if (existing.status === VIDEO_STATUS.DOWNLOADING) {
+    if (existing.download === DOWNLOAD_STATE.DOWNLOADING) {
       return { videoId: info.id, action: 'already-downloading', title: existing.title };
     }
-    // new/pending/failed/excluded: già tracciato tramite una fonte esistente,
-    // la revisione va fatta da "Rivedi novità", non forzata da qui.
-    return { videoId: info.id, action: 'already-tracked', status: existing.status, title: existing.title };
+    // Già in libreria ma non scaricato: se richiesto, si scarica direttamente
+    // (niente più "vai a Rivedi novità" — quel ciclo non esiste più); altrimenti
+    // è già presente e non c'è nulla da aggiungere.
+    return { videoId: info.id, action: download ? 'download' : 'already-present', title: existing.title };
   }
 
   await updateCatalog((cat) => {
@@ -65,12 +71,10 @@ export async function prepareSingleVideoDownload(input) {
       originalUrl: url,
       extractor: info.extractor
     });
-    stub.status = VIDEO_STATUS.PENDING;
     // Mai legato a una fonte: nessuna sync di playlist enumererà mai questo id.
     stub.source = { sourceId: null, type: 'single' };
-    stub.decidedAt = new Date().toISOString();
     cat.videos[info.id] = stub;
   });
 
-  return { videoId: info.id, action: 'download', title: info.title };
+  return { videoId: info.id, action: download ? 'download' : 'added', title: info.title };
 }

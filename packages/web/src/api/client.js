@@ -21,18 +21,21 @@ function qs(params = {}) {
   return `?${new URLSearchParams(entries).toString()}`;
 }
 
-export const listVideos = (status) => request(`/api/videos${qs({ status })}`);
+export const listVideos = () => request('/api/videos');
 export const getVideo = (id) => request(`/api/videos/${encodeURIComponent(id)}`);
-export const decideVideo = (id, decision) =>
-  request(`/api/videos/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify({ decision }) });
-export const downloadSingle = (url) =>
-  request('/api/videos/download-single', { method: 'POST', body: JSON.stringify({ url }) });
+// Nasconde/mostra un video (asse `hidden` del modello a flag, M25).
+export const setHidden = (id, hidden) =>
+  request(`/api/videos/${encodeURIComponent(id)}/hidden`, { method: 'POST', body: JSON.stringify({ hidden }) });
+// download:false → aggiunge solo il video alla libreria senza scaricarlo
+// (checkbox "Download immediato" non spuntato, M29). Default: scarica subito.
+export const downloadSingle = (url, download = true) =>
+  request('/api/videos/download-single', { method: 'POST', body: JSON.stringify({ url, download }) });
 
 export const searchVideos = (q, limit) => request(`/api/search${qs({ q, limit })}`);
 
-export const listChannels = (status) => request(`/api/channels${qs({ status })}`);
-export const listVideosByChannel = (key, status) =>
-  request(`/api/channels/${encodeURIComponent(key)}/videos${qs({ status })}`);
+export const listChannels = () => request('/api/channels');
+export const listVideosByChannel = (key) =>
+  request(`/api/channels/${encodeURIComponent(key)}/videos`);
 
 export const listSources = () => request('/api/sources');
 export const addSource = (url) => request('/api/sources', { method: 'POST', body: JSON.stringify({ url }) });

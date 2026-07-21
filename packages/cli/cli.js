@@ -156,30 +156,25 @@ async function syncFlow() {
   setMessage('\n' + lines.join('\n') + '\n');
 }
 
-const REVIEW_STATUS_ICON = { new: '🆕', pending: '⬇️ ', excluded: '🗄️ ', failed: '⚠️ ' };
-const REVIEW_STATUS_LABEL = { new: 'nuovo', pending: 'in coda', excluded: 'archiviato', failed: 'fallito' };
+// Modello a flag ortogonali (M25): la categoria a una dimensione arriva dal
+// core (core.videoCategory), qui si mappano solo icona ed etichetta testuale.
+const CATEGORY_ICON = { available: '🆕', downloading: '⏳ ', downloaded: '✅ ', failed: '⚠️ ', hidden: '🗄️ ', removed: '❌ ' };
+const CATEGORY_LABEL = { available: 'su YouTube', downloading: 'in download', downloaded: 'scaricato', failed: 'fallito', hidden: 'nascosto', removed: 'rimosso' };
 
-// Azioni valide per stato attuale: da new si decide, da pending/excluded/failed si
-// può sia cambiare idea (tornare a "nuovo") sia spostarsi direttamente all'altro esito.
-const REVIEW_ACTIONS_BY_STATUS = {
-  new: [
-    { name: 'Scarica', value: 'download' },
-    { name: 'Archivia', value: 'exclude' }
-  ],
-  pending: [
-    { name: 'Archivia', value: 'exclude' },
-    { name: 'Rimetti tra le novità (annulla decisione)', value: 'undecided' }
-  ],
-  excluded: [
-    { name: 'Scarica', value: 'download' },
-    { name: 'Rimetti tra le novità (annulla decisione)', value: 'undecided' }
-  ],
-  failed: [
-    { name: 'Riprova (rimette in coda)', value: 'download' },
-    { name: 'Archivia', value: 'exclude' },
-    { name: 'Rimetti tra le novità (annulla decisione)', value: 'undecided' }
-  ]
-};
+// Categorie che compaiono nella vista di revisione/gestione: tutto ciò che non è
+// già scaricato o in download (quindi su cui ha senso agire: scaricare/nascondere).
+const REVIEW_CATEGORIES = new Set(['available', 'failed', 'hidden', 'removed']);
+
+// Azioni per-video derivate dai flag (equivalente CLI di lib/reviewActions.js del
+// web): scaricare se non già scaricato/in corso; nascondere o mostrare.
+function cliActions(video) {
+  const actions = [];
+  if (video.download !== 'downloaded' && video.download !== 'downloading') {
+    actions.push({ name: video.download === 'failed' ? 'Riprova (scarica)' : 'Scarica', value: 'download' });
+  }
+  actions.push(video.hidden ? { name: 'Mostra', value: 'unhide' } : { name: 'Nascondi', value: 'hide' });
+  return actions;
+}
 
 const DOWNLOAD_QUEUE = '__download_queue__';
 
@@ -197,38 +192,48 @@ async function runJobToCompletion(jobId) {
 }
 
 // Estratta da reviewFlow per essere riusata anche da searchFlow: mostra le
-// azioni valide per lo stato attuale di un video "in revisione" (new/pending/
-// excluded/failed) e applica la decisione scelta.
+// azioni derivate dai flag del video (scarica / nascondi / mostra) e le applica.
 async function applyReviewDecision(video) {
-  if (video.status === 'failed' && video.error?.message) {
+  if (video.download === 'failed' && video.error?.message) {
     console.log(`\n⚠️  Errore: ${video.error.message}\n`);
   }
   const decision = await select({
-    message: `${displayTitle(video)} (attuale: ${REVIEW_STATUS_LABEL[video.status]})`,
-    choices: [...REVIEW_ACTIONS_BY_STATUS[video.status], { name: '← Torna alla lista', value: BACK }]
+    message: `${displayTitle(video)} (attuale: ${CATEGORY_LABEL[core.videoCategory(video)]})`,
+    choices: [...cliActions(video), { name: '← Torna alla lista', value: BACK }]
   });
   if (decision === BACK) return;
 
-  await core.decideVideo(video.id, decision);
-  const outcome = { download: 'in coda per il download', exclude: 'archiviato', undecided: 'rimesso tra le novità' }[decision];
-  setMessage(`\n✔ "${displayTitle(video)}" → ${outcome}.\n`);
+  if (decision === 'download') {
+    const { jobId } = core.triggerJob('downloadSingle', { videoId: video.id });
+    console.log('');
+    const job = await runJobToCompletion(jobId);
+    setMessage(job.status === 'failed' ? `\n✘ Download fallito: ${job.error?.message}\n` : `\n✔ "${displayTitle(video)}" scaricato.\n`);
+    return;
+  }
+
+  await core.setVideoHidden(video.id, decision === 'hide');
+  setMessage(`\n✔ "${displayTitle(video)}" → ${decision === 'hide' ? 'nascosto' : 'mostrato'}.\n`);
 }
 
+// Scarica in blocco tutti i video "disponibili" o "falliti" (non ancora
+// scaricati): raccoglie gli id e li passa al job downloadPending, che ora opera
+// su una lista esplicita invece che sul vecchio stato "pending".
 async function runDownloadQueue() {
-  const config = core.loadConfig();
-  const maxAttempts = config.jobs.maxAttempts;
   const all = await core.listVideos();
-  const queued = all.filter((v) => v.status === 'pending' || (v.status === 'failed' && v.attempts < maxAttempts));
+  const queued = all.filter((v) => {
+    const c = core.videoCategory(v);
+    return c === 'available' || c === 'failed';
+  });
 
   if (queued.length === 0) {
-    setMessage('\nNessun video in coda.\n');
+    setMessage('\nNessun video da scaricare.\n');
     return;
   }
 
   const proceed = await confirm({ message: `Scaricare ${queued.length} video ora?`, default: true });
   if (!proceed) return;
 
-  const { jobId } = core.triggerJob('downloadPending', {});
+  const { jobId } = core.triggerJob('downloadPending', { videoIds: queued.map((v) => v.id) });
   console.log('');
   const job = await runJobToCompletion(jobId);
   if (job.status === 'failed') {
@@ -257,10 +262,6 @@ async function singleDownloadFlow() {
     setMessage(`\n"${result.title ?? result.videoId}" è già in download in questo momento.\n`);
     return;
   }
-  if (result.action === 'already-tracked') {
-    setMessage(`\nQuesto video è già tracciato (stato: ${result.status}) tramite una fonte esistente — usa "Rivedi novità" per deciderlo.\n`);
-    return;
-  }
 
   const { jobId } = core.triggerJob('downloadSingle', { videoId: result.videoId });
   console.log('');
@@ -277,26 +278,24 @@ async function singleDownloadFlow() {
 async function reviewFlow() {
   while (true) {
     clearScreen();
-    const maxAttempts = core.loadConfig().jobs.maxAttempts;
-    const relevant = (await core.listVideos()).filter((v) => v.status in REVIEW_STATUS_ICON);
-    // Stesso criterio di idoneità usato dal job downloadPending: un "failed" con
-    // tentativi esauriti non parte da solo, ma resta comunque visibile/rivedibile
-    // qui sopra (l'utente può comunque scegliere "Riprova" manualmente).
-    const queuedCount = relevant.filter(
-      (v) => v.status === 'pending' || (v.status === 'failed' && v.attempts < maxAttempts)
-    ).length;
+    const relevant = (await core.listVideos()).filter((v) => REVIEW_CATEGORIES.has(core.videoCategory(v)));
+    // Video scaricabili in blocco: disponibili o falliti (non ancora scaricati).
+    const queuedCount = relevant.filter((v) => {
+      const c = core.videoCategory(v);
+      return c === 'available' || c === 'failed';
+    }).length;
 
     if (relevant.length === 0) {
-      setMessage('\nNessuna novità da rivedere e nessun video in coda al momento.\n');
+      setMessage('\nNessun video da rivedere al momento.\n');
       return;
     }
 
     const choice = await select({
       message: `Rivedi novità (${relevant.length})`,
       choices: [
-        ...(queuedCount > 0 ? [{ name: `▶ Scarica in coda (${queuedCount})`, value: DOWNLOAD_QUEUE }] : []),
+        ...(queuedCount > 0 ? [{ name: `▶ Scarica in blocco (${queuedCount})`, value: DOWNLOAD_QUEUE }] : []),
         ...relevant.map((v) => ({
-          name: `${REVIEW_STATUS_ICON[v.status]} ${displayTitle(v)} — ${v.channel?.name ?? 'creator sconosciuto'}`,
+          name: `${CATEGORY_ICON[core.videoCategory(v)]} ${displayTitle(v)} — ${v.channel?.name ?? 'creator sconosciuto'}`,
           value: v.id
         })),
         { name: '← Torna al menu principale', value: BACK }
@@ -333,7 +332,7 @@ async function playVideoWithModeChoice(video) {
 async function watchChannelFlow(channelKey) {
   while (true) {
     clearScreen();
-    const videos = await core.listVideosByChannel(channelKey, { status: 'downloaded' });
+    const videos = await core.listVideosByChannel(channelKey, { download: 'downloaded' });
     if (videos.length === 0) return;
 
     const channelName = videos[0].channel?.name ?? 'Creator';
@@ -357,7 +356,7 @@ async function watchChannelFlow(channelKey) {
 async function watchFlow() {
   while (true) {
     clearScreen();
-    const channels = await core.listChannels({ status: 'downloaded' });
+    const channels = await core.listChannels({ download: 'downloaded' });
     if (channels.length === 0) {
       setMessage('\nNessun video scaricato ancora.\n');
       return;
@@ -376,28 +375,17 @@ async function watchFlow() {
   }
 }
 
-const ALL_STATUS_ICON = { new: '🆕', pending: '⬇️ ', downloading: '⏳ ', downloaded: '✅ ', failed: '⚠️ ', excluded: '🗄️ ' };
-const ALL_STATUS_LABEL_INLINE = {
-  new: 'nuovo',
-  pending: 'in coda',
-  downloading: 'in download',
-  downloaded: 'scaricato',
-  failed: 'fallito',
-  excluded: 'archiviato'
-};
-
 // Mostra le azioni disponibili per un video trovato dalla ricerca, a seconda
-// del suo stato attuale: riusa le stesse funzioni di "Rivedi novità" (per
-// new/pending/excluded/failed) e "Guarda" (per downloaded) — nessuna logica
-// nuova, solo un punto d'accesso in più alle stesse azioni già testate.
+// dei suoi flag: riusa "Guarda" (per gli scaricati) e la revisione (per gli
+// altri) — nessuna logica nuova, solo un punto d'accesso in più.
 async function presentSearchResultActions(videoId) {
   const video = await core.getVideo(videoId);
-  if (video.status === 'downloaded') {
+  if (video.download === 'downloaded') {
     await playVideoWithModeChoice(video);
-  } else if (video.status in REVIEW_ACTIONS_BY_STATUS) {
-    await applyReviewDecision(video);
-  } else {
+  } else if (video.download === 'downloading') {
     setMessage(`\n"${displayTitle(video)}" è attualmente in download: nessuna azione disponibile ora.\n`);
+  } else {
+    await applyReviewDecision(video);
   }
 }
 
@@ -411,10 +399,13 @@ async function searchFlow() {
           return [{ name: '← Torna al menu principale (digita per cercare)', value: BACK }];
         }
         const results = await core.searchVideos(term);
-        const choices = results.map((v) => ({
-          name: `${ALL_STATUS_ICON[v.status] ?? ''}${displayTitle(v)} — ${v.channel?.name ?? 'creator sconosciuto'} (${ALL_STATUS_LABEL_INLINE[v.status] ?? v.status})`,
-          value: v.id
-        }));
+        const choices = results.map((v) => {
+          const c = core.videoCategory(v);
+          return {
+            name: `${CATEGORY_ICON[c] ?? ''}${displayTitle(v)} — ${v.channel?.name ?? 'creator sconosciuto'} (${CATEGORY_LABEL[c] ?? c})`,
+            value: v.id
+          };
+        });
         choices.push({ name: '← Torna al menu principale', value: BACK });
         return choices;
       }
@@ -425,32 +416,33 @@ async function searchFlow() {
   }
 }
 
-const STATUS_LABELS = {
+const CATEGORY_LABELS_PLURAL = {
   __all__: 'Tutti',
-  new: 'Nuovi',
-  pending: 'In coda',
+  available: 'Su YouTube',
   downloading: 'In download',
   downloaded: 'Scaricati',
   failed: 'Falliti',
-  excluded: 'Archiviati'
+  hidden: 'Nascosti',
+  removed: 'Rimossi'
 };
 
 async function catalogFlow() {
-  const statusKey = await select({
-    message: 'Catalogo — filtra per stato',
+  const categoryKey = await select({
+    message: 'Catalogo — filtra per categoria',
     choices: [
-      ...Object.entries(STATUS_LABELS).map(([value, name]) => ({ name, value })),
+      ...Object.entries(CATEGORY_LABELS_PLURAL).map(([value, name]) => ({ name, value })),
       { name: '← Torna', value: BACK }
     ]
   });
-  if (statusKey === BACK) return;
+  if (categoryKey === BACK) return;
 
-  const videos = statusKey === '__all__' ? await core.listVideos() : await core.listVideos({ status: statusKey });
+  const all = await core.listVideos();
+  const videos = categoryKey === '__all__' ? all : all.filter((v) => core.videoCategory(v) === categoryKey);
   if (videos.length === 0) {
-    setMessage('\nNessun video in questo stato.\n');
+    setMessage('\nNessun video in questa categoria.\n');
     return;
   }
-  const lines = videos.map((v) => `[${v.status}] ${displayTitle(v)} — ${v.channel?.name ?? '?'}`);
+  const lines = videos.map((v) => `[${core.videoCategory(v)}] ${displayTitle(v)} — ${v.channel?.name ?? '?'}`);
   setMessage('\n' + lines.join('\n') + '\n');
 }
 
