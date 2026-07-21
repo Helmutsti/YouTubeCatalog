@@ -448,3 +448,28 @@ Ritagliate due funzionalità concrete dai punti aperti 4 (player nativo) e 9 (an
 - Picture-in-Picture: click reale sul pulsante con il video in riproduzione → `document.pictureInPictureElement` popolato, pulsante cambia in "Esci da PiP"; click su "Esci da PiP" → ritorno al player principale, pulsante torna a "Picture in Picture". Round-trip completo verificato.
 - Caso limite (PiP cliccato prima di aver mai premuto play) verificato **non più** rompere la pagina (nessun errore a piena pagina) dopo il fix — la verifica del successo effettivo dell'attivazione PiP in questo caso specifico è stata bloccata da una limitazione dell'ambiente di automazione (la tab del browser non risultava mai "visibile" a livello di sistema operativo durante l'automazione, quindi il browser non precarica mai i metadati indipendentemente da `preload`) — confermato però via `javascript_tool` che una chiamata diretta a `.play()` sullo stesso elemento fa salire `readyState` a 4 immediatamente, quindi il meccanismo di attesa non è mai realisticamente bloccante per un utente reale con la tab effettivamente aperta e visibile.
 - Build di produzione pulita dopo ogni modifica.
+
+## M17 — Rebrand: nome "Ondo", nuovo logo, colore d'accento
+
+L'utente ha fornito un pacchetto di loghi pronto (`loghi.zip`, cartella `logo-ondo/`) con nome, icona, wordmark e colore già decisi — a differenza delle milestone precedenti (M14/M15/M16), qui non è servito uno scoping per definire il *cosa*, solo per due dettagli di applicazione lasciati aperti dal pacchetto.
+
+**Contenuto del pacchetto**: wordmark "Ondo" (icona play-triangle + tre barre "waveform" verticali, a tema con un catalogo video/audio) in due varianti (fondo chiaro/scuro), icona da sola, app icon 512×512 con tessera arrotondata. Font indicato: **Sora 700**. Colore accento: **blurple**, `#9184d9` (variante per fondi scuri) / `#7b6fd0` (fondi chiari) — dato che l'app non ha mai avuto una modalità chiara (`--accent` è un'unica variabile, nessun `prefers-color-scheme`/`data-theme` nel CSS), si è usata la variante scura ovunque.
+
+**Unico punto chiarito con l'utente**: il pacchetto logo usa Sora, il resto del sito usava ancora "Space Grotesk" (già segnalato poco leggibile nel punto 6 del backlog, mai affrontato a parte). L'utente ha scelto di sostituire Space Grotesk con Sora **in tutta l'interfaccia**, non solo nel logo — chiude quindi anche il punto 6 come effetto collaterale voluto, non un'estensione di scope non richiesta.
+
+**Implementazione**:
+- Copiati due SVG in una nuova `packages/web/public/` (cartella non esisteva ancora, convenzione Vite per asset statici serviti alla radice): `ondo-logo.svg` (wordmark, variante scura) e `favicon.svg` (app icon, variante scura) — **prima non esisteva alcun favicon**, colmato un buco.
+- `index.html`: `<title>` da "Vídeon" (nome pre-esistente, inconsistente col testo "CINÉ." mostrato nel logo — un disallineamento che si è chiuso da sé col rebrand) a "Ondo"; aggiunto `<link rel="icon">`; sostituito il link Google Fonts da Space Grotesk a Sora.
+- `Layout.jsx`: il testo hardcoded `CINÉ<span className="accent">.</span>` sostituito con `<img src="/ondo-logo.svg">`.
+- `global.css`: `--accent`/`--accent-ink` da `oklch(...)` (arancione) agli hex esatti del pacchetto; `font-family` dei titoli/bottoni/chip da Space Grotesk a Sora; classe `.logo` ridisegnata per un'immagine invece che testo (rimossi `font-weight`/`font-size`/`color`, aggiunta `.logo img { height: 22px }`), rimossa `.logo .accent` (non più necessaria).
+- Nessuna modifica alla CLI (nessun riferimento testuale al brand, confermato via ricerca nel repo) né ai nomi dei package npm (`@catalog/web`, ecc. — identificatori interni, non testo visibile, stessa filosofia già seguita in M15 per "canali"→"creator").
+
+**Verifica eseguita**: build di produzione pulita (asset di `public/` copiati correttamente in `dist/`); nel browser reale — titolo scheda "Ondo", `GET /favicon.svg` → `200`/`image/svg+xml`, logo renderizzato nitido con Sora, colore d'accento confermato sia via `getComputedStyle(document.documentElement).getPropertyValue('--accent')` (`#9184d9`) sia visivamente su un pulsante primario reale.
+
+### Bug reale trovato e corretto durante la verifica (pre-esistente, non introdotto da M17)
+
+L'utente ha segnalato: "i bottoni in hover spariscono e diventano neri". Non riproducibile sui pulsanti normali (`Sincronizza tutte`, icone sync/elimina, sidebar) testati nel browser reale — tutti restavano leggibili. Chiesto all'utente di precisare: il problema riguardava specificamente i pulsanti **con sfondo colorato ad accento** (`.btn-primary`, es. "+ Aggiungi").
+
+**Causa** (letta nel CSS, non indovinata): `.btn-primary { background: var(--accent); color: var(--accent-contrast) }` allo stato normale, ma la regola generica `.btn:hover { background: var(--panel2) }` (dichiarata prima nel file, stessa specificità: una classe + uno pseudo-elemento) **vince** in hover perché `.btn-primary:hover` non ridichiarava `background` — solo `filter: brightness(1.08)`. Risultato: sfondo che passa dal viola al quasi-nero di `--panel2` (`#18181c`), mentre il testo resta `--accent-contrast` (`#111`, quasi nero anch'esso, pensato per stare su un fondo chiaro) — testo scuro su sfondo scuro, illeggibile. Il bug esisteva **anche prima del rebrand** (stessa struttura CSS con l'accento arancione), solo mai notato/segnalato finora.
+
+Corretto aggiungendo `background: var(--accent);` esplicito a `.btn-primary:hover`, così vince sulla regola generica indipendentemente dall'ordine nel file. Verificato nel browser reale: il pulsante "+ Aggiungi" resta viola e leggibile passando il mouse sopra.

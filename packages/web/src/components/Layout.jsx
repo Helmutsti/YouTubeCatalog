@@ -28,7 +28,7 @@ export function Layout() {
   return (
     <div className="shell">
       <header className="topbar">
-        <Link to="/" className="logo">CINÉ<span className="accent">.</span></Link>
+        <Link to="/" className="logo"><img src="/ondo-logo.svg" alt="Ondo" /></Link>
         <form className="search-box" onSubmit={submitSearch}>
           <Search size={16} />
           <input
