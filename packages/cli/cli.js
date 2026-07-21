@@ -58,16 +58,27 @@ function clearScreen() {
   }
 }
 
+// Fase 2 dell'ingest (M26): arricchisce i metadati completi + copertine in
+// background via il job enrichSource, mostrando il log live. Riusa
+// runJobToCompletion (hoisted). sourceId omesso => arricchisce tutti i pendenti.
+async function enrichAfterIngest(sourceId) {
+  const { jobId } = core.triggerJob('enrichSource', sourceId ? { sourceId } : {});
+  console.log('\nArricchimento metadati e copertine...\n');
+  const job = await runJobToCompletion(jobId);
+  const s = job.summary ?? {};
+  setMessage(`\n✔ Arricchimento: ${s.enriched ?? 0} completati${s.failed ? `, ${s.failed} falliti` : ''}.\n`);
+}
+
 async function addSourceFlow() {
   const url = await input({ message: 'URL della playlist YouTube:' });
   const result = await core.addSource(url);
   if (result.alreadyExists) {
     setMessage(`\nLa fonte "${result.name}" è già presente.\n`);
-  } else if (result.newCount > 0) {
-    setMessage(
-      `\n✔ Aggiunta "${result.name}" — ${result.newCount} video trovati come novità.\n` +
-        `  → Vai su "Rivedi novità" dal menu principale per deciderli (non serve "Sincronizza": è già stato fatto ora).\n`
-    );
+    return;
+  }
+  if (result.newCount > 0) {
+    console.log(`\n✔ Aggiunta "${result.name}" — ${result.newCount} video trovati.`);
+    await enrichAfterIngest(result.sourceId);
   } else {
     setMessage(`\n✔ Aggiunta "${result.name}" — nessun video trovato nella playlist.\n`);
   }
@@ -148,12 +159,12 @@ async function syncFlow() {
   if (choice === BACK) return;
 
   const targets = choice === '__all__' ? sources : sources.filter((s) => s.id === choice);
-  const lines = [];
   for (const source of targets) {
     const result = await core.syncSource(source.id);
-    lines.push(`${source.name}: ${result.newCount} novità, ${result.healedCount} auto-riparati.`);
+    console.log(`${source.name}: ${result.newCount} novità, ${result.healedCount} auto-riparati.`);
   }
-  setMessage('\n' + lines.join('\n') + '\n');
+  // Fase 2: arricchimento (tutti i pendenti se "tutte le fonti", altrimenti la singola).
+  await enrichAfterIngest(choice === '__all__' ? null : choice);
 }
 
 // Modello a flag ortogonali (M25): la categoria a una dimensione arriva dal

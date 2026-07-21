@@ -1,6 +1,7 @@
 import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, clearJobs, onJobLog, onJobStatus, onJobProgress } from './jobs/jobManager.js';
 import { downloadPendingJob } from './jobs/jobs/downloadPending.js';
 import { downloadSingleJob } from './jobs/jobs/downloadSingle.js';
+import { enrichSourceJob } from './jobs/jobs/enrichSource.js';
 import { listVideos, getVideo, listAvailable, listChannels, listVideosByChannel, channelKey } from './services/videoService.js';
 import { videoCategory, VIDEO_CATEGORY, PRESENCE, DOWNLOAD_STATE } from './catalog/catalogSchema.js';
 import { syncSource } from './services/syncService.js';
@@ -16,6 +17,7 @@ import { loadConfig, getPaths } from './config.js';
 
 registerJobHandler('downloadPending', downloadPendingJob);
 registerJobHandler('downloadSingle', downloadSingleJob);
+registerJobHandler('enrichSource', enrichSourceJob);
 
 export {
   // catalogo

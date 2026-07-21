@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Plus, ImageIcon } from 'lucide-react';
 import { listSources, addSource, removeSource, syncSources, syncChannelAvatars } from '../api/client.js';
+import { useJobStream } from '../hooks/useJobStream.js';
 
 export function SourcesPage() {
   const [sources, setSources] = useState(null);
@@ -9,11 +10,21 @@ export function SourcesPage() {
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [forceAvatars, setForceAvatars] = useState(false);
+  // Fase 2 dell'ingest (M26): il job enrichSource arricchisce metadati+copertine
+  // in background; ne seguiamo l'avanzamento con la barra sul "Sync".
+  const [activeJobId, setActiveJobId] = useState(null);
+  const live = useJobStream(activeJobId);
+  const enriching = !!activeJobId && live.status !== 'success' && live.status !== 'failed';
 
   function reload() {
     listSources().then(setSources).catch((e) => setError(e.message));
   }
   useEffect(reload, []);
+
+  // A fine arricchimento, ricarica le fonti (i conteggi/le copertine sono cambiati).
+  useEffect(() => {
+    if (activeJobId && (live.status === 'success' || live.status === 'failed')) reload();
+  }, [activeJobId, live.status]);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -24,8 +35,9 @@ export function SourcesPage() {
       const result = await addSource(url.trim());
       setNotice(result.alreadyExists
         ? `Fonte già presente: "${result.name}".`
-        : `Aggiunta "${result.name}" — ${result.newCount} video trovati.`);
+        : `Aggiunta "${result.name}" — ${result.newCount} video trovati. Arricchimento metadati in corso…`);
       setUrl('');
+      if (result.jobId) setActiveJobId(result.jobId);
       reload();
     } catch (e) {
       setError(e.message);
@@ -48,12 +60,13 @@ export function SourcesPage() {
     setBusy(true);
     setError(null);
     try {
-      const result = await syncSources(sourceId);
-      const totals = Object.values(result).reduce(
+      const { results, jobId } = await syncSources(sourceId);
+      const totals = Object.values(results).reduce(
         (acc, r) => ({ newCount: acc.newCount + r.newCount, healedCount: acc.healedCount + r.healedCount }),
         { newCount: 0, healedCount: 0 }
       );
-      setNotice(`Sincronizzato: ${totals.newCount} nuovi, ${totals.healedCount} riparati.`);
+      setNotice(`Sincronizzato: ${totals.newCount} nuovi, ${totals.healedCount} riparati. Arricchimento metadati in corso…`);
+      if (jobId) setActiveJobId(jobId);
       reload();
     } catch (e) {
       setError(e.message);
@@ -118,6 +131,15 @@ export function SourcesPage() {
 
       {error && <div className="notice error">{error}</div>}
       {notice && <div className="notice success">{notice}</div>}
+
+      {enriching && (
+        <div style={{ margin: '4px 0 20px' }}>
+          <div className="hint" style={{ marginBottom: 6 }}>Arricchimento metadati e copertine…</div>
+          <div className="progress-bar">
+            <div style={{ width: `${live.progress ?? 0}%` }}></div>
+          </div>
+        </div>
+      )}
 
       {sources === null ? (
         <div className="empty-state"><span className="spinner"></span></div>

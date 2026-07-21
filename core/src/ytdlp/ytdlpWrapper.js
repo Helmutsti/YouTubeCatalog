@@ -108,6 +108,57 @@ export async function resolveVideoInfo(url) {
   };
 }
 
+// Arricchimento metadati (M26): estrae i metadati COMPLETI di un singolo video
+// SENZA scaricarlo (--skip-download) e ne cacha la copertina in
+// media/thumbnails/<id>.jpg. Così, appena aggiunta una fonte, la libreria si
+// popola di schede ricche (descrizione, tag, canale, capitoli, copertina) senza
+// dover scaricare i video; e un video poi "rimosso" (M27) conserva comunque la
+// sua copertina anche quando l'URL YouTube muore. Ritorna i campi curati mappati
+// (compreso `thumbnail`); il chiamante scarta l'oggetto `video` (nessun file
+// scaricato) e fonde il resto nella entry di catalogo.
+export async function fetchVideoMetadata(videoId, url, { onLog = () => {} } = {}) {
+  const paths = getPaths();
+  const args = [
+    ...JS_RUNTIME_ARGS,
+    ...PLAYER_CLIENT_ARGS,
+    '--skip-download',
+    '--write-info-json',
+    '--write-thumbnail',
+    '--convert-thumbnails', 'jpg',
+    // info.json e thumbnail finiscono entrambi in media/thumbnails/<id>.*; il
+    // sidecar .info.json viene poi consolidato in data/metadata.json e cancellato.
+    '-o', path.join(paths.thumbnailsDir, '%(id)s.%(ext)s')
+  ];
+  // I cookie qui sono innocui: l'estrazione dei soli metadati non scarica i byte
+  // del video dalla CDN (dove il mix cookie+android_vr darebbe 403), quindi si
+  // includono se presenti, come in resolveVideoInfo.
+  if (paths.cookiesPath) args.push('--cookies', paths.cookiesPath);
+  args.push(url);
+
+  await runYtdlp(paths, args, { onLog, onProgress: () => {} });
+
+  const infoPath = path.join(paths.thumbnailsDir, `${videoId}.info.json`);
+  if (!existsSync(infoPath)) {
+    throw new Error(`Metadati non trovati dopo l'estrazione per ${videoId}`);
+  }
+  const info = JSON.parse(readFileSync(infoPath, 'utf-8'));
+
+  // Pulisce eventuali thumbnail intermedie (es. .webp prima della conversione a
+  // jpg) per non lasciare orfani accanto alla copertina definitiva.
+  if (existsSync(paths.thumbnailsDir)) {
+    for (const f of readdirSync(paths.thumbnailsDir)) {
+      if (f.startsWith(`${videoId}.`) && !f.endsWith('.jpg') && !f.endsWith('.info.json')) {
+        unlinkSync(path.join(paths.thumbnailsDir, f));
+      }
+    }
+  }
+  const thumbnailFile = existsSync(path.join(paths.thumbnailsDir, `${videoId}.jpg`)) ? `${videoId}.jpg` : null;
+
+  const fields = mapInfoJsonToVideoFields(info, { videoFile: null, thumbnailFile, sizeBytes: null, sha256: null, ytdlpVersion: null });
+  await consolidateMetadata(videoId, info, infoPath);
+  return fields;
+}
+
 // Risolve la foto profilo di un canale interrogando l'URL del canale stesso
 // (M14): i metadati per-video (mapInfoJsonToVideoFields) non contengono
 // alcun campo avatar (verificato su data/metadata.json reale), quindi serve

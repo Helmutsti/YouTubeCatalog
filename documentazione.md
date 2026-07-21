@@ -612,3 +612,32 @@ Il flag `local`/Electron, inizialmente previsto, è stato **rimosso dal piano** 
 - **Non eseguito**: la verifica visiva/click nel browser a stack completo — il server dell'utente occupava la `:3001` con codice pre-M25 (dichiarato apertamente, non spuntato come fatto). L'API e la build sono verificate; l'UI renderizzata no.
 
 **Nota operativa (concorrenza `CLAUDE.md`)**: durante la verifica un server era già in ascolto sulla `:3001` con il **codice pre-M25** e il **catalogo in memoria pre-migrazione**. Va **riavviato** per caricare il codice M25 e il catalogo migrato. Nessun rischio di perdita dati: la migrazione è idempotente e rieseguita a ogni avvio del codice nuovo — se il vecchio server riscrivesse lo schema vecchio nel frattempo, il riavvio lo ri-migra. Il file di backup resta in `data/` finché l'utente non lo rimuove.
+
+## M26 — Ingest a due fasi con metadati completi + barra sul Sync
+
+Seconda tappa del ridisegno. Prima di M26 una fonte portava solo i metadati **leggeri** dell'enumerazione flat-playlist (id/titolo/durata/canale) e i metadati completi arrivavano **solo al download**. Ora l'ingest è a **due fasi**:
+
+1. **Fase 1 (istantanea)**: `addSource`/`syncSource` popolano subito la libreria con i metadati leggeri (invariato) — i video compaiono immediatamente.
+2. **Fase 2 (background, con progresso)**: un nuovo job **`enrichSource`** estrae i **metadati completi** per-video (descrizione, tag, capitoli, risoluzione, statistiche) e **cacha la copertina** in `media/thumbnails/<id>.jpg`, senza scaricare il video. Emette avanzamento `i/total` sull'`EventEmitter` del job manager.
+
+**Perché cachare le copertine subito**: un video poi "rimosso" da YouTube (M27) conserva così la propria copertina anche quando l'URL originale muore — coerente con l'obiettivo di preservazione.
+
+### Core
+
+- **`ytdlpWrapper.fetchVideoMetadata(videoId, url, {onLog})`** (nuova): `yt-dlp --skip-download --write-info-json --write-thumbnail --convert-thumbnails jpg -o media/thumbnails/%(id)s.%(ext)s`. Legge l'info.json, mappa i campi curati con `mapInfoJsonToVideoFields` (riuso), consolida il grezzo in `data/metadata.json` e cancella il sidecar; pulisce eventuali thumbnail intermedie (`.webp`) lasciando solo la `.jpg`. Ritorna i campi curati **escluso l'oggetto `video`** (nessun file scaricato: lo stato di download non va toccato).
+- **`jobs/jobs/enrichSource.js`** (nuovo): arricchisce i video `present`, non scaricati/in-download e non ancora arricchiti (`!enrichedAt`), opzionalmente filtrati per `params.sourceId`. Idempotente (un secondo Sync non rifà nulla), tollerante ai fallimenti per-video (uno fallito non blocca il batch). Fonde i metadati nella entry con `Object.assign(current, meta, {enrichedAt, updatedAt})`, senza toccare `presence`/`download`/`hidden`/`source`.
+- **`catalogSchema.createNewVideoStub`**: nuovo campo `enrichedAt: null` (marker di idempotenza).
+- **`index.js`**: registrato `enrichSource`.
+
+### Adapter
+
+- **Server** (`sources.routes.js`): `POST /sources` dopo `addSource` lancia `enrichSource({sourceId})` e torna `{...result, jobId}`; `POST /sync` esegue la fase 1 (flat, sincrona) e poi lancia `enrichSource` (per la fonte o per tutte), tornando `{results, jobId}`.
+- **Web** (`SourcesPage`): "Sincronizza"/"Aggiungi" ora seguono il `jobId` con `useJobStream` e mostrano una **barra di avanzamento** ("Arricchimento metadati e copertine…") che si riempie fino a fine job; a fine job ricaricano l'elenco fonti.
+- **CLI** (`cli.js`): `addSourceFlow`/`syncFlow` lanciano `enrichSource` via `runJobToCompletion` con log live (helper `enrichAfterIngest`).
+
+### Verifica reale eseguita
+
+- **Arricchimento end-to-end** su un video pubblico ("Me at the zoo", `jNQXAC9IVRw`): aggiunto come `present/none` (via `prepareSingleVideoDownload(download:false)`), poi `enrichSourceJob` → `enrichedAt` valorizzato, descrizione/tag/39 thumbnails/durata popolati, **copertina `.jpg` scritta su disco** (webp intermedio ripulito), entry in `data/metadata.json`, **`download` resta `none`** (categoria ancora `available`). Idempotenza confermata (secondo giro: 0 arricchiti). **Cleanup completo**: catalogo tornato a 64, nessuna thumbnail/metadata/entry di test residua.
+- **Job manager**: `triggerJob('enrichSource', {})` sul catalogo reale (tutti scaricati → 0 candidati) → `status: success`, `summary {enriched:0}` — registrazione ed eventi ok.
+- **Build** web di produzione pulita; `node --check` su tutti i file toccati.
+- **Non eseguito**: il click reale su "Sincronizza" nel browser con una fonte che porta video nuovi (mutarebbe il catalogo reale dell'utente e richiede il server riavviato) — da confermare dall'utente dopo il riavvio. Logica e wiring verificati.
