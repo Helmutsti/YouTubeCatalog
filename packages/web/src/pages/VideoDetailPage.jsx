@@ -92,9 +92,9 @@ export function VideoDetailPage() {
               </div>
               <div>
                 {key ? (
-                  <Link to={`/channels/${encodeURIComponent(key)}`} className="d-chan-name">{video.channel?.name ?? 'Canale sconosciuto'}</Link>
+                  <Link to={`/channels/${encodeURIComponent(key)}`} className="d-chan-name">{video.channel?.name ?? 'Creator sconosciuto'}</Link>
                 ) : (
-                  <div className="d-chan-name">{video.channel?.name ?? 'Canale sconosciuto'}</div>
+                  <div className="d-chan-name">{video.channel?.name ?? 'Creator sconosciuto'}</div>
                 )}
                 <div className="d-meta">{[dur, date].filter(Boolean).join(' · ')}</div>
               </div>

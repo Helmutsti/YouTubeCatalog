@@ -71,7 +71,7 @@ export function SourcesPage() {
     try {
       const r = await syncChannelAvatars(forceAvatars);
       setNotice(
-        `Foto canali: ${r.fetchedCount} scaricate, ${r.skippedCount} già presenti` +
+        `Foto creator: ${r.fetchedCount} scaricate, ${r.skippedCount} già presenti` +
         (r.failedCount ? `, ${r.failedCount} non trovate.` : '.')
       );
     } catch (e) {
@@ -92,7 +92,7 @@ export function SourcesPage() {
             </button>
           )}
           <button className="btn" disabled={busy} onClick={handleAvatarSync}>
-            <ImageIcon size={14} />Sincronizza foto canali
+            <ImageIcon size={14} />Sincronizza foto creator
           </button>
         </div>
       </div>

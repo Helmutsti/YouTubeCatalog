@@ -56,7 +56,7 @@ export function SearchPage() {
         <Search size={16} />
         <input
           autoFocus
-          placeholder="Titolo, canale, tag, descrizione…"
+          placeholder="Titolo, creator, tag, descrizione…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
@@ -82,7 +82,7 @@ export function SearchPage() {
                   <div className="card-title">{v.title ?? v.id}</div>
                   <div className="card-meta" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <StatusBadge status={v.status} inline />
-                    {v.channel?.name ?? 'Canale sconosciuto'}
+                    {v.channel?.name ?? 'Creator sconosciuto'}
                   </div>
                 </Link>
                 {actions.length > 0 && (
