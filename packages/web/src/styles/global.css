@@ -579,6 +579,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .job-error-inline { font-size: 12px; color: var(--st-failed); margin: -2px 0 10px; }
 .btn-sm { height: 30px; padding: 0 10px; font-size: 12px; gap: 5px; }
 .job-del {
+  position: absolute; top: 10px; right: 10px; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 7px; flex: none;
   background: transparent; border: 1px solid transparent; color: var(--faint); cursor: pointer;
@@ -586,18 +587,26 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .job-del:hover { color: var(--st-failed); border-color: var(--border); background: var(--panel2); }
 .job-del:disabled { opacity: .5; cursor: default; }
 .hist-head { display: flex; align-items: center; justify-content: space-between; }
-.job-hist { display: flex; align-items: stretch; padding: 0; overflow: hidden; min-height: 76px; }
+/* Ogni item: una RIGA ad altezza costante (copertina + corpo) e, sotto, il log
+   espanso a tutta larghezza (fuori dalla riga, così non ne altera l'altezza).
+   Il corpo ha altezza fissa (titolo sempre su 2 righe riservate + meta), quindi
+   tutte le righe sono uguali e la copertina in stretch le riempie senza lasciare
+   bande: copertine tutte identiche a prescindere dalla lunghezza del titolo. */
+.job-hist { position: relative; padding: 0; overflow: hidden; }
+/* Riga ad altezza fissa pari a una copertina 16:9 (132px -> ~74px). La copertina
+   in stretch riempie ESATTAMENTE un box 16:9, quindi object-fit cover ritaglia
+   via le eventuali bande di letterbox "cotte" in una thumbnail non-16:9 (es. una
+   4:3) rivelando solo il contenuto 16:9 — e non resta mai spazio vuoto sotto.
+   Il titolo sta su una riga sola per far combaciare l'altezza del corpo con la
+   copertina, così tutte le righe (e le copertine) sono identiche. */
+.job-hist-row { display: flex; align-items: stretch; height: 74px; }
 .job-hist-cover { flex: none; width: 132px; align-self: stretch; position: relative; overflow: hidden; background: var(--panel2); }
-/* Immagine in posizione assoluta: riempie sempre il box (guidato in altezza dal
-   corpo, non dall'immagine) con object-fit cover, così copertine di dimensioni
-   sorgente diverse risultano tutte uniformi e ritagliate, mai distorte. */
 .job-hist-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .job-hist-cover.empty { display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px; color: var(--faint); font-size: 10.5px; }
-.job-hist-body { flex: 1 1 auto; min-width: 0; padding: 14px 16px; }
-.job-hist-head { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-.job-hist-title { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 600; color: #fff; line-height: 1.35; }
-.job-hist-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.job-hist-more { font-size: 11.5px; color: var(--faint); margin-top: 8px; }
+.job-hist-body { flex: 1 1 auto; min-width: 0; height: 74px; padding: 0 44px 0 16px; display: flex; flex-direction: column; justify-content: center; gap: 7px; overflow: hidden; cursor: pointer; }
+.job-hist-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-hist-meta { display: flex; align-items: center; gap: 10px; }
+.job-hist-more { font-size: 11.5px; color: var(--faint); }
 
 /* ===== Sidebar disclosure on mobile ===== */
 .mobile-nav { display: none; }
