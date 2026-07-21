@@ -36,7 +36,7 @@ export function ChannelPage() {
         </div>
       </div>
       {videos.length === 0 ? (
-        <div className="empty-state">Nessun video scaricato per questo canale.</div>
+        <div className="empty-state">Nessun video scaricato per questo creator.</div>
       ) : (
         <div className="grid">
           {videos.map((v) => (

@@ -32,7 +32,7 @@ export function Layout() {
         <form className="search-box" onSubmit={submitSearch}>
           <Search size={16} />
           <input
-            placeholder="Cerca video, canali, argomenti"
+            placeholder="Cerca video, creator, argomenti"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -45,8 +45,8 @@ export function Layout() {
           <NavLink to="/sources" className={navCls}><Rss size={16} />Sorgenti</NavLink>
           <NavLink to="/library" className={navCls}><Wrench size={16} />Riorganizza libreria</NavLink>
           <div className="side-div"></div>
-          <div className="side-sec">Canali</div>
-          {channels.length === 0 && <div className="side-empty">Nessun canale ancora</div>}
+          <div className="side-sec">Creator</div>
+          {channels.length === 0 && <div className="side-empty">Nessun creator ancora</div>}
           {channels.map((c) => (
             <NavLink key={c.key} to={`/channels/${encodeURIComponent(c.key)}`} className={navCls}>
               <span className="avatar">

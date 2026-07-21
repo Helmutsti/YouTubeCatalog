@@ -55,7 +55,7 @@ export function VideoCard({ video, onDecide }) {
           </div>
         )}
         <div>
-          <div className="card-meta">{video.channel?.name ?? 'Canale sconosciuto'}</div>
+          <div className="card-meta">{video.channel?.name ?? 'Creator sconosciuto'}</div>
           {date && <div className="card-meta">{date}</div>}
         </div>
       </div>

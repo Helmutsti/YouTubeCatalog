@@ -278,7 +278,7 @@ async function reviewFlow() {
       choices: [
         ...(queuedCount > 0 ? [{ name: `▶ Scarica in coda (${queuedCount})`, value: DOWNLOAD_QUEUE }] : []),
         ...relevant.map((v) => ({
-          name: `${REVIEW_STATUS_ICON[v.status]} ${v.title ?? v.id} — ${v.channel?.name ?? 'canale sconosciuto'}`,
+          name: `${REVIEW_STATUS_ICON[v.status]} ${v.title ?? v.id} — ${v.channel?.name ?? 'creator sconosciuto'}`,
           value: v.id
         })),
         { name: '← Torna al menu principale', value: BACK }
@@ -318,7 +318,7 @@ async function watchChannelFlow(channelKey) {
     const videos = await core.listVideosByChannel(channelKey, { status: 'downloaded' });
     if (videos.length === 0) return;
 
-    const channelName = videos[0].channel?.name ?? 'Canale';
+    const channelName = videos[0].channel?.name ?? 'Creator';
     const videoId = await select({
       message: channelName,
       choices: [
@@ -326,7 +326,7 @@ async function watchChannelFlow(channelKey) {
           name: `${v.title ?? v.id} — ${formatDuration(v.durationSeconds)} — ${v.uploadDate ?? 'data sconosciuta'}`,
           value: v.id
         })),
-        { name: '← Torna ai canali', value: BACK }
+        { name: '← Torna ai creator', value: BACK }
       ]
     });
     if (videoId === BACK) return;
@@ -346,7 +346,7 @@ async function watchFlow() {
     }
 
     const channelKey = await select({
-      message: 'Guarda — scegli un canale',
+      message: 'Guarda — scegli un creator',
       choices: [
         ...channels.map((c) => ({ name: `${c.name} (${c.count})`, value: c.key })),
         { name: '← Torna al menu principale', value: BACK }
@@ -387,14 +387,14 @@ async function searchFlow() {
   while (true) {
     clearScreen();
     const choice = await search({
-      message: 'Cerca (titolo, canale, tag, descrizione)',
+      message: 'Cerca (titolo, creator, tag, descrizione)',
       source: async (term) => {
         if (!term) {
           return [{ name: '← Torna al menu principale (digita per cercare)', value: BACK }];
         }
         const results = await core.searchVideos(term);
         const choices = results.map((v) => ({
-          name: `${ALL_STATUS_ICON[v.status] ?? ''}${v.title ?? v.id} — ${v.channel?.name ?? 'canale sconosciuto'} (${ALL_STATUS_LABEL_INLINE[v.status] ?? v.status})`,
+          name: `${ALL_STATUS_ICON[v.status] ?? ''}${v.title ?? v.id} — ${v.channel?.name ?? 'creator sconosciuto'} (${ALL_STATUS_LABEL_INLINE[v.status] ?? v.status})`,
           value: v.id
         }));
         choices.push({ name: '← Torna al menu principale', value: BACK });
