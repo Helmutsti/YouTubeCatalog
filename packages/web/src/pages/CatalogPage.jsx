@@ -4,6 +4,7 @@ import { listVideos, listSources, setHidden, triggerJob, refreshMetadata, delete
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
+import { useTitle } from '../hooks/useTitle.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 
@@ -24,6 +25,7 @@ export function CatalogPage() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
+  useTitle('Home');
 
   function reload() {
     listVideos().then(setVideos).catch((e) => setError(e.message));

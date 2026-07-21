@@ -1,5 +1,6 @@
 import { useSearchParams } from 'react-router-dom';
 import { useJobStream } from '../hooks/useJobStream.js';
+import { useTitle } from '../hooks/useTitle.js';
 import { JobHistory } from '../components/JobHistory.jsx';
 
 const JOB_STATUS_LABEL = { queued: 'In coda', running: 'In corso', success: 'Completato', failed: 'Fallito' };
@@ -19,6 +20,7 @@ export function JobsPage() {
   const [params] = useSearchParams();
   const highlight = params.get('highlight');
   const live = useJobStream(highlight);
+  useTitle('Job');
 
   return (
     <>

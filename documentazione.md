@@ -773,3 +773,15 @@ Test unitario del periodo di grazia su catalogo sintetico: sync assente 1 → `p
 ### Backlog aggiornato
 
 Aggiunti: titolo scheda browser dinamico; anteprima video sulla card/player (da ragionare); foto profilo del creator più grande.
+
+## M33–M35 — Titolo scheda dinamico, avatar più grandi, box sincronizzazione
+
+Tre punti promossi dal backlog a milestone su richiesta dell'utente.
+
+**M33 — Titolo della scheda del browser dinamico.** Nuovo hook `packages/web/src/hooks/useTitle.js`: imposta `document.title` a `"<contesto> · Ondo"` (o solo "Ondo" senza contesto) e lo ripristina all'uscita dalla pagina. Applicato a tutte le pagine: `VideoDetailPage` → titolo del video, `CatalogPage`/`SourcesPage`/`ArchivedPage`/`JobsPage` → nome pagina (Home/Sorgenti/Archiviati/Job), `SearchPage` → `"Cerca: <query>"`, `ChannelPage` → nome del creator. Nelle pagine con return anticipati (dettaglio, creator) il hook è chiamato **prima** dei return, così l'ordine dei hook resta stabile.
+
+**M34 — Foto profilo del creator più grande.** Solo CSS: `.avatar` (card) 22→28px, `.side-item .avatar` (sidebar) 32→38px, `.d-avatar` (dettaglio) 38→48px, `.chan-avatar` (pagina creator) 84→108px, con i font dell'iniziale-fallback proporzionati.
+
+**M35 — Box "Stato e sincronizzazione" nel dettaglio video.** Sotto il box "Dati tecnici", un nuovo riquadro (stessa classe `.d-desc`) con i dati di sincronizzazione del singolo video: **Presenza** (Presente su YouTube / Rimosso + data), **Download** (Non scaricato / In download / Scaricato / Errore), **Archiviato** (sì/no), **Metadati aggiornati** (`enrichedAt`), **Sorgente** (titolo playlist / "Video singolo"). Sotto, i pulsanti: **Scarica metadati** (`refreshVideoMetadata` via `handleAction('metadata')`) e **Archivia** (rosso mattone, con conferma) / **Ripristina**. Il tasto Archivia è stato **spostato qui** dalla riga defilata introdotta in M32 (rimossa da sopra), come richiesto. `refreshMetadata` aggiunto agli import del client nel dettaglio.
+
+Verifica: build di produzione web pulita per tutte e tre; modifiche web-only (nessun cambio core → nessun riavvio server necessario). Verifica visiva a carico dell'utente.
