@@ -506,6 +506,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 
 .progress-bar { height: 6px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
 .progress-bar > div { height: 100%; background: var(--accent); transition: width .2s ease; }
+/* Barra indeterminata (fase di enumerazione della sync, senza % nota): un
+   segmento che scorre avanti e indietro finché l'operazione è in corso. */
+.progress-bar.indeterminate > div { width: 35%; transition: none; animation: indeterminate 1.15s ease-in-out infinite; }
+@keyframes indeterminate { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 
 .d-title { font-size: 21px; line-height: 1.3; color: #fff; margin: 18px 0 0; }
 .d-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
