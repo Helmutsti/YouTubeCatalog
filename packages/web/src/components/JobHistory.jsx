@@ -77,39 +77,37 @@ export function JobHistory({ excludeId, refreshKey }) {
         history.map((j) => {
           const cover = j.thumbnails?.[0] ?? null;
           const title = j.title ?? JOB_TYPE_LABEL[j.type] ?? j.type;
+          const isOpen = expanded === j.id;
           return (
             <div key={j.id} className="job-card job-hist">
-              <div className={`job-hist-cover${cover ? '' : ' empty'}`}>
-                {cover ? <img src={cover} alt="" loading="lazy" /> : <span>nessuna copertina</span>}
-              </div>
-              <div className="job-hist-body">
-                <div className="job-hist-head" onClick={() => setExpanded(expanded === j.id ? null : j.id)}>
+              <div className="job-hist-row">
+                <div className={`job-hist-cover${cover ? '' : ' empty'}`}>
+                  {cover ? <img src={cover} alt="" loading="lazy" /> : <span>nessuna copertina</span>}
+                </div>
+                <div className="job-hist-body" onClick={() => setExpanded(isOpen ? null : j.id)}>
                   <div className="job-hist-title">{title}</div>
-                  {isTerminal(j) && (
-                    <button className="job-del" title="Cancella dallo storico" disabled={busy} onClick={(e) => handleDelete(j.id, e)}>
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-                <div className="job-hist-meta">
-                  <span className="job-status" style={{ background: JOB_STATUS_COLOR[j.status] ?? 'var(--faint)' }}>
-                    {JOB_STATUS_LABEL[j.status] ?? j.status}
-                  </span>
-                  <span className="job-time" style={{ marginLeft: 0 }}>
-                    {j.startedAt ? new Date(j.startedAt).toLocaleString('it-IT') : ''}
-                  </span>
-                </div>
-                {j.thumbnailsMore > 0 && <div className="job-hist-more">+{j.thumbnailsMore} altri video</div>}
-                {j.status === 'failed' && j.error && (
-                  <div className="job-error-inline" style={{ margin: '8px 0 0' }}>{j.error.message}</div>
-                )}
-                {expanded === j.id && (
-                  <div className="job-log" style={{ marginTop: 10 }}>
-                    {j.logLines.map((line, i) => <div key={i} className="line">{line}</div>)}
-                    {j.error && <div className="line err">{j.error.message}</div>}
+                  <div className="job-hist-meta">
+                    <span className="job-status" style={{ background: JOB_STATUS_COLOR[j.status] ?? 'var(--faint)' }}>
+                      {JOB_STATUS_LABEL[j.status] ?? j.status}
+                    </span>
+                    <span className="job-time" style={{ marginLeft: 0 }}>
+                      {j.startedAt ? new Date(j.startedAt).toLocaleString('it-IT') : ''}
+                    </span>
+                    {j.thumbnailsMore > 0 && <span className="job-hist-more">+{j.thumbnailsMore} altri</span>}
                   </div>
+                </div>
+                {isTerminal(j) && (
+                  <button className="job-del" title="Cancella dallo storico" disabled={busy} onClick={(e) => handleDelete(j.id, e)}>
+                    <Trash2 size={14} />
+                  </button>
                 )}
               </div>
+              {isOpen && (
+                <div className="job-log" style={{ margin: '0 16px 14px' }}>
+                  {j.logLines.map((line, i) => <div key={i} className="line">{line}</div>)}
+                  {j.error && <div className="line err">{j.error.message}</div>}
+                </div>
+              )}
             </div>
           );
         })
