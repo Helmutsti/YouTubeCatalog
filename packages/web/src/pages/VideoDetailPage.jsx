@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, RotateCcw, RefreshCw, Volume2, Video as VideoIcon } from 'lucide-react';
+import { ArrowLeft, Download, Archive, RotateCcw, RefreshCw, Volume2, Video as VideoIcon, Play, PictureInPicture2 } from 'lucide-react';
 import { getVideo, listVideosByChannel, decideVideo } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { reviewActionsFor } from '../lib/reviewActions.js';
@@ -15,6 +15,10 @@ export function VideoDetailPage() {
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [audioOnly, setAudioOnly] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isPiP, setIsPiP] = useState(false);
+  const [pipError, setPipError] = useState(null);
+  const videoRef = useRef(null);
   const navigate = useNavigate();
 
   function reload() {
@@ -24,6 +28,49 @@ export function VideoDetailPage() {
 
   useEffect(reload, [id]);
   useEffect(() => setAudioOnly(false), [id]);
+  useEffect(() => setHasStarted(false), [id]);
+  useEffect(() => setPipError(null), [id]);
+
+  // Il pulsante PiP resta sincronizzato anche se l'utente chiude la finestra
+  // PiP nativa del sistema operativo invece di usare di nuovo il pulsante.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onEnter = () => setIsPiP(true);
+    const onLeave = () => setIsPiP(false);
+    v.addEventListener('enterpictureinpicture', onEnter);
+    v.addEventListener('leavepictureinpicture', onLeave);
+    return () => {
+      v.removeEventListener('enterpictureinpicture', onEnter);
+      v.removeEventListener('leavepictureinpicture', onLeave);
+    };
+  }, [video?.id]);
+
+  async function togglePiP() {
+    setPipError(null);
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      // requestPictureInPicture richiede i metadati già caricati: se l'utente
+      // clicca PiP prima di aver mai avviato il video, il browser potrebbe non
+      // averli ancora (anche con preload="metadata" — es. tab in background) —
+      // si aspetta l'evento con un timeout, invece di fallire subito o restare
+      // bloccato all'infinito se per qualche motivo l'evento non arriva mai.
+      if (v.readyState < 1) {
+        await Promise.race([
+          new Promise((resolve) => v.addEventListener('loadedmetadata', resolve, { once: true })),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('metadati non caricati (timeout)')), 5000))
+        ]);
+      }
+      await v.requestPictureInPicture();
+    } catch (e) {
+      setPipError(`Picture in Picture non disponibile: ${e.message}`);
+    }
+  }
 
   useEffect(() => {
     if (!video) return;
@@ -67,8 +114,21 @@ export function VideoDetailPage() {
           <div className={`player-frame${audioOnly ? ' audio-only' : ''}`}>
             {video.status === 'downloaded' && video.videoUrl ? (
               <>
-                <video controls src={video.videoUrl} />
+                <video
+                  ref={videoRef}
+                  controls
+                  preload="metadata"
+                  poster={video.thumbnailUrl || undefined}
+                  src={video.videoUrl}
+                  onPlay={() => setHasStarted(true)}
+                />
                 <div className="audio-face"><Volume2 size={32} /><span>Solo audio</span></div>
+                {!hasStarted && (
+                  <button className="player-cover" onClick={() => videoRef.current?.play()} aria-label="Riproduci">
+                    {video.thumbnailUrl && <img src={video.thumbnailUrl} alt="" />}
+                    <span className="player-cover-play"><Play size={28} fill="currentColor" /></span>
+                  </button>
+                )}
               </>
             ) : video.status === 'downloading' ? (
               <div className="player-placeholder">
@@ -106,6 +166,12 @@ export function VideoDetailPage() {
                   {audioOnly ? 'Video' : 'Solo audio'}
                 </button>
               )}
+              {video.status === 'downloaded' && document.pictureInPictureEnabled && (
+                <button className="btn" onClick={togglePiP}>
+                  <PictureInPicture2 size={14} />
+                  {isPiP ? 'Esci da PiP' : 'Picture in Picture'}
+                </button>
+              )}
               {actions.map((a) => {
                 const Icon = ICONS[a.decision] ?? Download;
                 const cls = a.decision === 'exclude' ? 'btn btn-danger' : a.decision === 'download' ? 'btn btn-primary' : 'btn';
@@ -120,6 +186,7 @@ export function VideoDetailPage() {
           </div>
 
           {notice && <div className="notice success" style={{ marginTop: 16 }}>{notice}</div>}
+          {pipError && <div className="notice error" style={{ marginTop: 16 }}>{pipError}</div>}
 
           {video.status === 'failed' && video.error && (
             <div className="notice error" style={{ marginTop: 16 }}>

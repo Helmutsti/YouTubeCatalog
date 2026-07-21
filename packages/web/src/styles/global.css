@@ -467,6 +467,31 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; color: var(--muted); background: repeating-linear-gradient(135deg, #1e1e22 0 11px, #26262b 11px 22px);
 }
+
+/* Copertina "clicca per riprodurre" (stile Rumble): mostra la thumbnail a
+   tutto schermo con un grosso tasto play sopra, finché il video non è mai
+   stato avviato. Sparisce per sempre al primo play (video.onPlay), non
+   ricompare più mettendo in pausa. Un <img> proprio invece di affidarsi al
+   solo poster nativo: resta visibile anche in modalità "Solo audio", dove il
+   <video> sottostante è nascosto via opacity. */
+.player-cover {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: #000; border: none; padding: 0; margin: 0; cursor: pointer;
+}
+.player-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.player-cover-play {
+  position: relative; z-index: 1;
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; background: rgba(0, 0, 0, .55); border: 2px solid rgba(255, 255, 255, .85);
+  transition: transform .15s ease, background-color .15s ease, border-color .15s ease;
+}
+.player-cover:hover .player-cover-play,
+.player-cover:focus-visible .player-cover-play {
+  background: var(--accent); border-color: var(--accent); transform: scale(1.08);
+}
+
 .progress-bar { height: 6px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
 .progress-bar > div { height: 100%; background: var(--accent); transition: width .2s ease; }
 
