@@ -11,6 +11,26 @@ function encodeRelPath(relPath) {
     .join('/');
 }
 
+// URL della copertina, con fallback per i video non ancora arricchiti (fase 2):
+//  1. copertina locale già in cache (media/thumbnails/) → l'archivio locale;
+//  2. altrimenti la sourceUrl remota se catturata;
+//  3. altrimenti, per YouTube, la si deriva dall'id (pattern stabile ytimg).
+// Così un video appena aggiunto via flat-playlist mostra subito una copertina
+// (remota) invece di un riquadro vuoto, sostituita da quella locale appena
+// enrichSource la scarica. Per gli altri estrattori senza sourceUrl → null.
+function resolveThumbnailUrl(video) {
+  const local = video.thumbnail?.localPath;
+  if (local) return `/media/thumbnails/${encodeRelPath(local)}`;
+  const source = video.thumbnail?.sourceUrl;
+  if (source) return source;
+  if (video.extractor === 'youtube' && video.id) {
+    // mqdefault (320x180, 16:9 pulito, sempre disponibile) invece di hqdefault
+    // (4:3 con bande nere di letterbox — vedi bug noto sulle copertine).
+    return `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;
+  }
+  return null;
+}
+
 export function toPublicVideo(video, channelAvatars = {}) {
   const key = channelKey(video);
   const avatar = key ? channelAvatars[key] : null;
@@ -21,7 +41,7 @@ export function toPublicVideo(video, channelAvatars = {}) {
     // grezzi (presence/download/hidden/removedAt) restano comunque nell'oggetto.
     category: videoCategory(video),
     videoUrl: video.video?.localPath ? `/media/videos/${encodeRelPath(video.video.localPath)}` : null,
-    thumbnailUrl: video.thumbnail?.localPath ? `/media/thumbnails/${encodeRelPath(video.thumbnail.localPath)}` : null,
+    thumbnailUrl: resolveThumbnailUrl(video),
     channel: {
       ...video.channel,
       avatarUrl: avatar?.localPath ? `/media/avatars/${encodeRelPath(avatar.localPath)}` : null
