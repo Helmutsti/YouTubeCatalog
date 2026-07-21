@@ -548,8 +548,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .rel-title { font-size: 12.5px; line-height: 1.3; font-weight: 600; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rel-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
-/* ===== Channel banner ===== */
-.banner { height: 110px; border-radius: 12px; background: linear-gradient(120deg, #1c1c20, #232327); position: relative; margin-bottom: -34px; }
 .chan-head { display: flex; align-items: flex-end; gap: 18px; padding: 0 6px; position: relative; margin-bottom: 18px; }
 .chan-avatar {
   width: 108px; height: 108px; border-radius: 50%; background: #3a2a24;
