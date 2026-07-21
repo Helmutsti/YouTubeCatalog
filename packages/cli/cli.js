@@ -161,7 +161,7 @@ async function syncFlow() {
   const targets = choice === '__all__' ? sources : sources.filter((s) => s.id === choice);
   for (const source of targets) {
     const result = await core.syncSource(source.id);
-    console.log(`${source.name}: ${result.newCount} novità, ${result.healedCount} auto-riparati.`);
+    console.log(`${source.name}: ${result.newCount} novità, ${result.removedCount} rimossi, ${result.restoredCount} ricomparsi, ${result.healedCount} riparati.`);
   }
   // Fase 2: arricchimento (tutti i pendenti se "tutte le fonti", altrimenti la singola).
   await enrichAfterIngest(choice === '__all__' ? null : choice);
