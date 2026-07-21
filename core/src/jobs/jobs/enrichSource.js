@@ -1,6 +1,7 @@
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
 import { PRESENCE, DOWNLOAD_STATE } from '../../catalog/catalogSchema.js';
 import { fetchVideoMetadata } from '../../ytdlp/ytdlpWrapper.js';
+import { syncChannelAvatars } from '../../services/channelAvatarService.js';
 
 // Seconda fase dell'ingest a due fasi (M26): dopo che addSource/syncSource hanno
 // popolato la libreria con i metadati LEGGERI dell'enumerazione flat-playlist
@@ -26,16 +27,13 @@ export async function enrichSourceJob(params, { log, progress }) {
     && !v.enrichedAt
   );
 
-  if (candidates.length === 0) {
-    log('Nessun video da arricchire (già completi o già arricchiti).');
-    progress(100);
-    return { enriched: 0, failed: 0, total: 0 };
-  }
-
-  log(`${candidates.length} video da arricchire (metadati completi + copertina).`);
-
   let enriched = 0;
   let failed = 0;
+
+  if (candidates.length === 0) {
+    log('Nessun video da arricchire (già completi o già arricchiti).');
+  } else {
+  log(`${candidates.length} video da arricchire (metadati completi + copertina).`);
 
   for (let i = 0; i < candidates.length; i++) {
     const video = candidates[i];
@@ -62,8 +60,21 @@ export async function enrichSourceJob(params, { log, progress }) {
       log(`✘ ${video.id} non arricchito: ${err.message}`);
     }
   }
+  log(`Arricchimento completato: ${enriched} arricchiti, ${failed} falliti.`);
+  }
 
   progress(100);
-  log(`Completato: ${enriched} arricchiti, ${failed} falliti.`);
+
+  // Foto profilo dei creator (M14): a fine sync scarica quelle mancanti, così un
+  // creator appena aggiunto ottiene l'avatar senza un'azione manuale separata
+  // (force:false → salta i creator che ce l'hanno già). Non blocca il job.
+  try {
+    log('Aggiornamento foto profilo dei creator…');
+    const a = await syncChannelAvatars({ force: false });
+    log(`Foto creator: ${a.fetchedCount} scaricate, ${a.skippedCount} già presenti${a.failedCount ? `, ${a.failedCount} non trovate` : ''}.`);
+  } catch (err) {
+    log(`Foto creator non aggiornate: ${err.message}`);
+  }
+
   return { enriched, failed, total: candidates.length };
 }

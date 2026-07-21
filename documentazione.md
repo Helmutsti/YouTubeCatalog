@@ -727,3 +727,27 @@ Test su video **fittizio** creato apposta (mai un file reale dell'utente): file 
 - **Cleanup**: catalogo tornato a 64, nessuna entry/cartella di test residua.
 
 `node --check` su core/server/CLI ok; build web pulita. Verifica browser del modale nella sessione combinata finale (senza mai cliccare "Cancella il file" su dati reali).
+
+## M31 — Riorganizzazione UI e navigazione (flag-first)
+
+Round di richieste dell'utente che ridefiniscono la navigazione web attorno al principio "il download è solo un flag: l'interfaccia lavora sui metadati". Raccolte e implementate insieme.
+
+**Menu ⋮ sulle card** (`VideoCard`): al posto dei pulsanti inline in hover, un menu a tendina in stile YouTube con icone — *Scarica video*, *Archivia*↔*Ripristina* (contestuale a `hidden`), *Mostra profilo* (link alla pagina creator). Le voci di azione derivano da `actionsFor(video)`; "Mostra profilo" è un link a `/channels/:key`. Chiusura con backdrop a schermo intero. La card resta interamente popolata dai metadati (titolo, copertina cachata, creator) anche per i video solo "disponibili".
+
+**Home** (`CatalogPage`) = libreria attiva: **esclude gli archiviati** (i nascosti vivono in "Archiviati"). Chip filtro ridotte a **Tutti / Da scaricare / Falliti** (`StatusChips` ora accetta un set di categorie personalizzato via prop `options`). Aggiunti il **filtro per sorgente** (oltre a creator e ordinamento).
+
+**Sorgenti** (`SourcesPage`) = unico punto di ingresso: l'input **riconosce** se è una *playlist* (contiene `list=` senza `v=`, o `/playlist?`) → nuova fonte, o un *singolo video* (watch/`youtu.be`/id/altri siti) → aggiunto o scaricato, con il checkbox **"Download immediato"**. In fondo alla pagina lo **storico dei download** (`JobHistory`).
+
+**"Libreria" → "Archiviati"** (`ArchivedPage`, ex `LibraryPage`): mostra **solo** i video archiviati/nascosti, con le **copertine in bianco e nero** (`.grayscale-grid`, colore al passaggio del mouse); ordinamento + filtro creator; niente chip categoria, form o selezione multipla. Da qui si ripristina (menu ⋮ → Ripristina), si scarica o si va al profilo.
+
+**Pagina "Cronologia" rimossa** (`HistoryPage`/rotta `/history` eliminate): il suo storico vive ora in fondo a Sorgenti. Sidebar: `Home · Sorgenti · Archiviati`; il "+" del menu mobile punta a `/sources`.
+
+### Bug corretti nello stesso round
+
+- **Creator/video invisibili senza download**: `listChannels`/`listVideosByChannel` avevano default `download:'downloaded'` → un creator con soli video "disponibili" (es. una fonte appena aggiunta, 0 scaricati) non compariva né in sidebar né nella sua pagina. Ora il default è **tutti** i video; i contesti "solo scaricati" (Guarda nel CLI) passano esplicitamente `{download:'downloaded'}`. `ChannelPage` mostra tutti i video del creator (esclusi i nascosti) con badge di stato.
+- **Foto profilo non scaricata per il nuovo creator**: `syncChannelAvatars` era limitato ai creator con video scaricati. Ora copre **tutti** i creator, e viene eseguito **automaticamente a fine `enrichSource`** (`force:false` → scarica solo le mancanti), così aggiungendo una fonte l'avatar arriva senza un'azione manuale separata.
+- **Cronologia "senza dati di download"**: lo storico era invaso dai job `enrichSource` (arricchimento metadati lanciato dalle sync), privi di titolo/copertina. `JobHistory` ora **filtra via** i job `enrichSource`: la Cronologia mostra solo i job di download (con copertina e titolo, come sempre).
+
+### Verifica
+
+Build di produzione web pulita; `node --check` su tutti i file core toccati; `/api/channels` restituisce 10 creator (incluso quello con soli video "disponibili"); `/api/jobs` — i job `enrichSource` presenti vengono nascosti dalla Cronologia lato client. Server riavviato per caricare i cambi core (`videoService`/`channelAvatarService`/`enrichSource`). Verifica visiva completa nel browser a carico dell'utente (il server dell'utente occupa la :3001).

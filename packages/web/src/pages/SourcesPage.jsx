@@ -1,23 +1,36 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Plus, ImageIcon } from 'lucide-react';
-import { listSources, addSource, removeSource, syncSources, syncChannelAvatars, getJob } from '../api/client.js';
+import { listSources, addSource, removeSource, syncSources, syncChannelAvatars, getJob, downloadSingle } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
+import { JobHistory } from '../components/JobHistory.jsx';
+
+// Riconosce se l'input incollato è una PLAYLIST (→ nuova sorgente) o un SINGOLO
+// video (→ aggiunto/scaricato). Un watch?v=…&list=… (video dentro una playlist)
+// è trattato come singolo; solo un playlist?list=… puro è una playlist.
+function looksLikePlaylist(input) {
+  const s = input.trim();
+  if (/[?&]v=/.test(s)) return false;         // ha un id video → singolo
+  if (/\/playlist\?/.test(s)) return true;
+  if (/[?&]list=/.test(s)) return true;
+  return false;
+}
 
 export function SourcesPage() {
   const [sources, setSources] = useState(null);
   const [url, setUrl] = useState('');
-  const [busy, setBusy] = useState(false); // aggiunta fonte / foto creator (globali)
+  const [immediate, setImmediate] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [forceAvatars, setForceAvatars] = useState(false);
+  const [jobRefreshKey, setJobRefreshKey] = useState(0);
 
-  // Sincronizzazione contestuale alla sorgente (una per volta): barra ed esito
-  // vivono sulla riga della fonte in lavorazione.
+  // Sincronizzazione contestuale alla sorgente (una per volta).
   const [activeSyncId, setActiveSyncId] = useState(null);
   const [phase, setPhase] = useState(null); // 'enumerating' | 'enriching'
   const [activeJobId, setActiveJobId] = useState(null);
-  const [results, setResults] = useState({}); // { [sourceId]: {newCount, removedCount, restoredCount, healedCount} }
-  const [rowErrors, setRowErrors] = useState({}); // { [sourceId]: message }
+  const [results, setResults] = useState({});
+  const [rowErrors, setRowErrors] = useState({});
   const live = useJobStream(activeJobId);
 
   function reload() {
@@ -25,8 +38,6 @@ export function SourcesPage() {
   }
   useEffect(() => { reload(); }, []);
 
-  // Attende che un job raggiunga uno stato terminale (getJob espone lo status;
-  // la percentuale live arriva invece da useJobStream, che aggiorna la barra).
   function waitForJobTerminal(jobId) {
     return new Promise((resolve) => {
       const tick = async () => {
@@ -40,8 +51,6 @@ export function SourcesPage() {
     });
   }
 
-  // Sincronizza UNA sorgente: fase 1 (enumerazione, barra indeterminata) + fase 2
-  // (arricchimento, barra a %). Aggiorna esito/errore della sua riga.
   async function syncOne(sourceId) {
     setActiveSyncId(sourceId);
     setPhase('enumerating');
@@ -54,6 +63,7 @@ export function SourcesPage() {
         setActiveJobId(jobId);
         setPhase('enriching');
         await waitForJobTerminal(jobId);
+        setJobRefreshKey((k) => k + 1);
       }
     } catch (e) {
       setRowErrors((p) => ({ ...p, [sourceId]: e.message }));
@@ -61,43 +71,50 @@ export function SourcesPage() {
       setActiveJobId(null);
       setPhase(null);
       setActiveSyncId(null);
-      await reload(); // aggiorna il conteggio video della fonte
+      await reload();
     }
   }
 
   async function handleSyncAll() {
     setError(null);
-    const list = sources ?? [];
-    for (const s of list) {
-      await syncOne(s.id); // sequenziale: una barra per volta, sulla riga attiva
-    }
+    for (const s of sources ?? []) await syncOne(s.id);
   }
 
   async function handleAdd(e) {
     e.preventDefault();
-    if (!url.trim()) return;
+    const input = url.trim();
+    if (!input) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const result = await addSource(url.trim());
-      setUrl('');
-      if (result.alreadyExists) {
-        setNotice(`Fonte già presente: "${result.name}".`);
-        return;
-      }
-      // Fai comparire la nuova riga, poi mostra l'arricchimento su di essa.
-      await reload();
-      setResults((p) => ({ ...p, [result.sourceId]: { newCount: result.newCount ?? 0, removedCount: 0, restoredCount: 0, healedCount: 0 } }));
-      if (result.jobId) {
-        setActiveSyncId(result.sourceId);
-        setPhase('enriching');
-        setActiveJobId(result.jobId);
-        await waitForJobTerminal(result.jobId);
-        setActiveJobId(null);
-        setPhase(null);
-        setActiveSyncId(null);
+      if (looksLikePlaylist(input)) {
+        // Playlist → nuova sorgente + arricchimento (barra sulla riga).
+        const result = await addSource(input);
+        setUrl('');
+        if (result.alreadyExists) { setNotice(`Fonte già presente: "${result.name}".`); return; }
         await reload();
+        setResults((p) => ({ ...p, [result.sourceId]: { newCount: result.newCount ?? 0, removedCount: 0, restoredCount: 0, healedCount: 0 } }));
+        if (result.jobId) {
+          setActiveSyncId(result.sourceId);
+          setPhase('enriching');
+          setActiveJobId(result.jobId);
+          await waitForJobTerminal(result.jobId);
+          setJobRefreshKey((k) => k + 1);
+          setActiveJobId(null);
+          setPhase(null);
+          setActiveSyncId(null);
+          await reload();
+        }
+      } else {
+        // Singolo video → scaricato subito (se "Download immediato") o solo aggiunto.
+        const r = await downloadSingle(input, immediate);
+        setUrl('');
+        if (r.action === 'download') { setNotice(`"${r.title ?? r.videoId}" — download avviato (vedi cronologia sotto).`); setJobRefreshKey((k) => k + 1); }
+        else if (r.action === 'added') setNotice(`"${r.title ?? r.videoId}" aggiunto alla libreria (compare in Home).`);
+        else if (r.action === 'already-downloaded') setNotice(`"${r.title ?? r.videoId}" è già in archivio.`);
+        else if (r.action === 'already-downloading') setNotice(`"${r.title ?? r.videoId}" è già in download.`);
+        else if (r.action === 'already-present') setNotice(`"${r.title ?? r.videoId}" è già in libreria.`);
       }
     } catch (e) {
       setError(e.message);
@@ -158,20 +175,25 @@ export function SourcesPage() {
         </div>
       </div>
 
-      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20 }}>
+      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
         <input type="checkbox" checked={forceAvatars} onChange={(e) => setForceAvatars(e.target.checked)} />
         Aggiorna anche le foto già presenti (un creator ha cambiato foto profilo)
       </label>
 
       <form className="form-row" onSubmit={handleAdd} style={{ marginBottom: 20 }}>
         <div className="field" style={{ marginBottom: 0, flex: 1 }}>
-          <label>Aggiungi fonte (URL playlist YouTube)</label>
+          <label>Aggiungi: playlist o singolo video</label>
           <input
-            placeholder="https://www.youtube.com/playlist?list=…"
+            placeholder="Incolla una playlist YouTube, oppure un link/id di un singolo video (anche Rumble…)"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
+          <div className="hint">Playlist → nuova sorgente · singolo video → aggiunto o scaricato</div>
         </div>
+        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={immediate} onChange={(e) => setImmediate(e.target.checked)} />
+          Download immediato (singoli)
+        </label>
         <button className="btn btn-primary" type="submit" disabled={busy || syncing}>
           {busy ? <span className="spinner"></span> : <><Plus size={14} />Aggiungi</>}
         </button>
@@ -222,6 +244,11 @@ export function SourcesPage() {
           );
         })
       )}
+
+      <div style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: 15, margin: '0 0 12px', color: '#fff' }}>Cronologia download</h2>
+        <JobHistory refreshKey={String(jobRefreshKey)} />
+      </div>
     </>
   );
 }
