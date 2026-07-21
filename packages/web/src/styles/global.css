@@ -80,7 +80,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: flex;
   align-items: center;
 }
-.logo img { height: 22px; width: auto; display: block; }
+.logo img { height: 30px; width: auto; display: block; }
 
 .search-box {
   flex: 1;
