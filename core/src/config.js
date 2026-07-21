@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -61,6 +61,50 @@ export function loadConfig() {
 
   cachedConfig = deepMerge(DEFAULT_CONFIG, userConfig);
   return cachedConfig;
+}
+
+// Aggiorna data/config.json a runtime: legge le override utente dal file, vi
+// applica `patch` (deep-merge), riscrive atomicamente (tmp+rename) e INVALIDA la
+// cache in-memory così il prossimo loadConfig() rilegge da disco. Nota: per un
+// processo già avviato (server) alcune cose sono fissate all'avvio (es. i mount
+// express.static sui media), quindi resta comunque necessario un riavvio.
+export function updateConfig(patch) {
+  mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  let userConfig = {};
+  if (existsSync(CONFIG_PATH)) {
+    userConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+  }
+  const updated = deepMerge(userConfig, patch);
+  const tmp = `${CONFIG_PATH}.tmp`;
+  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', 'utf-8');
+  renameSync(tmp, CONFIG_PATH);
+  cachedConfig = null;
+  return loadConfig();
+}
+
+// Imposta la posizione della cartella media (relocazione fuori dal progetto).
+// Modalità "solo ripuntamento": NON sposta alcun file — l'utente sposta la
+// cartella e poi indica il percorso, che qui viene solo validato e persistito.
+// Regge sul fatto che i localPath nel catalogo sono relativi a mediaRoot.
+export function setMediaRoot(newPath) {
+  if (typeof newPath !== 'string' || !newPath.trim()) {
+    throw new Error('Percorso non valido.');
+  }
+  const value = newPath.trim();
+  const resolved = path.resolve(PROJECT_ROOT, value);
+  if (!existsSync(resolved)) {
+    throw new Error(
+      `Il percorso non esiste: ${resolved}. Sposta prima la cartella media in questa posizione, poi imposta il percorso.`
+    );
+  }
+  if (!statSync(resolved).isDirectory()) {
+    throw new Error(`Il percorso non è una cartella: ${resolved}.`);
+  }
+  updateConfig({ mediaRoot: value });
+  // Avvisa (senza bloccare) se la nuova posizione non contiene i video: aiuta a
+  // scoprire un percorso sbagliato o uno spostamento incompleto.
+  const hasVideos = existsSync(path.join(resolved, 'videos'));
+  return { mediaRoot: value, resolved, hasVideos, requiresRestart: true };
 }
 
 export function getPaths() {

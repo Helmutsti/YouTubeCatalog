@@ -73,3 +73,8 @@ export const restoreBackup = (file) =>
     headers: { 'Content-Type': 'application/zip' },
     body: file
   });
+
+// Impostazioni (M37): posizione della cartella media.
+export const getConfig = () => request('/api/config');
+export const setMediaRoot = (path) =>
+  request('/api/config/media-root', { method: 'POST', body: JSON.stringify({ path }) });

@@ -14,7 +14,7 @@ import { searchVideos } from './services/searchService.js';
 import { reorganizeLibrary, deleteVideoFile } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { createBackup, restoreBackup } from './services/backupService.js';
-import { loadConfig, getPaths } from './config.js';
+import { loadConfig, getPaths, updateConfig, setMediaRoot } from './config.js';
 
 registerJobHandler('downloadPending', downloadPendingJob);
 registerJobHandler('downloadSingle', downloadSingleJob);
@@ -73,5 +73,8 @@ export {
   restoreBackup,
   // config/introspezione
   loadConfig,
-  getPaths
+  getPaths,
+  // impostazioni a runtime: scrittura config + posizione cartella media (M37)
+  updateConfig,
+  setMediaRoot
 };

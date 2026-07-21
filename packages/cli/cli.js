@@ -565,6 +565,46 @@ async function backupFlow() {
   }
 }
 
+// --- Impostazioni (M37) -----------------------------------------------------
+// Posizione della cartella media: solo ripuntamento, nessuno spostamento di
+// file (l'utente sposta la cartella e poi indica il percorso). Richiede riavvio.
+async function mediaRootFlow() {
+  const current = core.loadConfig().mediaRoot;
+  const resolved = core.getPaths().mediaRoot;
+  console.log(`\nCartella media attuale: ${current}${resolved !== current ? ` → ${resolved}` : ''}\n`);
+  const newPath = await input({ message: 'Nuovo percorso della cartella media:', default: current });
+  if (!newPath || newPath.trim() === current) {
+    setMessage('\nNessuna modifica.\n');
+    return;
+  }
+  const res = core.setMediaRoot(newPath);
+  setMessage(
+    `\n✔ Cartella media impostata su ${res.resolved}.` +
+      (res.hasVideos ? '' : '\n  ⚠ Nessuna sottocartella videos/ trovata qui.') +
+      '\n  ⚠ Riavvia il server/CLI per applicare.\n'
+  );
+}
+
+async function settingsFlow() {
+  while (true) {
+    clearScreen();
+    const choice = await select({
+      message: 'Impostazioni',
+      choices: [
+        { name: 'Posizione cartella media…', value: 'media' },
+        { name: '← Torna', value: BACK }
+      ]
+    });
+    if (choice === BACK) return;
+    try {
+      if (choice === 'media') await mediaRootFlow();
+    } catch (err) {
+      if (err?.name === 'ExitPromptError') throw err;
+      setMessage(`\n✘ ${err.message}\n`);
+    }
+  }
+}
+
 const ACTIONS = {
   sources: manageSourcesFlow,
   singleDownload: singleDownloadFlow,
@@ -574,7 +614,8 @@ const ACTIONS = {
   watch: watchFlow,
   catalog: catalogFlow,
   reorganize: reorganizeFlow,
-  backup: backupFlow
+  backup: backupFlow,
+  settings: settingsFlow
 };
 
 async function mainMenu() {
@@ -592,6 +633,7 @@ async function mainMenu() {
         { name: 'Catalogo', value: 'catalog' },
         { name: 'Riorganizza libreria (per creator)', value: 'reorganize' },
         { name: 'Backup / Ripristino', value: 'backup' },
+        { name: 'Impostazioni', value: 'settings' },
         { name: 'Esci', value: 'exit' }
       ]
     });
