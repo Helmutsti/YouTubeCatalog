@@ -8,5 +8,7 @@ data/config.json
 data/jobs/*.json
 data/jobs.json
 tools/yt-dlp.exe
+tools/ffmpeg.exe
+tools/ffprobe.exe
 core/cookies.txt
 .env

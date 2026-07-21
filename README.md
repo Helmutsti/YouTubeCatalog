@@ -12,7 +12,9 @@ Prima di installare, procurati:
 
 1. **Node.js 20 o superiore** — <https://nodejs.org> (include `npm`). Verifica: `node --version`.
 2. **`yt-dlp.exe`** — il motore di download. Scaricalo dalle release ufficiali di yt-dlp e mettilo in `tools/yt-dlp.exe` (vedi passo 3).
-3. **ffmpeg** — richiesto da yt-dlp per unire video+audio alla massima qualità. Installalo e assicurati che sia nel **PATH** di sistema. Verifica: `ffmpeg -version`.
+3. **ffmpeg** — richiesto da yt-dlp per unire video+audio alla massima qualità (e per convertire le copertine). Due modi, a scelta:
+   - **Senza toccare il sistema** *(consigliato)*: metti `ffmpeg.exe` e `ffprobe.exe` in `tools/` (accanto a `yt-dlp.exe`). L'app li rileva da sola e li passa a yt-dlp (`--ffmpeg-location`) — niente da installare.
+   - **Oppure** installa ffmpeg e mettilo nel **PATH** di sistema (verifica: `ffmpeg -version`).
 4. **VLC** *(facoltativo)* — serve solo per la riproduzione tramite VLC (menu "Guarda" del CLI). La web GUI usa il player del browser e non ne ha bisogno.
 
 ---
@@ -66,6 +68,7 @@ Le cartelle di `media/` e i file dati in `data/` vengono creati automaticamente 
 | File | Obbligatorio? | Dove |
 |------|---------------|------|
 | `tools/yt-dlp.exe` | Sì | binario yt-dlp |
+| `tools/ffmpeg.exe` + `tools/ffprobe.exe` | Facoltativo | ffmpeg dentro il progetto invece che nel PATH (vedi Prerequisiti) |
 | `data/config.json` | Consigliato (altrimenti auto-creato) | copia da `data/config.example.json` |
 | `core/cookies.txt` | Facoltativo | vedi sezione Cookie |
 
