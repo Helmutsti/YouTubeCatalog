@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVideos, setHidden, triggerJob } from '../api/client.js';
+import { listVideos, listSources, setHidden, triggerJob } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 
+const SINGLE = '__single__';
+// Chip della Home: sottoinsieme mirato (gli archiviati vivono in "Archiviati").
+const HOME_CHIPS = [
+  { value: 'available', label: 'Da scaricare' },
+  { value: 'failed', label: 'Falliti' }
+];
+
 export function CatalogPage() {
   const [videos, setVideos] = useState(null);
-  const [status, setStatus] = useState(null);
+  const [sources, setSources] = useState([]);
+  const [category, setCategory] = useState(null);
   const [sort, setSort] = useState('addedAt');
-  const [channel, setChannel] = useState('');
+  const [creator, setCreator] = useState('');
+  const [source, setSource] = useState('');
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
@@ -19,38 +28,37 @@ export function CatalogPage() {
   function reload() {
     listVideos().then(setVideos).catch((e) => setError(e.message));
   }
-
   useEffect(reload, []);
+  useEffect(() => { listSources().then(setSources).catch(() => {}); }, []);
+
+  // La Home mostra la libreria ATTIVA: esclude gli archiviati (nascosti), che
+  // vivono nella pagina "Archiviati".
+  const visible = useMemo(() => (videos ?? []).filter((v) => !v.hidden), [videos]);
 
   const counts = useMemo(() => {
     const acc = {};
-    for (const v of videos ?? []) acc[v.category] = (acc[v.category] ?? 0) + 1;
+    for (const v of visible) acc[v.category] = (acc[v.category] ?? 0) + 1;
     return acc;
-  }, [videos]);
+  }, [visible]);
 
-  // Elenco canali derivato dai video già caricati, non da listChannels() (che
-  // di default considera solo i downloaded) — qui serve poter filtrare la
-  // Home anche per i "nuovi"/"in coda" di un canale specifico, cosa che
-  // ChannelPage non permette (mostra solo i downloaded di quel canale).
   const channelOptions = useMemo(() => {
     const byKey = new Map();
-    for (const v of videos ?? []) {
+    for (const v of visible) {
       const key = channelKey(v);
       if (!key || byKey.has(key)) continue;
       byKey.set(key, v.channel?.name ?? key);
     }
     return [...byKey.entries()].sort((a, b) => a[1].localeCompare(b[1], 'it', { sensitivity: 'base' }));
-  }, [videos]);
+  }, [visible]);
 
   const filtered = useMemo(() => {
-    if (!videos) return [];
-    let list = status ? videos.filter((v) => v.category === status) : videos;
-    if (channel) list = list.filter((v) => channelKey(v) === channel);
+    let list = visible;
+    if (category) list = list.filter((v) => v.category === category);
+    if (creator) list = list.filter((v) => channelKey(v) === creator);
+    if (source) list = list.filter((v) => (source === SINGLE ? !v.source?.sourceId : v.source?.sourceId === source));
     return sortVideos(list, sort);
-  }, [videos, status, channel, sort]);
+  }, [visible, category, creator, source, sort]);
 
-  // kind: 'download' → scarica subito (job per-video); 'hide' → chiede "Vuoi
-  // tenere il video?" se scaricato (M30); 'unhide' → mostra.
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
@@ -59,7 +67,7 @@ export function CatalogPage() {
         return;
       }
       if (kind === 'hide') {
-        requestHide((videos ?? []).find((v) => v.id === id));
+        requestHide(visible.find((v) => v.id === id));
         return;
       }
       await setHidden(id, false); // unhide
@@ -72,23 +80,28 @@ export function CatalogPage() {
   return (
     <>
       <div className="page-head">
-        <h1>Catalogo</h1>
+        <h1>Home</h1>
       </div>
       {error && <div className="notice error">{error}</div>}
-      <StatusChips value={status} counts={counts} onChange={setStatus} />
+      <StatusChips value={category} counts={counts} onChange={setCategory} options={HOME_CHIPS} />
       <div className="filter-bar">
         <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Ordina per">
           {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <select value={channel} onChange={(e) => setChannel(e.target.value)} aria-label="Filtra per creator">
+        <select value={creator} onChange={(e) => setCreator(e.target.value)} aria-label="Filtra per creator">
           <option value="">Tutti i creator</option>
           {channelOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+        </select>
+        <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Filtra per sorgente">
+          <option value="">Tutte le sorgenti</option>
+          {sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          <option value={SINGLE}>Singoli (senza sorgente)</option>
         </select>
       </div>
       {videos === null ? (
         <div className="empty-state"><span className="spinner"></span></div>
       ) : filtered.length === 0 ? (
-        <div className="empty-state">Nessun video in questo stato.</div>
+        <div className="empty-state">Nessun video con questi filtri.</div>
       ) : (
         <div className="grid">
           {filtered.map((v) => (

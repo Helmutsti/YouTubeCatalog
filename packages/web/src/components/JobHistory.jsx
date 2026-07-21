@@ -29,7 +29,9 @@ export function JobHistory({ excludeId, refreshKey }) {
   }
   useEffect(reload, [refreshKey]);
 
-  const history = (jobs ?? []).filter((j) => j.id !== excludeId);
+  // Solo job di DOWNLOAD: gli enrichSource (arricchimento metadati lanciato dalle
+  // sync) sono job di servizio in background, non download → fuori dalla cronologia.
+  const history = (jobs ?? []).filter((j) => j.id !== excludeId && j.type !== 'enrichSource');
   const deletableCount = history.filter(isTerminal).length;
 
   async function handleDelete(id, e) {

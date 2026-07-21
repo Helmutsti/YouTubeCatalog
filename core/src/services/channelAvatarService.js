@@ -46,7 +46,9 @@ export async function getChannelAvatarMap() {
 // fallimenti già usata altrove nel progetto (es. downloadPendingJob).
 export async function syncChannelAvatars({ force = false } = {}) {
   const paths = getPaths();
-  const channels = await listChannels({ download: 'downloaded' });
+  // Tutti i creator (non solo quelli con video scaricati): un creator appena
+  // aggiunto, con soli video "disponibili", deve comunque avere la sua foto.
+  const channels = await listChannels();
 
   let fetchedCount = 0;
   let skippedCount = 0;
@@ -65,9 +67,9 @@ export async function syncChannelAvatars({ force = false } = {}) {
     try {
       // listChannels() non porta l'URL del canale: lo si recupera dal primo
       // video scaricato di quel canale, che ha sempre channel.url/uploaderUrl.
-      const [sample] = await listVideosByChannel(channel.key, { download: 'downloaded' });
+      const [sample] = await listVideosByChannel(channel.key);
       const channelUrl = sample?.channel?.url ?? sample?.channel?.uploaderUrl ?? null;
-      if (!channelUrl) throw new Error('Nessun URL canale disponibile tra i video scaricati');
+      if (!channelUrl) throw new Error('Nessun URL canale disponibile tra i video del creator');
 
       const { avatarUrl } = await resolveChannelAvatar(channelUrl);
       if (!avatarUrl) throw new Error('Nessuna foto profilo trovata per questo canale');

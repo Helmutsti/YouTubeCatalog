@@ -661,3 +661,18 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .source-block .source-row { margin-bottom: 0; }
 .source-result { font-size: 12px; margin: 6px 2px 0; color: var(--st-downloaded); }
 .source-result.err { color: var(--st-failed); }
+
+/* Menu ⋮ sulle card (M31, stile YouTube) */
+.card-menu { position: relative; flex: none; }
+.kebab { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; }
+.kebab:hover { background: var(--panel2); color: var(--ink); }
+.menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 41; min-width: 190px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 2px; }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 7px; background: transparent; border: none; color: var(--ink2); font-size: 13px; cursor: pointer; text-align: left; }
+.menu-item:hover { background: var(--panel2); color: var(--ink); }
+.menu-item svg { flex: none; color: var(--faint); }
+.menu-item:hover svg { color: var(--ink); }
+
+/* Copertine in bianco e nero nella pagina Archiviati (colore al passaggio del mouse) */
+.grayscale-grid .thumb img { filter: grayscale(1); transition: filter .2s ease; }
+.grayscale-grid .card:hover .thumb img { filter: grayscale(0); }
