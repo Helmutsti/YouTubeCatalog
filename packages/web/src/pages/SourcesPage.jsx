@@ -6,11 +6,14 @@ import { useTitle } from '../hooks/useTitle.js';
 import { JobHistory } from '../components/JobHistory.jsx';
 
 // Riconosce se l'input incollato è una PLAYLIST (→ nuova sorgente) o un SINGOLO
-// video (→ aggiunto/scaricato). Un watch?v=…&list=… (video dentro una playlist)
-// è trattato come singolo; solo un playlist?list=… puro è una playlist.
+// video (→ aggiunto/scaricato). Regola: la presenza di un `list=` (o di
+// /playlist?) indica una playlist, ANCHE se l'URL contiene anche `v=` — è il
+// caso di watch?v=…&list=…, il link che YouTube mostra mentre si guarda un
+// video dentro una playlist. `extractPlaylistId` (core) estrae comunque il
+// `list=` da qualunque URL. Per aggiungere un SINGOLO video basta incollare il
+// link pulito senza list= (watch?v=…, youtu.be/…, id nudo, altri siti).
 function looksLikePlaylist(input) {
   const s = input.trim();
-  if (/[?&]v=/.test(s)) return false;         // ha un id video → singolo
   if (/\/playlist\?/.test(s)) return true;
   if (/[?&]list=/.test(s)) return true;
   return false;
