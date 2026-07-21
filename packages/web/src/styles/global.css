@@ -377,6 +377,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .field .hint { font-size: 11.5px; color: var(--faint); }
 .form-row { display: flex; gap: 10px; align-items: flex-end; }
 
+/* ===== Filtro/ordinamento (Home, pagina canale — M19) ===== */
+.filter-bar { display: flex; gap: 10px; align-items: center; margin: 4px 0 20px; flex-wrap: wrap; }
+.filter-bar select {
+  height: 34px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0 10px; color: var(--ink2); font-size: 12.5px; cursor: pointer;
+}
+.filter-bar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* ===== Empty / message states ===== */
 .empty-state {
   padding: 40px 20px;
@@ -514,6 +522,12 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .d-tags { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .d-tag { font-size: 11.5px; color: var(--muted); background: rgba(255,255,255,.06); padding: 4px 10px; border-radius: 999px; }
 
+/* Box "Dati tecnici" (M21) — stessa classe .d-desc del box Descrizione. */
+.tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 20px; margin-top: 4px; }
+.tech-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.tech-key { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+.tech-val { color: var(--ink2); word-break: break-word; }
+
 .side-related { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
 .rel-lbl { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
 .rel-item { display: flex; gap: 10px; }
@@ -558,6 +572,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .job-type { font-size: 13px; color: var(--ink2); font-weight: 600; }
 .job-time { font-size: 11.5px; color: var(--faint); margin-left: auto; }
+.job-thumbs { display: flex; gap: 6px; align-items: center; margin: 2px 0 10px; }
+.job-thumb { width: 48px; height: 27px; border-radius: 5px; overflow: hidden; flex: none; background: var(--panel2); }
+.job-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.job-thumb-more { font-size: 11px; color: var(--faint); }
+.job-error-inline { font-size: 12px; color: var(--st-failed); margin: -2px 0 10px; }
 
 /* ===== Sidebar disclosure on mobile ===== */
 .mobile-nav { display: none; }

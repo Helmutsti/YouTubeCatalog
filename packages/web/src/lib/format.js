@@ -57,3 +57,20 @@ export function channelKey(video) {
 export function channelInitial(video) {
   return (video.channel?.name ?? '?').charAt(0).toUpperCase();
 }
+
+export function formatBytes(bytes) {
+  if (bytes === null || bytes === undefined) return null;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+export function formatBitrate(kbps) {
+  if (kbps === null || kbps === undefined) return null;
+  return kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbps` : `${Math.round(kbps)} Kbps`;
+}

@@ -4,7 +4,7 @@ import { ArrowLeft, Download, Archive, RotateCcw, RefreshCw, Volume2, Video as V
 import { getVideo, listVideosByChannel, decideVideo } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { reviewActionsFor } from '../lib/reviewActions.js';
-import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
+import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 
 const ICONS = { download: Download, exclude: Archive, undecided: RotateCcw };
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
@@ -118,6 +118,23 @@ export function VideoDetailPage() {
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
 
+  // sha256 escluso deliberatamente (poco interessante da leggere per un
+  // utente finale) — resta comunque nel catalogo/API se mai servisse altrove.
+  const techFields = [
+    {
+      label: 'Risoluzione',
+      value: video.resolution?.width && video.resolution?.height
+        ? `${video.resolution.width}×${video.resolution.height}${video.resolution.fps ? ` · ${video.resolution.fps}fps` : ''}`
+        : null
+    },
+    { label: 'Codec video', value: video.video?.videoCodec },
+    { label: 'Codec audio', value: video.video?.audioCodec },
+    { label: 'Bitrate', value: formatBitrate(video.video?.bitrateKbps) },
+    { label: 'Dimensione file', value: formatBytes(video.video?.sizeBytes) },
+    { label: 'Formato', value: video.video?.container },
+    { label: 'yt-dlp', value: video.video?.ytdlpVersion }
+  ].filter((f) => f.value);
+
   return (
     <>
       <Link to="/" className="back-link"><ArrowLeft size={14} />Home</Link>
@@ -220,6 +237,20 @@ export function VideoDetailPage() {
                   {video.tags.slice(0, 12).map((tag) => <div key={tag} className="d-tag">{tag}</div>)}
                 </div>
               )}
+            </div>
+          )}
+
+          {techFields.length > 0 && (
+            <div className="d-desc">
+              <span className="label">Dati tecnici</span>
+              <div className="tech-grid">
+                {techFields.map((f) => (
+                  <div key={f.label}>
+                    <span className="tech-key">{f.label}</span>
+                    <span className="tech-val">{f.value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
