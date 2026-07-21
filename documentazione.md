@@ -785,3 +785,17 @@ Tre punti promossi dal backlog a milestone su richiesta dell'utente.
 **M35 — Box "Stato e sincronizzazione" nel dettaglio video.** Sotto il box "Dati tecnici", un nuovo riquadro (stessa classe `.d-desc`) con i dati di sincronizzazione del singolo video: **Presenza** (Presente su YouTube / Rimosso + data), **Download** (Non scaricato / In download / Scaricato / Errore), **Archiviato** (sì/no), **Metadati aggiornati** (`enrichedAt`), **Sorgente** (titolo playlist / "Video singolo"). Sotto, i pulsanti: **Scarica metadati** (`refreshVideoMetadata` via `handleAction('metadata')`) e **Archivia** (rosso mattone, con conferma) / **Ripristina**. Il tasto Archivia è stato **spostato qui** dalla riga defilata introdotta in M32 (rimossa da sopra), come richiesto. `refreshMetadata` aggiunto agli import del client nel dettaglio.
 
 Verifica: build di produzione web pulita per tutte e tre; modifiche web-only (nessun cambio core → nessun riavvio server necessario). Verifica visiva a carico dell'utente.
+
+## Punto 10 — Rimozione della seconda barra di ricerca
+
+Promosso dal backlog dei "Punti aperti" (non una milestone numerata: è una rifinitura UX mirata). Fino a ora la ricerca aveva **due** barre ridondanti: quella globale in topbar (`Layout.jsx`, navigava a `/search?q=` su Invio) e una **seconda** dentro `SearchPage.jsx` con proprio stato `input`, debounce di 300ms e la logica che scriveva `q` nell'URL. Cercando dalla barra in alto si atterrava sui risultati dove ricompariva la seconda barra con lo stesso contenuto — un passaggio inutile.
+
+**Decisione (confermata dall'utente):** tenere **solo la barra principale** in topbar, con ricerca **su Invio** (nessun aggiornamento live mentre si digita, scartata l'alternativa "live"), ma con la barra **popolata con la ricerca attiva** così è modificabile.
+
+**Costruzione:**
+- `SearchPage.jsx` è diventata una **pura vista risultati**: rimossi la `search-box` interna, lo stato `input` e i due effetti che lo sincronizzavano con `q` / scrivevano l'URL con debounce. La query ora arriva solo dall'URL (`useSearchParams` in sola lettura) e pilota il fetch dei risultati; empty-state e azioni invariati.
+- `Layout.jsx`: la barra unica è sincronizzata con la query dell'URL (`urlQ = searchParams.get('q')`, `useEffect(() => setQuery(urlQ), [urlQ])`) — su `/search?q=…` mostra il termine, altrove si svuota. L'effetto scatta solo al cambio di `q`, non a ogni tasto, quindi non interferisce con la digitazione; la ricerca parte solo da `submitSearch` (Invio), invariato.
+
+Verificato che nel breakpoint mobile (`global.css`, `@media (max-width: 880px)`) viene nascosta solo la `.sidebar`, non la topbar → la barra resta disponibile anche su mobile.
+
+**Verifica:** build di produzione web pulita; controllo statico dei file finali (nessun riferimento residuo a `input`/`setParams`/import `Search` in `SearchPage`; barra unica corretta in `Layout`). La verifica visiva nel browser **non è stata eseguita**: il Chrome guidato dall'automazione non raggiungeva il dev server locale (connessione rifiutata su `127.0.0.1` e `[::1]`, entrambe le porte, mentre `curl` dalla macchina rispondeva `200` — limite d'ambiente dell'automazione, non un difetto del sito). Verifica visiva a carico dell'utente. Modifiche web-only: nessun riavvio server necessario.
