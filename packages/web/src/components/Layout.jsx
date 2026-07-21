@@ -49,7 +49,9 @@ export function Layout() {
           {channels.length === 0 && <div className="side-empty">Nessun canale ancora</div>}
           {channels.map((c) => (
             <NavLink key={c.key} to={`/channels/${encodeURIComponent(c.key)}`} className={navCls}>
-              <span className="avatar">{c.name?.charAt(0)?.toUpperCase() ?? '?'}</span>
+              <span className="avatar">
+                {c.avatarUrl ? <img className="avatar-photo" src={c.avatarUrl} alt="" /> : (c.name?.charAt(0)?.toUpperCase() ?? '?')}
+              </span>
               {c.name}
             </NavLink>
           ))}

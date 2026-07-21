@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Trash2, Plus } from 'lucide-react';
-import { listSources, addSource, removeSource, syncSources } from '../api/client.js';
+import { RefreshCw, Trash2, Plus, ImageIcon } from 'lucide-react';
+import { listSources, addSource, removeSource, syncSources, syncChannelAvatars } from '../api/client.js';
 
 export function SourcesPage() {
   const [sources, setSources] = useState(null);
@@ -8,6 +8,7 @@ export function SourcesPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [forceAvatars, setForceAvatars] = useState(false);
 
   function reload() {
     listSources().then(setSources).catch((e) => setError(e.message));
@@ -61,16 +62,45 @@ export function SourcesPage() {
     }
   }
 
+  // Foto profilo canali (M14): force:false salta chi ce l'ha già (idempotente,
+  // uso normale); il checkbox "Aggiorna anche le foto già presenti" passa
+  // force:true — copre il caso in cui un creator abbia cambiato foto.
+  async function handleAvatarSync() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await syncChannelAvatars(forceAvatars);
+      setNotice(
+        `Foto canali: ${r.fetchedCount} scaricate, ${r.skippedCount} già presenti` +
+        (r.failedCount ? `, ${r.failedCount} non trovate.` : '.')
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <div className="page-head">
         <h1>Sorgenti</h1>
-        {sources?.length > 0 && (
-          <button className="btn" disabled={busy} onClick={() => handleSync(undefined)}>
-            <RefreshCw size={14} />Sincronizza tutte
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {sources?.length > 0 && (
+            <button className="btn" disabled={busy} onClick={() => handleSync(undefined)}>
+              <RefreshCw size={14} />Sincronizza tutte
+            </button>
+          )}
+          <button className="btn" disabled={busy} onClick={handleAvatarSync}>
+            <ImageIcon size={14} />Sincronizza foto canali
           </button>
-        )}
+        </div>
       </div>
+
+      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20 }}>
+        <input type="checkbox" checked={forceAvatars} onChange={(e) => setForceAvatars(e.target.checked)} />
+        Aggiorna anche le foto già presenti (un creator ha cambiato foto profilo)
+      </label>
 
       <form className="form-row" onSubmit={handleAdd} style={{ marginBottom: 20 }}>
         <div className="field" style={{ marginBottom: 0, flex: 1 }}>

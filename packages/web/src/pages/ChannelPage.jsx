@@ -20,13 +20,16 @@ export function ChannelPage() {
   if (!videos) return <div className="empty-state"><span className="spinner"></span></div>;
 
   const name = videos[0]?.channel?.name ?? decodeURIComponent(key);
+  const avatarUrl = videos[0]?.channel?.avatarUrl ?? null;
 
   return (
     <>
       <Link to="/" className="back-link"><ArrowLeft size={14} />Home</Link>
       <div className="banner" style={{ marginTop: 16 }}></div>
       <div className="chan-head">
-        <div className="chan-avatar">{name.charAt(0).toUpperCase()}</div>
+        <div className="chan-avatar">
+          {avatarUrl ? <img className="avatar-photo" src={avatarUrl} alt="" /> : name.charAt(0).toUpperCase()}
+        </div>
         <div>
           <div className="chan-name">{name}</div>
           <div className="chan-count">{videos.length} video scaricat{videos.length === 1 ? 'o' : 'i'}</div>

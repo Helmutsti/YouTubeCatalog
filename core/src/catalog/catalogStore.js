@@ -23,6 +23,12 @@ function reconcileOnLoad(cat) {
       changed = true;
     }
   }
+  // Migrazione: cataloghi scritti prima dell'introduzione delle foto profilo
+  // dei canali (M14) non hanno ancora questo campo.
+  if (!cat.channelAvatars) {
+    cat.channelAvatars = {};
+    changed = true;
+  }
   return changed;
 }
 

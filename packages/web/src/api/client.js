@@ -47,3 +47,6 @@ export const getJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`);
 
 export const reorganizeLibrary = (dryRun) =>
   request('/api/library/reorganize', { method: 'POST', body: JSON.stringify({ dryRun }) });
+
+export const syncChannelAvatars = (force) =>
+  request('/api/channels/avatars/sync', { method: 'POST', body: JSON.stringify(force ? { force } : {}) });

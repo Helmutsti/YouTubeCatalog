@@ -47,10 +47,12 @@ export function VideoCard({ video, onDecide }) {
       <div className="card-info">
         {key ? (
           <Link to={`/channels/${encodeURIComponent(key)}`} className="avatar">
-            {channelInitial(video)}
+            {video.channel?.avatarUrl ? <img className="avatar-photo" src={video.channel.avatarUrl} alt="" /> : channelInitial(video)}
           </Link>
         ) : (
-          <div className="avatar">{channelInitial(video)}</div>
+          <div className="avatar">
+            {video.channel?.avatarUrl ? <img className="avatar-photo" src={video.channel.avatarUrl} alt="" /> : channelInitial(video)}
+          </div>
         )}
         <div>
           <div className="card-meta">{video.channel?.name ?? 'Canale sconosciuto'}</div>
