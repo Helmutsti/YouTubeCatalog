@@ -26,6 +26,9 @@ export const getVideo = (id) => request(`/api/videos/${encodeURIComponent(id)}`)
 // Nasconde/mostra un video (asse `hidden` del modello a flag, M25).
 export const setHidden = (id, hidden) =>
   request(`/api/videos/${encodeURIComponent(id)}/hidden`, { method: 'POST', body: JSON.stringify({ hidden }) });
+// Cancella solo il file scaricato (M30); la scheda resta in libreria.
+export const deleteVideoFile = (id) =>
+  request(`/api/videos/${encodeURIComponent(id)}/file`, { method: 'DELETE' });
 // download:false → aggiunge solo il video alla libreria senza scaricarlo
 // (checkbox "Download immediato" non spuntato, M29). Default: scarica subito.
 export const downloadSingle = (url, download = true) =>

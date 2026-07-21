@@ -222,8 +222,24 @@ async function applyReviewDecision(video) {
     return;
   }
 
-  await core.setVideoHidden(video.id, decision === 'hide');
-  setMessage(`\n✔ "${displayTitle(video)}" → ${decision === 'hide' ? 'nascosto' : 'mostrato'}.\n`);
+  if (decision === 'hide') {
+    // M30: nascondere un video scaricato chiede se tenere il file su disco.
+    let deletedFile = false;
+    if (video.download === 'downloaded') {
+      const keep = await confirm({ message: 'Vuoi tenere il video? (No = cancella il file dal disco; la scheda resta in libreria)', default: true });
+      if (!keep) {
+        await core.deleteVideoFile(video.id);
+        deletedFile = true;
+      }
+    }
+    await core.setVideoHidden(video.id, true);
+    setMessage(`\n✔ "${displayTitle(video)}" → nascosto${deletedFile ? ' (file cancellato dal disco)' : ''}.\n`);
+    return;
+  }
+
+  // unhide
+  await core.setVideoHidden(video.id, false);
+  setMessage(`\n✔ "${displayTitle(video)}" → mostrato.\n`);
 }
 
 // Scarica in blocco tutti i video "disponibili" o "falliti" (non ancora

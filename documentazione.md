@@ -704,3 +704,26 @@ Quinta tappa. L'aggiunta di un video singolo si sposta **in testa alla Libreria*
 - Core dell'aggiunta senza download (`prepareSingleVideoDownload(download:false)` → `added`, stub `present/none`) già verificato in M26; il passaggio del flag `download` nel route `/videos/download-single` in M25.
 - Build di produzione web pulita; nessun riferimento residuo a `SingleDownloadPage`/rotta `/download` (solo l'endpoint API `download-single`, invariato).
 - **Verifica browser rimandata alla sessione combinata finale** (M28+M29+M30).
+
+## M30 — "Vuoi tenere il video?" quando si nasconde un video scaricato
+
+Sesta e ultima tappa del ridisegno. Nascondere un video **scaricato** ora chiede **"Vuoi tenere il video?"**: **Sì** → resta scaricato ma nascosto; **No** → viene cancellato **solo il file sul disco** (`download → none`), ma **il video resta in libreria** (scheda, metadati grezzi e copertina intatti). Nessuna domanda se il video non è scaricato.
+
+### Core
+
+`libraryService.deleteVideoFile(id)` (nuova, esposta da `index.js`): cancella il file `video.localPath` dal disco, rimuove la sottocartella creator se rimasta vuota (mai la root `videosDir`), riporta `download:'none'` e azzera i soli campi legati al file fisico dell'oggetto `video` (localPath/codec/size/sha256/downloadedAt/…). **Non tocca** entry di catalogo, metadati grezzi (`data/metadata.json`) né copertina. Rifiuta con errore se il video non è `downloaded`.
+
+### Adapter
+
+- **Server**: `DELETE /api/videos/:id/file` → `deleteVideoFile`, ritorna il video pubblico aggiornato.
+- **Web**: nuovo hook condiviso `hooks/useHideWithPrompt.jsx` — `requestHide(video)` nasconde direttamente i non-scaricati, mentre per gli scaricati apre un **modale** "Vuoi tenere il video?" (Annulla / Cancella il file / Tieni il video). Usato da `LibraryPage`, `CatalogPage`, `SearchPage`, `VideoDetailPage`: la logica del prompt vive in un solo posto, le pagine chiamano `requestHide` e renderizzano `{modal}`. Nuovo client `deleteVideoFile(id)`. CSS `.modal-overlay`/`.modal`.
+- **CLI**: in `applyReviewDecision`, nascondere un video scaricato chiede via `confirm` "Vuoi tenere il video? (No = cancella il file dal disco)"; No → `deleteVideoFile` + `setVideoHidden(true)`.
+
+### Verifica reale eseguita
+
+Test su video **fittizio** creato apposta (mai un file reale dell'utente): file dummy + entry `downloaded` in una sottocartella `__M30TEST__` →
+- `deleteVideoFile`: **file cancellato dal disco**, **cartella creator vuota rimossa**, `download:'none'`, `localPath:null`, categoria `available`; **entry ancora in libreria con titolo e copertina conservati**.
+- **Guardia**: `deleteVideoFile` su un video non scaricato → errore (rifiutato).
+- **Cleanup**: catalogo tornato a 64, nessuna entry/cartella di test residua.
+
+`node --check` su core/server/CLI ok; build web pulita. Verifica browser del modale nella sessione combinata finale (senza mai cliccare "Cancella il file" su dati reali).

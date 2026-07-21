@@ -1,8 +1,45 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
 import { DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
+
+// Cancella SOLO il file video scaricato dal disco (M30), riportando il video a
+// download:'none'. NON cancella l'entry di catalogo, i metadati grezzi né la
+// copertina: il video resta in libreria, ri-scaricabile — coerente con "i
+// record non si perdono mai". Rimuove anche la cartella del creator se rimasta
+// vuota. È il ramo "No, non tenere il file" della domanda "Vuoi tenere il video?".
+export async function deleteVideoFile(id) {
+  const paths = getPaths();
+  return updateCatalog((catalog) => {
+    const video = catalog.videos[id];
+    if (!video) throw new Error(`Video non trovato nel catalogo: ${id}`);
+    if (video.download !== DOWNLOAD_STATE.DOWNLOADED) {
+      throw new Error(`Il video "${id}" non ha un file scaricato da cancellare (stato download: "${video.download}")`);
+    }
+
+    const rel = video.video?.localPath;
+    if (rel) {
+      const abs = path.join(paths.videosDir, rel);
+      if (existsSync(abs)) unlinkSync(abs);
+      const dir = path.dirname(abs);
+      // rimuove la sottocartella creator se ora vuota (non la root videosDir)
+      if (dir !== paths.videosDir && existsSync(dir) && readdirSync(dir).length === 0) {
+        rmdirSync(dir);
+      }
+    }
+
+    // Reset dei soli campi legati al file fisico; metadati curati, thumbnail e
+    // grezzo (data/metadata.json) restano intatti.
+    video.download = DOWNLOAD_STATE.NONE;
+    video.video = {
+      localPath: null, formatId: null, container: null, videoCodec: null, audioCodec: null,
+      bitrateKbps: null, sizeBytes: null, sha256: null, downloadedAt: null, ytdlpVersion: null
+    };
+    video.updatedAt = new Date().toISOString();
+    return video;
+  });
+}
 
 // Nomi riservati di Windows (case-insensitive): non possono essere usati come
 // nome di file/cartella nemmeno con estensione.

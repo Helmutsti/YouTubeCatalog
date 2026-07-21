@@ -6,6 +6,7 @@ import {
   listChannels,
   listVideosByChannel,
   setVideoHidden,
+  deleteVideoFile,
   playVideo,
   searchVideos,
   getRawMetadata,
@@ -98,6 +99,13 @@ videosRouter.get('/videos/:id/metadata', asyncRoute(async (req, res) => {
 // il vecchio /decision (new/pending/excluded, ciclo di revisione ora rimosso).
 videosRouter.post('/videos/:id/hidden', asyncRoute(async (req, res) => {
   const [video, avatars] = await Promise.all([setVideoHidden(req.params.id, req.body?.hidden === true), getChannelAvatarMap()]);
+  res.json(toPublicVideo(video, avatars));
+}));
+
+// Cancella solo il file scaricato dal disco (M30), download → none; la scheda
+// resta in libreria (metadati/copertina intatti). Ramo "No" di "Vuoi tenere il video?".
+videosRouter.delete('/videos/:id/file', asyncRoute(async (req, res) => {
+  const [video, avatars] = await Promise.all([deleteVideoFile(req.params.id), getChannelAvatarMap()]);
   res.json(toPublicVideo(video, avatars));
 }));
 

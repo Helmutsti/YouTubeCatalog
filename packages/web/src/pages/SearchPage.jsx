@@ -4,6 +4,7 @@ import { Search, Download, EyeOff, Eye } from 'lucide-react';
 import { searchVideos, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
+import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { formatDuration } from '../lib/format.js';
 
 const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
@@ -39,15 +40,25 @@ export function SearchPage() {
     return () => clearTimeout(timeout);
   }, [input]);
 
+  async function reSearch() {
+    const r = await searchVideos(q.trim());
+    setResults(r);
+  }
+  const { requestHide, modal } = useHideWithPrompt({ onDone: reSearch, onError: setError });
+
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
         await triggerJob('downloadSingle', { videoId: id });
-      } else {
-        await setHidden(id, kind === 'hide');
+        await reSearch();
+        return;
       }
-      const r = await searchVideos(q.trim());
-      setResults(r);
+      if (kind === 'hide') {
+        requestHide((results ?? []).find((v) => v.id === id));
+        return;
+      }
+      await setHidden(id, false); // unhide
+      await reSearch();
     } catch (e) {
       setError(e.message);
     }
@@ -106,6 +117,7 @@ export function SearchPage() {
           })}
         </div>
       )}
+      {modal}
     </>
   );
 }
