@@ -585,19 +585,34 @@ async function mediaRootFlow() {
   );
 }
 
+async function videosRootFlow() {
+  const current = core.loadConfig().videosRoot;
+  const resolved = core.getPaths().videosDir;
+  console.log(`\nCartella video attuale: ${current ?? '(default: sotto la cartella media)'} → ${resolved}\n`);
+  const newPath = await input({ message: 'Nuovo percorso della cartella video:', default: current ?? '' });
+  if (!newPath || newPath.trim() === (current ?? '')) {
+    setMessage('\nNessuna modifica.\n');
+    return;
+  }
+  const res = core.setVideosRoot(newPath);
+  setMessage(`\n✔ Cartella video impostata su ${res.resolved}.\n  ⚠ Riavvia il server/CLI per applicare.\n`);
+}
+
 async function settingsFlow() {
   while (true) {
     clearScreen();
     const choice = await select({
       message: 'Impostazioni',
       choices: [
-        { name: 'Posizione cartella media…', value: 'media' },
+        { name: 'Posizione cartella video…', value: 'videos' },
+        { name: 'Posizione cartella media (copertine/avatar)…', value: 'media' },
         { name: '← Torna', value: BACK }
       ]
     });
     if (choice === BACK) return;
     try {
       if (choice === 'media') await mediaRootFlow();
+      else if (choice === 'videos') await videosRootFlow();
     } catch (err) {
       if (err?.name === 'ExitPromptError') throw err;
       setMessage(`\n✘ ${err.message}\n`);

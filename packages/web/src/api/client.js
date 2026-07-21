@@ -74,7 +74,9 @@ export const restoreBackup = (file) =>
     body: file
   });
 
-// Impostazioni (M37): posizione della cartella media.
+// Impostazioni: posizione della cartella media (copertine/avatar) e dei video.
 export const getConfig = () => request('/api/config');
 export const setMediaRoot = (path) =>
   request('/api/config/media-root', { method: 'POST', body: JSON.stringify({ path }) });
+export const setVideosRoot = (path) =>
+  request('/api/config/videos-root', { method: 'POST', body: JSON.stringify({ path }) });
