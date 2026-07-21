@@ -6,16 +6,26 @@ import { actionsFor } from '../lib/reviewActions.js';
 
 const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 
-export function VideoCard({ video, onDecide }) {
+export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
   const actions = actionsFor(video);
   const key = channelKey(video);
 
   return (
-    <div className={`card${video.hidden ? ' dimmed' : ''}`}>
+    <div className={`card${video.hidden ? ' dimmed' : ''}${selected ? ' selected' : ''}`}>
       <Link to={`/videos/${video.id}`} className="thumb">
         {video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" loading="lazy" /> : null}
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            className="card-select"
+            checked={!!selected}
+            title="Seleziona"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => { e.stopPropagation(); onToggleSelect(video.id); }}
+          />
+        )}
         <StatusBadge category={video.category} />
         {dur && <div className="dur">{dur}</div>}
         {actions.length > 0 && (
