@@ -685,3 +685,22 @@ La logica di filtro/ordinamento è tutta client-side su dati già caricati (ness
 - `listSources` restituisce le 3 fonti reali con nome e conteggio (usate dal filtro sorgente).
 - Build di produzione web pulita; nuovo CSS `.card-select`/`.card.selected` (checkbox in alto a destra, non sovrapposta alla badge in alto a sinistra).
 - **Verifica browser rimandata alla sessione combinata finale** (M28+M29+M30) su porte libere: il server dell'utente occupa la :3001 con codice pre-M25, quindi un test browser full-stack per-milestone non è pulito. Logica e build verificate.
+
+## M29 — Aggiunta rapida in Libreria + riorganizzazione navigazione
+
+Quinta tappa. L'aggiunta di un video singolo si sposta **in testa alla Libreria**, e la vecchia pagina "Scarica video" diventa **"Cronologia"**.
+
+**Aggiunta rapida** (`LibraryPage`, in cima): un campo "incolla un link" + checkbox **"Download immediato"** (default acceso) + "Aggiungi".
+- **Download immediato acceso**: `downloadSingle(url, true)` → azione `download`, parte il job e una **barra di avanzamento** inline segue il progresso (via `useJobStream`); a fine job la libreria si ricarica.
+- **Download immediato spento**: `downloadSingle(url, false)` → azione `added`, il video viene solo **aggiunto** alla libreria come `presence:'present'`/`download:'none'` (categoria "Su YouTube"), **senza scaricarlo** — poggia sull'opzione `{download}` di `prepareSingleVideoDownload` già introdotta in M25 e sul relativo passaggio nel route server (M26). Gestiti anche gli esiti `already-downloaded`/`already-downloading`/`already-present`.
+
+**Navigazione riorganizzata**:
+- Nuova `HistoryPage` (`/history`, "Cronologia"): solo lo storico job (`JobHistory`), niente più form. `SingleDownloadPage.jsx` rimosso.
+- Sidebar (`Layout`): "Scarica video" (in alto, icona `Download`) → rimossa; "Cronologia" (icona `History`) aggiunta **in basso**, dopo "Libreria". Ordine: Home · Sorgenti · Libreria · Cronologia.
+- `MobileNav`: il pulsante "+" ora punta a `/library` (dove si aggiunge), non più a `/download`.
+
+### Verifica eseguita
+
+- Core dell'aggiunta senza download (`prepareSingleVideoDownload(download:false)` → `added`, stub `present/none`) già verificato in M26; il passaggio del flag `download` nel route `/videos/download-single` in M25.
+- Build di produzione web pulita; nessun riferimento residuo a `SingleDownloadPage`/rotta `/download` (solo l'endpoint API `download-single`, invariato).
+- **Verifica browser rimandata alla sessione combinata finale** (M28+M29+M30).

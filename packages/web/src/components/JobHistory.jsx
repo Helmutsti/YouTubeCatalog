@@ -13,7 +13,7 @@ const JOB_STATUS_COLOR = {
 
 const isTerminal = (j) => j.status === 'success' || j.status === 'failed';
 
-// Storico dei job, condiviso da JobsPage e SingleDownloadPage. Snapshot già
+// Storico dei job, condiviso da JobsPage e HistoryPage. Snapshot già
 // persistito da jobManager (nessuno stream necessario). Cancellazione: solo il
 // record storico (il video/i file su disco restano); i job in corso/in coda
 // non sono cancellabili (nessun abort possibile), quindi il pulsante compare
