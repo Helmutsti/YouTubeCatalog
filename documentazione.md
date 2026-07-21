@@ -333,3 +333,20 @@ Il primo tentativo (React 18.3 + Vite 5 + react-router-dom 6, poi alzati a React
 
 **Non verificato in questa sessione** (per non mutare il catalogo/i file reali dell'utente): le azioni di decisione (Scarica/Archivia/Rimetti tra le novità) dalla card o dal dettaglio, l'aggiunta/rimozione di una fonte, un job di download reale con log SSE dal vivo, e l'esecuzione reale di "Riorganizza libreria". La logica di questi percorsi è la stessa già verificata lato server in M10 (stesse funzioni `core`); andrebbero comunque provati end-to-end dall'utente con dati di cui è disponibile a rischiare una mutazione.
 
+## Esecuzione reale della migrazione al layout per creator
+
+`reorganizeLibrary()` (M10/M11, sopra) era stata scritta e verificata solo in dry-run/test sintetici: l'archivio reale dell'utente era rimasto nel vecchio layout piatto (52 file `<id>.<ext>` alla radice di `media/videos/`, più 1 video già nel nuovo layout perché scaricato dopo il cambio di template in `ytdlpWrapper.js`). Su richiesta esplicita dell'utente, eseguita la migrazione vera e propria.
+
+**Procedura**: `reorganizeLibrary({ dryRun: true })` prima, per rivedere il piano (52 spostamenti pianificati, 1 `alreadyOk`, 0 `missing`, nessuna collisione) — poi `reorganizeLibrary({ dryRun: false })` per l'esecuzione reale. Risultato: `{ moved: 52, planned: 52, alreadyOk: 1, missing: 0 }`.
+
+**Verifica post-migrazione** (dati reali, nessuno script di rollback necessario dato l'esito pulito):
+- Filesystem: nessun file video rimasto alla radice di `media/videos/`; 53 file totali distribuiti in 6 cartelle per creator (`Miss Bell ASMR` 48, le altre 5 con 1 video ciascuna); nessuna sottocartella vuota residua.
+- Catalogo: tutti i 53 video `downloaded` hanno `video.localPath` aggiornato con il segmento di sottocartella e il file corrispondente esiste su disco (verificato per ognuno, non a campione).
+- **Idempotenza confermata su dati reali** (non solo nel test sintetico precedente): una seconda `reorganizeLibrary({ dryRun: true })` dopo la migrazione ritorna `{ planned: 0, alreadyOk: 53, missing: 0 }`.
+- **Funzioni `core` contro il catalogo reale post-migrazione**: `listVideos`, `listChannels`, `listVideosByChannel` (percorso di ogni video risolto e verificato esistente su disco per tutti i 6 canali), `searchVideos('bel gramar')` → stesso risultato corretto di M7.
+- **Server (M10) contro i file reali riorganizzati**: avviato per davvero, `GET /api/videos?status=downloaded` → 53 risultati; su un video con percorso reale contenente spazi/parentesi/emoji (`Miss Bell ASMR/[ASMR] Brain Anatomy Lesson 🧠 (teacher roleplay) [3DHT17o36Zw].mkv`), `videoUrl` correttamente URL-encoded per segmento e la richiesta con header `Range` risponde `206`/`Content-Range` corretto — conferma che `publicVideo.js` gestisce nomi di cartella/file reali, non solo il caso sintetico testato in M10. `GET /api/channels` → i 6 canali reali con conteggi corretti.
+- **CLI**: `node --check` passa; avvio reale del CLI verificato senza errori (il menu principale si renderizza leggendo il catalogo post-migrazione).
+- Nessun processo server lasciato residente al termine della verifica.
+
+L'archivio dell'utente è ora interamente nel layout canonico per creator descritto in `PIANO.md`/sopra; la sezione "Idea in discussione" di `PIANO.md` relativa a questo tema è quindi chiusa (non più in discussione) — vedi aggiornamento a `PIANO.md`.
+

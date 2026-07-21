@@ -57,6 +57,7 @@ YouTubeCatalog/
       services/metadataService.js     # getRawMetadata(id) -> data/metadata.json
       services/searchService.js       # searchVideos(query) -> ricerca fuzzy multi-campo (M7)
       services/singleVideoService.js  # prepareSingleVideoDownload(url) -> download one-off di un singolo video, mai legato a una fonte (M8)
+      services/libraryService.js      # reorganizeLibrary(), sanitizeName(), targetRelPath() -> migrazione/allineamento al layout per creator
       jobs/jobManager.js              # coda single-worker + EventEmitter, persistenza storico
       jobs/jobs/downloadPending.js
       jobs/jobs/downloadSingle.js
@@ -64,26 +65,41 @@ YouTubeCatalog/
     cli/                          # primo consumatore delle mini API di /core
       package.json                  # dipendenza: @inquirer/prompts
       cli.js                      # menu a frecce (@inquirer/prompts): importa @catalog/core direttamente, nessun HTTP
-    server/                       # costruito più avanti (M10): thin wrapper HTTP attorno a @catalog/core
+    server/                       # thin wrapper HTTP attorno a @catalog/core (M10)
+      package.json                   # dipendenza: express
       src/
-        index.js
-        routes/videos.routes.js
-        routes/jobs.routes.js       # include SSE, bridge verso gli eventi di jobManager
-        routes/sources.routes.js
-        media/mediaRoutes.js        # express.static per /media/videos e /media/thumbnails
-    web/                          # costruito più avanti (M11): SPA React, client HTTP di packages/server
-      vite.config.js
+        index.js                     # crea l'app Express, CORS aperto (strumento locale single-user), monta le route sotto /api + media statico
+        routes/videos.routes.js      # lettura catalogo, decideVideo/playVideo, searchVideos, canali, download singolo
+        routes/sources.routes.js     # listSources/addSource/removeSource, /api/sync
+        routes/jobs.routes.js        # triggerJob/listJobs/getJob + GET /api/jobs/:id/stream (SSE, bridge su jobManager)
+        routes/library.routes.js     # POST /api/library/reorganize (dryRun di default true)
+        media/mediaRoutes.js         # express.static per /media/videos e /media/thumbnails (Range requests/ETag)
+        lib/asyncRoute.js            # cattura le Error di core -> 400 { error: message }, un solo pattern di errore
+        lib/publicVideo.js           # aggiunge videoUrl/thumbnailUrl con path-encoding per segmento
+    web/                          # SPA React, client HTTP di packages/server (M11)
+      vite.config.js                # proxy dev su /api e /media verso il server
       src/
         App.jsx
+        main.jsx
         api/client.js
-        pages/CatalogPage.jsx
-        pages/VideoDetailPage.jsx
-        pages/JobsPage.jsx
+        hooks/useJobStream.js        # sottoscrizione SSE condivisa, chiude la EventSource a success/failed
+        lib/format.js
+        lib/reviewActions.js         # REVIEW_ACTIONS_BY_STATUS, stessa tabella del CLI
+        lib/status.js
+        pages/CatalogPage.jsx        # Home: chip di stato, banner "Scarica in coda"
+        pages/VideoDetailPage.jsx    # player + azioni contestuali allo stato
+        pages/SearchPage.jsx         # ricerca fuzzy (searchVideos), debounce 300ms
+        pages/ChannelPage.jsx        # equivalente di "Guarda"
+        pages/SourcesPage.jsx        # "Gestisci fonti" + "Sincronizza" fusi
+        pages/SingleDownloadPage.jsx # "Scarica video singolo"
+        pages/JobsPage.jsx           # log/progresso live via SSE + storico
+        pages/LibraryPage.jsx        # "Riorganizza libreria": dry-run -> conferma -> esecuzione
         components/VideoCard.jsx
-        components/VideoPlayer.jsx
         components/StatusBadge.jsx
-        components/JobLogViewer.jsx
-        components/JobHistoryList.jsx
+        components/StatusChips.jsx
+        components/Layout.jsx
+        components/MobileNav.jsx
+        styles/global.css            # design token direzione "Cinema" (scuro), nessun framework CSS
   scripts/
     testDownload.mjs             # script usa-e-getta per la Milestone 1
   tools/
@@ -163,7 +179,7 @@ Oggetto unico, `videos` è una mappa **keyed by YouTube id** (lookup O(1), dedup
       "playlistContext": { "playlistId": "PLxxxx", "playlistTitle": "To Download", "playlistIndex": 3 },
 
       "video": {
-        "localPath": "dQw4w9WgXcQ.mp4",
+        "localPath": "Rick Astley/Never Gonna Give You Up [dQw4w9WgXcQ].mp4",
         "formatId": "bv*+ba/b",
         "container": "mp4",
         "videoCodec": "avc1.640028",
@@ -206,7 +222,7 @@ Oggetto unico, `videos` è una mappa **keyed by YouTube id** (lookup O(1), dedup
 
 `decidedAt` traccia quando l'utente ha preso la decisione (download/esclusione); resta `null` finché lo stato è `new`.
 
-`video.localPath`/`thumbnail.localPath` sono **relativi a `mediaRoot`** (in `config.json`), così spostare l'archivio richiede solo cambiare config, non riscrivere il catalogo.
+`video.localPath`/`thumbnail.localPath` sono **relativi a `mediaRoot`** (in `config.json`), così spostare l'archivio richiede solo cambiare config, non riscrivere il catalogo. `video.localPath` segue il **layout canonico per creator** `<Creator>/<Titolo> [<id>].<ext>` (sottocartella per canale, id sempre nel nome — vedi "Archivio canonico per creator" più sotto); `thumbnail.localPath` resta piatto (`<id>.jpg`), le thumbnail sono interne e non sfogliate dall'utente.
 
 **Metadati grezzi "il più possibile completi", consolidati in `data/metadata.json`**: oltre ai campi curati sopra, ogni download/importazione passa anche `--write-info-json`, che fa scrivere a yt-dlp un sidecar temporaneo `<id>.info.json` con l'intero oggetto di metadati grezzo estratto da YouTube. `ytdlpWrapper.js` lo legge, lo salva in `data/metadata.json` (mappa `{ [id]: metadatoGrezzo }`, gestita da `catalog/metadataStore.js` con lo stesso pattern mutex+scrittura atomica di `catalogStore.js`) e **cancella il sidecar** — nessun file resta sparso accanto ai video. Prima di salvare viene rimosso `automatic_captions` (elenco di URL per sottotitoli auto-tradotti in 150+ lingue: gonfia ogni metadato di centinaia di KB, quasi mai utile); tutto il resto (formats, heatmap, capitoli, ecc.) resta integrale — nessuna informazione realmente utile che yt-dlp è in grado di estrarre va persa. Accesso tramite `getRawMetadata(id)`. `statsAtDownload` (nel catalogo curato) è deliberatamente uno **snapshot al momento del download**, non un valore live, perché per i video che spariscono da YouTube quello snapshot resta l'unica testimonianza di quei numeri.
 
@@ -312,23 +328,23 @@ Bug reale trovato testando un video Rumble end-to-end: `ytdlpWrapper.downloadVid
 
 Secondo bug trovato nello stesso test: il format selector di default (`bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]`) esclude l'AV1 su **entrambe** le alternative — un workaround specifico per un problema di YouTube (vedi "Logica di download e dedup" sotto). Su Rumble questo escludeva l'unico formato disponibile, facendo fallire il download con "Requested format is not available" anche se il video esisteva ed era scaricabile. Corretto aggiungendo un ultimo fallback **senza filtro AV1** (`.../b`, sia nel default di `config.json` sia nel ramo con `maxHeight` impostato in `buildFormatSelector()`): su YouTube l'esclusione AV1 continua a valere perché le alternative precedenti quasi sempre trovano un formato non-AV1 valido; sugli altri siti, se le alternative filtrate falliscono, si scarica comunque il meglio disponibile invece di fallire senza motivo apparente.
 
-### Idea in discussione: consultabilità di `media/videos/` da filesystem
+### Archivio canonico per creator con nomi leggibili
 
-L'utente ha notato che `media/videos/` è poco consultabile aprendola direttamente in Esplora File: tutti i canali mescolati in un'unica cartella piatta, e il nome file è l'id YouTube (es. `88RAHq3prwo.mp4`), non il titolo. Ha chiesto di ragionare insieme su una soluzione, proponendo lui stesso l'idea di un comando di esportazione.
+L'utente aveva notato che `media/videos/` era poco consultabile aprendola direttamente in Esplora File: tutti i canali mescolati in un'unica cartella piatta, e il nome file era l'id YouTube (es. `88RAHq3prwo.mp4`), non il titolo. Tra le due strade valutate (cambiare l'archivio canonico vs. un comando di esportazione via hard link separato), l'utente ha scelto esplicitamente di **cambiare l'archivio vero e proprio** — un solo posto, non una vista duplicata — nonostante il costo di dover ri-organizzare i file già scaricati.
 
-Due strade valutate:
-1. **Cambiare l'archivio canonico** (es. `media/videos/<Canale>/<Titolo> [<id>].<ext>`, convenzione tipica di yt-dlp) — concettualmente più "corretto", ma richiede riscrivere la logica che oggi si aspetta `<id>.<ext>` esatto (`findDownloadedFiles`) e rendere di nuovo tutti i file già scaricati (l'utente ha appena rinominato 49 file proprio nel formato attuale per l'importazione fatta in M6 — un secondo giro di rinomina sarebbe spreco puro).
-2. **Comando di esportazione** (proposto dall'utente): l'archivio interno resta `<id>.<ext>`, invariato, senza toccare nulla del codice esistente. Nuova funzione che genera/aggiorna `media/esportati/<Canale>/<Titolo>.<ext>` tramite **hard link** (non copie): stesso contenuto su disco, occupazione di spazio a zero anche per file da diversi GB, creazione istantanea (`fs.linkSync`, funziona su Windows/NTFS senza privilegi di amministratore, a differenza dei symlink).
+**Layout canonico**: `media/videos/<Creator>/<Titolo> [<id>].<ext>` — la convenzione di default di yt-dlp, con sottocartella per creator. L'id è **sempre** nel nome (non solo in caso di collisione): risolve da sé il problema di titoli duplicati nello stesso canale (caso reale incontrato: due video "[ASMR] Come Study With Me" con id diversi) senza bisogno di logica di deduplica dedicata. Le thumbnail restano piatte in `media/thumbnails/<id>.jpg` (interne, non sfogliate dall'utente).
 
-**Raccomandazione**: opzione 2 — rischio minimo, nessun re-lavoro sui 50 video già a posto, risultato equivalente (cartella sfogliabile per canale con il titolo vero) a un costo di implementazione molto più basso. Dettagli implementativi da definire quando si passa a costruirla: dove agganciare la generazione/aggiornamento (comando dedicato nel menu vs automatico dopo ogni download), come gestire titoli duplicati nello stesso canale (già visto un caso reale, due video con titolo identico), sanificazione caratteri non validi per nomi file Windows.
+I nuovi download scrivono già in questo layout (template `-o` di yt-dlp aggiornato in `ytdlpWrapper.js`). Per i video scaricati prima del cambio, `core/src/services/libraryService.js` espone `reorganizeLibrary({ dryRun })`: funzione **idempotente e riusabile** (non uno script una tantum) che individua il file attuale di ogni video `downloaded` (per `localPath` registrato o, in fallback, cercando ricorsivamente il marker `[<id>]`/il vecchio nome piatto `<id>.<ext>`), lo sposta (`renameSync`, istantaneo sullo stesso volume) al percorso canonico e aggiorna `localPath` nel catalogo. `dryRun: true` ritorna solo il piano (`planned`/`alreadyOk`/`missing`) senza toccare nulla. Esposta da CLI ("Riorganizza libreria", dry-run → conferma → esecuzione) e web (`LibraryPage`, stesso pattern) e via `POST /api/library/reorganize` sul server.
 
-### Idea in discussione: reset della schermata CLI (rimandata)
+**Migrazione dell'archivio reale eseguita**: tutti i video già scaricati dall'utente sono stati riorganizzati nel layout per creator (52 spostati, verificato nessun file rimasto nel vecchio formato piatto, funzionamento confermato end-to-end su CLI/server con i file reali). Dettagli e verifica in `documentazione.md`.
 
-I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non puliscono mai il terminale: ogni vecchia versione di un elenco (es. "Rivedi novità" dopo ogni decisione, "Guarda" scorrendo canali/video) resta stampata sopra le nuove, e dopo pochi giri lo schermo diventa illeggibile. L'utente ha chiesto un reset della schermata a ogni menu/sottomenu — **rimandata** per ora, ma la progettazione è già discussa e pronta per quando si deciderà di riprenderla:
+### Reset della schermata CLI
 
-- Meccanismo condiviso in `packages/cli/cli.js`: una `clearScreen()` che pulisce il terminale (`console.clear()`, solo se `process.stdout.isTTY`) e subito dopo ristampa un eventuale messaggio in sospeso; una `setMessage(text)` che mette in coda quel messaggio. Sicuro con una singola variabile globale perché il CLI è già bloccante, un solo flusso interattivo alla volta.
+I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano il terminale: ogni vecchia versione di un elenco (es. "Rivedi novità" dopo ogni decisione, "Guarda" scorrendo canali/video) restava stampata sopra le nuove, e dopo pochi giri lo schermo diventava illeggibile. Implementato un reset a ogni menu/sottomenu:
+
+- Due helper condivisi in `packages/cli/cli.js`: `clearScreen()` pulisce il terminale (`console.clear()`, solo se `process.stdout.isTTY`, per non rompere output rediretto/pipe) e subito dopo ristampa un eventuale messaggio in sospeso; `setMessage(text)` mette in coda quel messaggio (una singola variabile globale, sicura perché il CLI è bloccante — un solo flusso interattivo alla volta).
 - Ogni ciclo `while(true)` di menu/sottomenu chiama `clearScreen()` come prima istruzione, prima di ricalcolare/ristampare l'elenco.
-- Ogni output "da leggere" non in tempo reale (conferme, riepiloghi, elenchi informativi) passa da `console.log` diretto a `setMessage()`, così sopravvive esattamente una schermata invece di sparire subito o restare per sempre. Fa eccezione lo streaming live dei log di un job in corso (`onJobLog`), che resta `console.log` diretto riga per riga: solo la riga di riepilogo finale passa da `setMessage()`.
+- Ogni output "da leggere" non in tempo reale (conferme, riepiloghi, elenchi informativi) passa da `console.log` diretto a `setMessage()`, così sopravvive esattamente una schermata invece di sparire subito o restare per sempre. Fa eccezione lo streaming live dei log di un job in corso, che resta `console.log` diretto riga per riga: solo la riga di riepilogo finale passa da `setMessage()`.
 
 ## Logica di download e dedup
 
@@ -339,30 +355,39 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non puliscono ma
    - in catalogo `new`/`pending`/`downloading`/`failed` → lascia invariato.
 2. **Aggiunta fonte**: "Aggiungi fonte" nel CLI (`addSource(url)`) registra una nuova playlist in `catalog.sources` e ingerisce subito le sue entry come sopra (stessa logica, fattorizzata in `ingestPlaylistEntries()`).
 3. **Decisione**: "Scarica"/"Archivia"/"Rimetti tra le novità" nella vista "Rivedi novità" del CLI spostano liberamente un'entry tra `new`/`pending`/`excluded`.
-4. **Download**: per ogni entry `pending` (o `failed` con `attempts < maxAttempts`, default 3): imposta `downloading`, spawna `yt-dlp --js-runtimes node --extractor-args "youtube:player_client=default,android_vr" -f "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]" --merge-output-format mp4 --write-thumbnail --convert-thumbnails jpg --write-info-json -o media/videos/%(id)s.%(ext)s -o "thumbnail:media/thumbnails/%(id)s.%(ext)s" --download-archive media/.ytdlp-archive.txt <id>` — **senza `--cookies` al primo tentativo**; se fallisce e sono configurati dei cookie (`core/cookies.txt`), si ripulisce l'eventuale residuo e si ritenta un'unica volta con `--cookies` incluso. Al termine, `ytdlpWrapper.js` legge il sidecar `<id>.info.json`, ne mappa i campi curati nello schema, salva il grezzo in `data/metadata.json` e cancella il sidecar. A successo: calcola sha256 + size, `status: downloaded`. A fallimento: `status: failed`, `attempts++`, salva errore.
+4. **Download**: per ogni entry `pending` (o `failed` con `attempts < maxAttempts`, default 3): imposta `downloading`, spawna `yt-dlp --js-runtimes node --extractor-args "youtube:player_client=default,android_vr" -f "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b" --merge-output-format mp4 --write-thumbnail --convert-thumbnails jpg --write-info-json -o "media/videos/%(channel,uploader|Sconosciuto)s/%(title)s [%(id)s].%(ext)s" -o "thumbnail:media/thumbnails/%(id)s.%(ext)s" --download-archive media/.ytdlp-archive.txt <url>` (`<url>` = `video.webpageUrl` reale, non ricostruito dall'id — vedi correzione multi-sito in "Download singolo one-off") — **senza `--cookies` al primo tentativo**; se fallisce e sono configurati dei cookie (`core/cookies.txt`), si ripulisce l'eventuale residuo e si ritenta un'unica volta con `--cookies` incluso. Al termine, `ytdlpWrapper.js` legge il sidecar `.info.json` (trovato per marker `[<id>]` nella sottocartella creator), ne mappa i campi curati nello schema, salva il grezzo in `data/metadata.json` e cancella il sidecar. A successo: calcola sha256 + size, `status: downloaded`. A fallimento: `status: failed`, `attempts++`, salva errore.
    - **`--js-runtimes node`**: senza un runtime JavaScript, yt-dlp non riesce a decifrare le firme dei formati più recenti e i download falliscono a metà con `HTTP 403`. Node è già una dipendenza del progetto, quindi lo si usa come runtime (nessuna installazione aggiuntiva, es. Deno).
-   - **Esclusione codec AV1** (`vcodec!*=av01`): scoperto verificando con la playlist reale dell'utente che il formato di default (`bv*+ba/b`, che sceglie AV1 alla risoluzione più alta) falliva sistematicamente con 403 anche con il runtime JS attivo, mentre lo stesso video alla stessa risoluzione in **VP9** scaricava senza problemi. **Nessun compromesso sulla qualità**: si ottiene comunque la risoluzione più alta disponibile, semplicemente non in AV1, coerente con "massima qualità, nessun cap".
+   - **Esclusione codec AV1** (`vcodec!*=av01`): scoperto verificando con la playlist reale dell'utente che il formato di default (`bv*+ba/b`, che sceglie AV1 alla risoluzione più alta) falliva sistematicamente con 403 anche con il runtime JS attivo, mentre lo stesso video alla stessa risoluzione in **VP9** scaricava senza problemi. **Nessun compromesso sulla qualità**: si ottiene comunque la risoluzione più alta disponibile, semplicemente non in AV1, coerente con "massima qualità, nessun cap". Il fallback finale `/b` (senza filtro AV1) è stato aggiunto in M8 per i siti non-YouTube dove l'esclusione AV1 può escludere l'unico formato disponibile.
+   - **Template `-o` per-creator**: `%(channel,uploader|Sconosciuto)s/%(title)s [%(id)s].%(ext)s` — yt-dlp sanifica da sé i caratteri non validi per Windows e crea le sottocartelle; vedi "Archivio canonico per creator" sopra. Il template della thumbnail resta piatto.
    - **`player_client=default,android_vr`**: alcuni video vengono assegnati da YouTube a un esperimento che richiede un "PO Token" per i client normali (web/ios/tv) — senza, quei client falliscono con 403 in modo sistematico e ripetibile (diagnosticato con `yt-dlp -v --simulate`: "Detected experiment to bind GVS PO Token to video ID"). Il client `android_vr` non è soggetto all'esperimento; aggiunto come client **supplementare** (non sostitutivo di `default`) così i video non coinvolti nell'esperimento continuano a usare i client abituali.
    - **Niente `--cookies` al primo tentativo**: inviare i cookie del browser insieme all'identità client mobile `android_vr` è una combinazione che la CDN video di YouTube tratta come sospetta e blocca con 403, anche se le fasi di estrazione precedenti (con quegli stessi cookie) riescono. Dato che tutti i video di un catalogo personale sono tipicamente pubblici, il primo tentativo è senza cookie; il fallback con cookie resta per l'unico caso in cui servono davvero: video privati/non listati del proprio account.
 5. **Interruzioni**: yt-dlp riprende download parziali via range request nativamente (il file `.part` viene deliberatamente preservato quando un download fallisce, per permettere la ripresa). Se il processo muore mid-download, all'avvio `catalogStore` resetta ogni entry bloccata su `downloading` a `pending`.
 6. **Pulizia dei residui**: se un download fallisce dopo che yt-dlp ha già scritto `.info.json`/thumbnail (cosa che fa presto nel suo processo), quei file vengono cancellati automaticamente — solo il video/`.part` viene preservato per il resume.
 7. **Doppia protezione dedup**: `--download-archive` di yt-dlp come ledger ridondante, ma il catalogo resta la fonte primaria.
 
-## Serving video e player (per la futura WebGUI)
+## Serving video e player (`packages/server`, M10)
 
-- `express.static()` (via pacchetto `send`) supporta già **Range requests**/ETag out of the box.
+- `express.static()` (via pacchetto `send`) supporta **Range requests**/ETag out of the box, montato da `media/mediaRoutes.js`:
   ```js
-  app.use('/media/videos', express.static(mediaRoot + '/videos'));
-  app.use('/media/thumbnails', express.static(mediaRoot + '/thumbnails'));
+  app.use('/media/videos', express.static(paths.videosDir));
+  app.use('/media/thumbnails', express.static(paths.thumbnailsDir));
   ```
-- Frontend: `<video controls src="/media/videos/{id}.mp4">` nativo, sufficiente per mp4 con seek.
+- `lib/publicVideo.js` costruisce `videoUrl`/`thumbnailUrl` codificando ogni segmento del path (necessario perché `localPath` ora contiene sottocartelle per creator con spazi/caratteri accentati/emoji nel nome).
+- Frontend: `<video controls src={videoUrl}>` nativo, sufficiente per mp4/webm/mkv con seek.
 - Merge sempre in **MP4** (H.264/AAC) — ffmpeg già presente sulla macchina.
 
-## Pagine frontend (WebGUI, fase successiva)
+## Pagine frontend (`packages/web`, M11 — direzione visiva "Cinema")
 
-- **CatalogPage** (`/`): griglia `VideoCard`, ricerca/filtri client-side, include anche i video `new`/`excluded` con badge di stato.
-- **VideoDetailPage** (`/videos/:id`): `VideoPlayer` + pannello metadati esteso; se `new`, bottoni "Scarica"/"Escludi" (stesso `decideVideo` usato dal CLI); se `failed`, bottone "Riprova".
-- **JobsPage** (`/jobs`): trigger job, log live via SSE (bridge sopra gli stessi eventi di `jobManager` già usati dal CLI), storico persistito.
+React 19 + Vite + `react-router-dom` (SPA multi-pagina) + `lucide-react` per le icone; nessuna libreria di stato globale (`fetch` + `useState`/`useEffect` per pagina); CSS scritto a mano con i design token della direzione scura scelta dall'utente (vedi mockup `Webapp video catalogo design.zip`, direzione "1b Cinema"). Ogni pagina corrisponde 1:1 a un flusso già esistente nel CLI, stessa logica applicativa (nessuna nuova regola, solo chiamate HTTP a `packages/server`):
+
+- **CatalogPage** (`/`): griglia `VideoCard`, chip di stato (Tutti/Nuovi/In coda/Scaricati/Falliti/Archiviati) invece di categorie editoriali, banner "Scarica in coda (N)".
+- **VideoDetailPage** (`/videos/:id`): player nativo per `downloaded`, azioni contestuali allo stato (`decideVideo`) per gli altri, video correlati dello stesso canale.
+- **SearchPage** (`/search`): `searchVideos` (M7) con debounce, azioni contestuali sui risultati.
+- **ChannelPage** (`/channels/:key`): equivalente di "Guarda" nel CLI.
+- **SourcesPage** (`/sources`): "Gestisci fonti" + "Sincronizza" fusi in una vista.
+- **SingleDownloadPage** (`/download`): "Scarica video singolo" (M8).
+- **JobsPage** (`/jobs`): job in corso con log/progresso live via SSE (bridge sugli eventi di `jobManager`), più storico persistito.
+- **LibraryPage** (`/library`): "Riorganizza libreria" — dry-run automatico all'apertura, conferma, esecuzione.
 
 ## Config (`data/config.json`)
 
@@ -370,7 +395,7 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non puliscono ma
 {
   "mediaRoot": "./media",
   "port": 3001,
-  "ytdlp": { "binaryPath": "./tools/yt-dlp.exe", "format": "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]", "mergeOutputFormat": "mp4", "maxHeight": null, "cookiesFile": null },
+  "ytdlp": { "binaryPath": "./tools/yt-dlp.exe", "format": "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b", "mergeOutputFormat": "mp4", "maxHeight": null, "cookiesFile": null },
   "playback": { "vlcPath": "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe" },
   "jobs": { "maxAttempts": 3 }
 }
@@ -396,13 +421,13 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non puliscono ma
 | M7 ✅ | Motore di ricerca nel CLI: `core/src/services/searchService.js` (`searchVideos`, fuzzy scritto a mano — finestra scorrevole + distanza di Levenshtein su titolo/canale/tag, sottostringa esatta su descrizione — nessuna dipendenza esterna) + nuova voce menu "Cerca" (prompt `search` di `@inquirer/prompts`, azioni contestuali allo stato del risultato). | Ricerca reale contro il catalogo dell'utente: titolo con typo, nome canale con typo, termine generico con molti risultati, query senza corrispondenze. |
 | M8 ✅ | `core`: nuovo `services/singleVideoService.js` (`prepareSingleVideoDownload(url)` — risolve id/titolo/canale/extractor con **yt-dlp stesso** (`resolveVideoInfo()`, nuovo in `ytdlpWrapper.js`), non con un regex specifico di YouTube: qualunque sito supportato da `yt-dlp.exe` funziona, non solo YouTube. Riusa il job `downloadSingle` già esistente; se l'id non è nel catalogo crea uno stub con `source: { sourceId: null, type: 'single' }` così non è mai toccato da nessuna sync di playlist, poi scarica subito; se è già `downloaded`/`downloading` informa senza agire; se è già tracciato con un altro stato tramite una fonte, rifiuta e rimanda a "Rivedi novità"). Corretto `ytdlpWrapper.downloadVideo()` (scaricava sempre da un URL YouTube ricostruito dall'id, ora accetta l'URL reale) e il format selector di default (l'esclusione AV1, un workaround specifico di YouTube, escludeva l'unico formato disponibile su altri siti — aggiunto un fallback finale senza filtro). `packages/cli/cli.js`: nuova voce menu "Scarica video singolo" (dopo "Gestisci fonti"), log/progress live come "Scarica in coda". | URL YouTube (`watch?v=`, `youtu.be/`, `shorts/`, id nudo) e non-YouTube (verificato con Rumble) → download reale end-to-end e comparsa in "Guarda"/"Catalogo"; URL con `list=` → scarica solo quel video, nessuna fonte creata in `catalog.sources`; id già `downloaded` → messaggio, nessun ri-download; id già tracciato `new`/`pending`/`failed`/`excluded` → rifiutato con messaggio che rimanda a "Rivedi novità"; URL non valido o playlist/canale → errore chiaro, nessun crash. |
 | M9 ✅ | Rimozione di "Importa video già scaricati": era uno script di migrazione una tantum (introdotto in M6 per i 49 video già scaricati manualmente prima di adottare il tool), non una funzionalità duratura. Rimuovere `core/src/services/importService.js` (`scanImportable`, `importLocalVideo`) e i relativi export da `core/src/index.js`; rimuovere `fetchMetadata()` da `core/src/ytdlp/ytdlpWrapper.js` (unico chiamante era `importLocalVideo`; `hashFileSha256`/`getYtdlpVersion`/`mapInfoJsonToVideoFields` restano, condivise con `downloadVideo()`); rimuovere dal CLI la voce menu "Importa video già scaricati" e `importFlow()`. Nessun impatto sui 49 video già importati in M6: restano entry `downloaded` regolari nel catalogo, indipendenti dal codice che li ha creati. | Il menu principale non mostra più la voce; nessun riferimento residuo a `importService`/`scanImportable`/`importLocalVideo`/`fetchMetadata` nel repo; i 49 video importati in M6 restano intatti e `downloaded` nel catalogo. |
-| M10 ✅ (era M8) | `packages/server`: thin wrapper Express attorno a `@catalog/core` (stesse funzioni, esposte come REST) + bridge SSE sugli eventi di `jobManager` + static serving media con Range requests. | `Invoke-RestMethod` sugli endpoint restituisce gli stessi dati visti dal CLI; richiesta con header `Range` risponde `206`; stream SSE mostra i log di un job in corso. |
-| M11 ✅ (era M9) | `packages/web`: SPA React (Vite) — `CatalogPage`, `VideoDetailPage` (con decisione su "novità" e player), `JobsPage`. | `npm run dev`, uso la WebGUI per rivedere una novità, deciderla, scaricarla, e riprodurla nel browser. |
-| M12 (era M10) | Rifinitura: ricerca/filtri su CatalogPage, dettaglio errori + retry sia da CLI che da web, QA sui casi limite. | Passaggio manuale su tutti i flussi, CLI e web. |
-| M13 (era M11) | Solo documentazione: verifica che il seam `sourceProviders` supporti in futuro un provider `channel`; nota dedicata in `documentazione.md`. | Solo lettura, nessuna verifica runtime. |
+| M9.1 ✅ | Reset della schermata CLI: `clearScreen()`/`setMessage()` condivisi in `packages/cli/cli.js`, applicati a ogni ciclo menu/sottomenu (vedi "Reset della schermata CLI" sopra). | `node --check` passa; avvio reale del CLI senza errori. Navigazione interattiva confermata dall'utente. |
+| M9.2 ✅ | Archivio canonico per creator: nuovo template `-o` di yt-dlp per i download futuri, `core/src/services/libraryService.js` (`reorganizeLibrary`) per migrare l'archivio esistente (vedi "Archivio canonico per creator" sopra). CLI: voce menu "Riorganizza libreria" (dry-run → conferma → esecuzione). | Test unitario del sanitizer e test d'integrazione dry-run/esecuzione/idempotenza su dati sintetici; **migrazione reale dell'archivio dell'utente eseguita** (52 file spostati, verificato nessun residuo nel vecchio layout, `listVideos`/`listChannels`/`searchVideos`/server tutti funzionanti sui path reali post-migrazione). Dettagli in `documentazione.md`. |
+| M10 ✅ (era M8) | `packages/server`: thin wrapper Express attorno a `@catalog/core` (routes `videos`/`sources`/`jobs`/`library`, bridge SSE sugli eventi di `jobManager`, static serving media con Range requests via `mediaRoutes.js`, `lib/asyncRoute.js` + `lib/publicVideo.js`). | Server avviato realmente contro i dati reali dell'utente: endpoint di lettura, ricerca, canali, sorgenti, media (Range → `206`) tutti verificati; percorsi di errore verificati senza mutare i dati reali. |
+| M11 ✅ (era M9) | `packages/web`: SPA React 19 + Vite + `react-router-dom` + `lucide-react`, direzione visiva "Cinema" (scura) scelta dall'utente tra due mockup proposti — 8 pagine: `CatalogPage`, `VideoDetailPage`, `SearchPage`, `ChannelPage`, `SourcesPage`, `SingleDownloadPage`, `JobsPage`, `LibraryPage` (vedi "Pagine frontend" sopra). | Build di produzione senza errori; navigazione reale nel browser su tutte le pagine con i dati reali dell'utente; layout mobile verificato; bug reale trovato e corretto (badge di stato mal posizionato in `SearchPage`). |
+| M12 | Rifinitura: dettaglio errori + retry sia da CLI che da web, QA sui casi limite (azioni di decisione dal web, aggiunta/rimozione fonte dal web, job di download reale con SSE dal vivo, esecuzione reale di "Riorganizza libreria" dal web — verificate finora solo lato server/CLI o in dry-run). | Passaggio manuale su tutti i flussi, CLI e web. |
+| M13 | Solo documentazione: verifica che il seam `sourceProviders` supporti in futuro un provider `channel`; nota dedicata in `documentazione.md`. | Solo lettura, nessuna verifica runtime. |
 
-Nota: il reset della schermata del CLI (vedi "Idea in discussione: reset della schermata CLI" sopra) resta rimandato, non è una milestone numerata per ora.
-
-L'utente ha già in catalogo due fonti reali: "ToDownload" (1 video, in `pending`, ancora da scaricare — un tentativo reale ha incontrato un probabile throttling temporaneo di YouTube legato ai test ripetuti, non un problema di codice) e "bell asmr" (49 video, tutti `downloaded` — l'utente li aveva già scaricati manualmente prima di usare il CLI e li ha importati con "Importa video già scaricati").
+Lo stato corrente del catalogo dell'utente (numero di video, fonti configurate, cosa è `pending`/`downloaded`) non è tracciato qui — cambia continuamente ed è per natura un dato, non una decisione di progetto. Per lo stato più recente vedi `documentazione.md` (aggiornato milestone per milestone) o interroga direttamente `data/catalog.json`/il CLI.
 
 **Regola trasversale (da M0 in poi)**: al completamento di ciascuna milestone, prima di iniziare la successiva, aggiungere a `documentazione.md` la sezione corrispondente con le decisioni prese e la logica costruttiva di quella milestone.
