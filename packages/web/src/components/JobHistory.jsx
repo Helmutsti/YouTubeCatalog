@@ -113,8 +113,8 @@ export function JobHistory({ excludeId, refreshKey, onJobSettled, onQuickDownloa
 
   return (
     <>
-      <div className="side-sec hist-head" style={{ padding: '0 0 10px' }}>
-        <span>Storico</span>
+      <div className="hist-head">
+        <span className="eyebrow">Cronologia</span>
         {deletableCount > 0 && (
           <button className="btn btn-ghost btn-sm" disabled={busy} onClick={handleClear}>
             <Trash2 size={13} />Svuota storico
@@ -190,37 +190,37 @@ function JobHistoryRow({ job, isOpen, onToggle, onDelete, busy, onSettled, onQui
             {job.thumbnailsMore > 0 && <span className="job-hist-more">+{job.thumbnailsMore} altri</span>}
           </div>
         </div>
+        <div className="job-hist-side">
+          {liveNow ? (
+            <>
+              <div className="job-hist-phase">
+                {status === 'queued' ? 'In coda — attende il job precedente…' : (live.logLines.at(-1) ?? 'Avvio…')}
+              </div>
+              <div className={`progress-bar${live.progress == null ? ' indeterminate' : ''}`}>
+                <div style={live.progress != null ? { width: `${live.progress}%` } : undefined}></div>
+              </div>
+            </>
+          ) : (
+            (outcome || (job.status === 'failed' && job.error)) && (
+              <>
+                {outcome && <div className="job-hist-outcome">{outcome}</div>}
+                {job.status === 'failed' && job.error && <div className="job-hist-outcome err">{job.error.message}</div>}
+                {quickDownload && (
+                  <button className="btn small" disabled={starting} onClick={(e) => { e.stopPropagation(); handleQuickDownload(); }}>
+                    <Download size={13} />Scarica
+                  </button>
+                )}
+              </>
+            )
+          )}
+        </div>
+
         {isTerminal(job) && !liveNow && (
           <button className="job-del" title="Cancella dallo storico" disabled={busy} onClick={onDelete}>
             <Trash2 size={14} />
           </button>
         )}
       </div>
-
-      {liveNow && (
-        <div className="job-hist-extra job-hist-progress">
-          <div className="job-hist-phase">
-            {status === 'queued' ? 'In coda — attende il job precedente…' : (live.logLines.at(-1) ?? 'Avvio…')}
-          </div>
-          <div className={`progress-bar${live.progress == null ? ' indeterminate' : ''}`}>
-            <div style={live.progress != null ? { width: `${live.progress}%` } : undefined}></div>
-          </div>
-        </div>
-      )}
-
-      {!liveNow && (outcome || (job.status === 'failed' && job.error)) && (
-        <div className="job-hist-extra">
-          <div className="job-hist-outcome-row">
-            {outcome && <div className="job-hist-outcome">{outcome}</div>}
-            {quickDownload && (
-              <button className="btn small" disabled={starting} onClick={handleQuickDownload}>
-                <Download size={13} />Scarica
-              </button>
-            )}
-          </div>
-          {job.status === 'failed' && job.error && <div className="job-hist-outcome err">{job.error.message}</div>}
-        </div>
-      )}
 
       {isOpen && (
         <div className="job-log" style={{ margin: '0 16px 14px' }}>

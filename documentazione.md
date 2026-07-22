@@ -934,6 +934,22 @@ Segnalato dall'utente su un caso reale: cancellato il file di `pEhoILkfG8w` (men
 
 **Verifica reale eseguita** sul video effettivamente segnalato dall'utente (non un caso sintetico): confermata la riga incriminata (`youtube pEhoILkfG8w`) nell'archivio reale; rimossa manualmente (server fermo, per rispettare la regola di concorrenza); server riavviato; **ri-scaricato per davvero** via job reale (`downloadSingle`) — completato con successo, 175 MB, nessun errore, file verificato presente sul percorso canonico (`D:\YouTube\Video\ASMR Darya\...`).
 
+## Restyle pagina "Sorgenti"
+
+L'utente ha portato un handoff di design (uno zip esportato da uno strumento di design proprietario: un HTML di riferimento ad alta fedeltà + una copia del codice reale della pagina, per farlo ricostruire fedelmente nell'ambiente vero — React + `global.css` esistenti, stessi token colore, nessun colore nuovo). Nessun cambio di funzionalità o di architettura di pagina: stesso form, stesso elenco fonti, stessa Cronologia con lo stesso comportamento — solo restyle visivo. Ogni modifica nel brief era motivata, non estetica fine a sé stessa; applicate tutte:
+
+- **Rimossa la checkbox "Aggiorna anche le foto già presenti".** Un creator nuovo prende la foto in automatico alla creazione (già vero da prima). Forzare il refresh di un creator già esistente diventa un'azione futura sulla **pagina del singolo creator** (non ancora costruita — vedi backlog), non più su Sorgenti. "Sincronizza foto creator" in testata resta per la sync bulk, ma ora chiama sempre `force:false`.
+- **Elenco fonti reso collassabile.** Nuovo stato `sourcesOpen` (default chiuso): un riepilogo "N fonti — clicca per espandere l'elenco" sostituisce le card individuali finché non si apre; da aperto, un unico pannello con una riga per fonte separata da un bordo sottile (non più una card a sé per fonte). Si apre automaticamente avviando una sync (`syncOne`/`handleSyncAll` ora chiamano anche `setSourcesOpen(true)`), così il progresso per riga non resta invisibile dietro l'accordion chiuso — piccola aggiunta non nel brief ma coerente con l'intento (mostrare il progresso).
+- **URL su una riga con ellissi** invece di `word-break: break-all` su più righe.
+- **Cestino neutro di default, rosso solo in hover** (nuove `.icon-btn`/`.icon-btn-danger`), per non "pesare" visivamente quando non è l'azione voluta.
+- **Pannello "Aggiungi" isolato** (`.add-panel`, bordo + radius 14px + eyebrow label) invece di una riga con hint sotto.
+- **Item di Cronologia ristrutturati**: la copertina ora è a tutta altezza della riga (niente più aspect-ratio fisso), e l'area di progresso/esito si è spostata in una **colonna a destra** (260px, separata da un bordo verticale) invece che sotto il titolo a tutta larghezza — la riga resta compatta anche con un esito/errore lungo. Il tasto rapido "Scarica" (M40) è stato integrato in questa colonna.
+- **Intestazioni unificate**: `JobHistory` mostrava un proprio header interno "Storico" sotto il vecchio `<h2>Cronologia</h2>` di `SourcesPage` — duplicato. Rinominato a "Cronologia" e rimosso l'header esterno.
+
+**Bug reale trovato in verifica, non coperto dal design (che è solo desktop)**: su viewport stretti (mobile, 390px) la colonna destra fissa a 260px non ci stava — riga della Cronologia che andava in overflow. Corretto nel breakpoint `@media (max-width: 880px)` già esistente: su mobile la colonna si impila **sotto** la riga (bordo superiore invece che laterale) invece che a fianco.
+
+**Verifica eseguita**: build web pulita; verifica visiva reale nel browser (Chromium headless via Playwright) su dati reali — stato chiuso/aperto dell'accordion, chevron che ruota, hover del cestino (rosso solo in hover confermato), zoom sul pannello Aggiungi e su un item di Cronologia, vista mobile prima (rotta) e dopo (corretta) il fix del breakpoint. Nessun errore console/pageerror.
+
 ## Fix — video privati segnati automaticamente "Rimosso"
 
 Segnalato dall'utente: 10 video di "Angelica ASMR" restavano bloccati in "Da scaricare" **senza titolo né canale** ("sconosciuti"). Verificato dal vivo interrogando yt-dlp direttamente sui 10 id (non ipotizzato): tutti e 10 rispondono `ERROR: Private video. Sign in if you've been granted access...` — video resi **privati** dall'autrice. YouTube mantiene comunque il loro "posto" nella playlist (ecco perché comparivano come entry), ma senza un account autorizzato yt-dlp non riesce a leggere nemmeno i metadati leggeri (titolo/canale), da cui l'aspetto "sconosciuto".
