@@ -1,9 +1,10 @@
 // Client sottile su packages/server: una funzione per endpoint, stessa forma
 // dei nomi in @catalog/core così la corrispondenza resta ovvia. Nessuna
 // logica applicativa qui — solo fetch + propagazione dell'errore.
+import { apiUrl, resolveMediaUrls } from '../lib/apiBase.js';
 
 async function request(path, options) {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: { 'Content-Type': 'application/json' },
     ...options
   });
@@ -12,7 +13,9 @@ async function request(path, options) {
   if (!res.ok) {
     throw new Error(body?.error ?? `Richiesta fallita (${res.status})`);
   }
-  return body;
+  // Riscrive i path /media/... assoluti verso API_BASE_URL quando impostato
+  // (default: nessun cambiamento, vedi lib/apiBase.js).
+  return resolveMediaUrls(body);
 }
 
 function qs(params = {}) {
@@ -73,7 +76,7 @@ export const syncChannelAvatars = (force, channelKey) =>
 
 // Backup: il download avviene via link diretto (<a href={BACKUP_URL}>), così il
 // browser scarica il .zip con il nome dato dall'header Content-Disposition.
-export const BACKUP_URL = '/api/backup';
+export const BACKUP_URL = apiUrl('/api/backup');
 // Ripristino: invia il file .zip grezzo (Content-Type application/zip). Il
 // server salva una copia di sicurezza e sostituisce i file; richiede riavvio.
 export const restoreBackup = (file) =>
