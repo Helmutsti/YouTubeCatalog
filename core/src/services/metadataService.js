@@ -1,6 +1,6 @@
 import { readMetadata } from '../catalog/metadataStore.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
-import { fetchVideoMetadata, isPrivateVideoError } from '../ytdlp/ytdlpWrapper.js';
+import { fetchVideoMetadata, isVideoGoneError } from '../ytdlp/ytdlpWrapper.js';
 import { PRESENCE } from '../catalog/catalogSchema.js';
 
 export async function getRawMetadata(id) {
@@ -50,7 +50,7 @@ export async function refreshVideoMetadata(id) {
       return cur;
     });
   } catch (err) {
-    if (isPrivateVideoError(err)) {
+    if (isVideoGoneError(err)) {
       return markVideoRemoved(id);
     }
     if (video.presence === PRESENCE.REMOVED) {

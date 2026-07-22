@@ -16,7 +16,14 @@ export function ToastHost() {
   return (
     <div className="toast-host">
       {toasts.map((t) => (
-        <div key={t.id} className={`toast toast-${t.type}`}>{t.message}</div>
+        <div
+          key={t.id}
+          className={`toast toast-${t.type}${t.onClick ? ' clickable' : ''}`}
+          onClick={t.onClick}
+          role={t.onClick ? 'button' : undefined}
+        >
+          {t.message}
+        </div>
       ))}
     </div>
   );

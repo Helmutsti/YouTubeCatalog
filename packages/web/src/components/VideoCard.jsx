@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Star, StarOff } from 'lucide-react';
+import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Star, StarOff, Trash2 } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
 import { actionsFor } from '../lib/reviewActions.js';
+import { confirmDialog } from '../lib/dialog.js';
 
 // Voci del menu ⋮ per tipo di azione (kind da actionsFor). Etichette/icone in
 // stile YouTube; "hide"→Archivia, "unhide"→Ripristina (contestuale allo stato).
@@ -23,8 +24,19 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
   const otherActions = actions.filter((a) => a.kind !== 'hide' && a.kind !== 'unhide');
   const key = channelKey(video);
 
-  function act(kind) {
+  async function act(kind) {
     setMenuOpen(false);
+    if (kind === 'deletevideo') {
+      // Cancellazione totale e irreversibile (punto 11): conferma esplicita,
+      // stesso modale usato per gli altri confirm dell'app.
+      const ok = await confirmDialog({
+        title: 'Cancellare definitivamente il video?',
+        message: `Azione irreversibile: file, copertina e scheda di "${video.title ?? video.id}" verranno cancellati per sempre. Se il video appartiene ancora a una fonte, la prossima sincronizzazione potrebbe reinserirlo in libreria.`,
+        confirmLabel: 'Cancella per sempre',
+        danger: true
+      });
+      if (!ok) return;
+    }
     onDecide(video.id, kind);
   }
 
@@ -112,6 +124,13 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
                   >
                     {archiveAction.kind === 'hide' ? <Archive size={15} /> : <ArchiveRestore size={15} />}
                     {MENU[archiveAction.kind].label}
+                  </button>
+                )}
+                {/* Cancella definitivamente (punto 11): solo sui video già
+                    archiviati — gate a due passi, applicato anche lato core. */}
+                {video.hidden && (
+                  <button className="menu-item danger" onClick={() => act('deletevideo')}>
+                    <Trash2 size={15} />Cancella
                   </button>
                 )}
               </div>

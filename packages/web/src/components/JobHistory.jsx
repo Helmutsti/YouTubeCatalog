@@ -121,7 +121,7 @@ export function JobHistory({ excludeId, refreshKey, onJobSettled, onQuickDownloa
   return (
     <>
       <div className="hist-head">
-        <span className="eyebrow">Cronologia</span>
+        <span className="eyebrow">Cronologia lavorazioni</span>
         {deletableCount > 0 && (
           <button className="btn btn-ghost btn-sm" disabled={busy} onClick={handleClear}>
             <Trash2 size={13} />Svuota storico

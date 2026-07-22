@@ -13,10 +13,10 @@ import { playVideo } from './services/playbackService.js';
 import { prepareSingleVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata, refreshVideoMetadata } from './services/metadataService.js';
 import { searchVideos } from './services/searchService.js';
-import { reorganizeLibrary, deleteVideoFile } from './services/libraryService.js';
+import { reorganizeLibrary, deleteVideoFile, deleteVideoCompletely } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { createBackup, restoreBackup } from './services/backupService.js';
-import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot } from './config.js';
+import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile } from './config.js';
 
 registerJobHandler('downloadPending', downloadPendingJob);
 registerJobHandler('downloadSingle', downloadSingleJob);
@@ -75,6 +75,8 @@ export {
   reorganizeLibrary,
   // cancella solo il file scaricato (M30), mantenendo la scheda in libreria
   deleteVideoFile,
+  // cancellazione totale e irreversibile (punto 11): scheda+file+copertina+metadati
+  deleteVideoCompletely,
   // manutenzione: foto profilo dei canali (M14)
   syncChannelAvatars,
   getChannelAvatarMap,
@@ -88,5 +90,9 @@ export {
   // e cartella video dedicata separata da copertine/avatar (M38)
   updateConfig,
   setMediaRoot,
-  setVideosRoot
+  setVideosRoot,
+  // cookie YouTube (core/cookies.txt): upload/cancellazione da Impostazioni
+  getCookiesStatus,
+  saveCookiesFile,
+  deleteCookiesFile
 };

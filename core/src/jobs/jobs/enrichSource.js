@@ -1,6 +1,6 @@
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
 import { PRESENCE, DOWNLOAD_STATE } from '../../catalog/catalogSchema.js';
-import { fetchVideoMetadata, isPrivateVideoError } from '../../ytdlp/ytdlpWrapper.js';
+import { fetchVideoMetadata, isVideoGoneError } from '../../ytdlp/ytdlpWrapper.js';
 import { syncChannelAvatars } from '../../services/channelAvatarService.js';
 import { markVideoRemoved } from '../../services/metadataService.js';
 
@@ -58,7 +58,7 @@ export async function enrichSourceJob(params, { log, progress }) {
       enriched += 1;
       log(`✔ ${video.id} arricchito.`);
     } catch (err) {
-      if (isPrivateVideoError(err)) {
+      if (isVideoGoneError(err)) {
         await markVideoRemoved(video.id);
         removed += 1;
         log(`⊘ ${video.id} è privato — segnato come "Rimosso".`);

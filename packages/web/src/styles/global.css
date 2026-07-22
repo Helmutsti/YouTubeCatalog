@@ -43,6 +43,23 @@ body {
 }
 a { color: inherit; text-decoration: none; }
 button { font-family: inherit; }
+
+/* Barre di scorrimento minimali a scomparsa (punto 9 del backlog): larghezza
+   sempre riservata (nessuno spostamento di layout quando compaiono — il thumb
+   è solo trasparente finché non si passa sopra con il mouse l'area
+   scrollabile), thumb visibile solo in hover. Firefox non ha un vero
+   "a scomparsa" via CSS: resta comunque sottile grazie a scrollbar-width. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover { scrollbar-color: var(--border) transparent; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+*:hover::-webkit-scrollbar-thumb { background: var(--border); }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 img { max-width: 100%; display: block; }
 
 .display, .logo, h1, h2, h3, .card-title, .chip, .btn, .d-title {
@@ -106,6 +123,12 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .search-box input::placeholder { color: var(--faint); }
 .search-box input:focus { outline: none; }
+.search-clear {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; border: none;
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.search-clear:hover { background: var(--panel2); color: var(--ink2); }
 .search-box svg { flex: none; }
 
 .topbar-spacer { width: 1px; }
@@ -341,8 +364,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn:hover { background: var(--panel2); }
+/* --panel2 è quasi identico allo sfondo dei pannelli in cui i bottoni vivono
+   (stesso bug già corretto sulla barra di progresso): hover praticamente
+   invisibile. Usato --border, più chiaro. Aggiunto anche :active (mancava
+   del tutto: nessuna reazione visiva al click). */
+.btn:hover { background: var(--border); }
+.btn:active { background: color-mix(in oklch, var(--border) 70%, black); }
 .btn:disabled { opacity: .5; cursor: default; }
+.btn:disabled:hover, .btn:disabled:active { background: transparent; }
 .btn.small { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
 .btn-primary { background: var(--accent); color: var(--accent-contrast); border-color: transparent; }
 /* background esplicito: senza, il generico ".btn:hover" (stessa specificità,
@@ -350,8 +379,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
    scuro quasi nero dei bottoni normali — testo scuro su sfondo scuro,
    illeggibile. Bug reale segnalato dall'utente, pre-esistente al rebrand. */
 .btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+.btn-primary:active { background: var(--accent); filter: brightness(0.92); }
 .btn-danger { color: var(--st-failed); border-color: color-mix(in oklch, var(--st-failed) 45%, transparent); background: transparent; }
 .btn-danger:hover { background: color-mix(in oklch, var(--st-failed) 12%, transparent); }
+.btn-danger:active { background: color-mix(in oklch, var(--st-failed) 22%, transparent); }
 .btn-ghost { border-color: transparent; background: var(--panel2); }
 
 .banner-cta {
@@ -431,12 +462,17 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   color: var(--ink);
   font-size: 13px;
   box-shadow: 0 10px 28px rgba(0,0,0,.45);
-  animation: toast-in .2s ease, toast-out .25s ease 3.25s forwards;
+  animation: toast-in .2s ease;
+  /* border-left/testo cambiano colore con transizione morbida quando il toast
+     passa da "avviato" (info) a verde/rosso con l'esito, invece di sparire e
+     riapparire come un toast nuovo. */
+  transition: border-left-color .25s ease;
 }
 .toast-success { border-left-color: var(--st-downloaded); }
 .toast-error { border-left-color: var(--st-failed); }
+.toast.clickable { cursor: pointer; }
+.toast.clickable:hover { background: var(--panel2); }
 @keyframes toast-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes toast-out { to { opacity: 0; transform: translateX(16px); } }
 
 /* ===== Loading ===== */
 .spinner {
@@ -558,7 +594,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background: var(--accent); border-color: var(--accent); transform: scale(1.08);
 }
 
-.progress-bar { height: 6px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
+/* Traccia vuota leggermente più chiara di --panel2 (quasi identico allo
+   sfondo dei pannelli in cui vive: senza contrasto la barra risultava
+   invisibile finché non si riempiva). */
+.progress-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
 .progress-bar > div { height: 100%; background: var(--accent); transition: width .2s ease; }
 /* Barra indeterminata (fase di enumerazione della sync, senza % nota): un
    segmento che scorre avanti e indietro finché l'operazione è in corso. */
@@ -590,6 +629,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .tech-grid > div { display: flex; flex-direction: column; gap: 2px; }
 .tech-key { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
 .tech-val { color: var(--ink2); word-break: break-word; }
+.tech-val a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.tech-val a:hover { color: var(--accent); }
 
 .side-related { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
 .rel-lbl { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }

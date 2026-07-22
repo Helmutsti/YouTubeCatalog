@@ -8,6 +8,7 @@ import {
   setVideoHidden,
   setVideoFavorite,
   deleteVideoFile,
+  deleteVideoCompletely,
   playVideo,
   searchVideos,
   getRawMetadata,
@@ -131,6 +132,14 @@ videosRouter.post('/videos/:id/favorite', asyncRoute(async (req, res) => {
 videosRouter.delete('/videos/:id/file', asyncRoute(async (req, res) => {
   const [video, avatars] = await Promise.all([deleteVideoFile(req.params.id), getChannelAvatarMap()]);
   res.json(toPublicVideo(video, avatars));
+}));
+
+// Cancellazione totale e irreversibile (punto 11): scheda+file+copertina+
+// metadati grezzi spariscono dal catalogo — solo sui video già archiviati
+// (gate a due passi, applicato anche lato core in deleteVideoCompletely).
+videosRouter.delete('/videos/:id', asyncRoute(async (req, res) => {
+  await deleteVideoCompletely(req.params.id);
+  res.json({ ok: true, id: req.params.id });
 }));
 
 // Lancia VLC lato server (stesso comportamento del CLI). Ha senso solo
