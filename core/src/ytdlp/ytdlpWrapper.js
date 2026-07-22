@@ -409,9 +409,12 @@ function buildDownloadArgs(paths, config, formatSelector, url, { useCookies }) {
   return args;
 }
 
-function runYtdlp(paths, args, { onLog, onProgress }) {
+function runYtdlp(paths, args, { onLog, onProgress, signal }) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(paths.ytdlpBinaryPath, args, { cwd: paths.projectRoot });
+    // signal (M51, interruzione manuale): passato nativamente a spawn — Node
+    // uccide il processo da sé quando viene abortito, senza bisogno di
+    // gestire noi stessi l'invio del segnale al child.
+    const proc = spawn(paths.ytdlpBinaryPath, args, { cwd: paths.projectRoot, signal });
     const rlOut = readline.createInterface({ input: proc.stdout });
     const rlErr = readline.createInterface({ input: proc.stderr });
     let stderrTail = '';
@@ -438,7 +441,7 @@ function runYtdlp(paths, args, { onLog, onProgress }) {
 // dopo il download (-o "%(id)s.%(ext)s" produce sempre lo stesso id). url è il
 // link da cui scaricare per davvero — qualunque sito supportato da yt-dlp, non
 // solo YouTube.
-export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress = () => {} } = {}) {
+export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress = () => {}, signal } = {}) {
   const paths = getPaths();
   const config = loadConfig();
   const formatSelector = buildFormatSelector(config.ytdlp.format, config.ytdlp.maxHeight);
@@ -454,12 +457,15 @@ export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress
     // con quelli: restano necessari per i video privati/non listati del
     // proprio account, lo scopo originale di core/cookies.txt.
     try {
-      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: false }), { onLog, onProgress });
+      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: false }), { onLog, onProgress, signal });
     } catch (firstErr) {
+      // Interruzione manuale (M51): mai il retry con i cookie — l'utente ha
+      // chiesto di fermarsi, non di riprovare in un altro modo.
+      if (signal?.aborted) throw firstErr;
       if (!paths.cookiesPath) throw firstErr;
       onLog('Primo tentativo (senza cookie) fallito, riprovo con i cookie (potrebbe essere un video privato/non listato)...');
       cleanupFailedDownloadArtifacts(paths, videoId);
-      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: true }), { onLog, onProgress });
+      await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: true }), { onLog, onProgress, signal });
     }
 
     const { videoFile, infoFile, thumbnailFile } = findDownloadedFiles(paths, videoId);
@@ -478,6 +484,10 @@ export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress
     return mapInfoJsonToVideoFields(info, { videoFile, thumbnailFile, sizeBytes, sha256, ytdlpVersion });
   } catch (err) {
     cleanupFailedDownloadArtifacts(paths, videoId);
+    // Messaggio leggibile invece del generico AbortError di Node — il resto
+    // del trattamento (download:'failed', attempts++) resta invariato, per
+    // scelta esplicita (M51): niente nuovo stato dedicato per l'interruzione.
+    if (signal?.aborted) throw new Error('Download interrotto dall\'utente.');
     throw err;
   }
 }

@@ -1,4 +1,4 @@
-import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, clearJobs, onJobLog, onJobStatus, onJobProgress } from './jobs/jobManager.js';
+import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, cancelJob, clearJobs, onJobLog, onJobStatus, onJobProgress } from './jobs/jobManager.js';
 import { downloadPendingJob } from './jobs/jobs/downloadPending.js';
 import { downloadSingleJob } from './jobs/jobs/downloadSingle.js';
 import { enrichSourceJob } from './jobs/jobs/enrichSource.js';
@@ -18,8 +18,11 @@ import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvata
 import { createBackup, restoreBackup } from './services/backupService.js';
 import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile } from './config.js';
 
-registerJobHandler('downloadPending', downloadPendingJob);
-registerJobHandler('downloadSingle', downloadSingleJob);
+// interruptible (M51): solo i due job di download vero e proprio (lunghi,
+// pesanti su disco) — enrichSource/addSource scaricano solo metadati, pochi
+// secondi, interromperli non è stato ritenuto utile.
+registerJobHandler('downloadPending', downloadPendingJob, { interruptible: true });
+registerJobHandler('downloadSingle', downloadSingleJob, { interruptible: true });
 registerJobHandler('enrichSource', enrichSourceJob);
 // Aggiunta "istantanea" dalla pagina Sorgenti (M39): l'intera operazione di
 // aggiunta (playlist o singolo video) gira come un job in coda — mai il
@@ -57,6 +60,8 @@ export {
   getJob,
   listJobs,
   deleteJob,
+  // interruzione manuale di un job running/queued (M51)
+  cancelJob,
   clearJobs,
   onJobLog,
   onJobStatus,

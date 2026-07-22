@@ -638,6 +638,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .tech-val a:hover { color: var(--accent); }
 
 .side-related { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
+/* Collassata (punto 1 del backlog): la colonna si restringe al solo header,
+   lasciando lo spazio al player invece di lasciare un vuoto a destra. */
+.side-related.collapsed { flex: none; min-width: 0; gap: 0; }
+.rel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rel-collapse-btn { background: transparent; border: none; color: var(--faint); cursor: pointer; display: flex; padding: 4px; border-radius: 6px; flex: none; }
+.rel-collapse-btn:hover { background: var(--panel2); color: var(--ink); }
+.rel-collapse-btn .chev { transition: transform .15s ease; }
+.rel-collapse-btn .chev.open { transform: rotate(180deg); }
 .rel-lbl { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
 .rel-item { display: flex; gap: 10px; }
 .rel-thumb {

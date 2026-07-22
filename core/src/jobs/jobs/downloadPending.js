@@ -7,7 +7,7 @@ import { downloadVideo } from '../../ytdlp/ytdlpWrapper.js';
 // concetto di coda "pending" è sparito col modello a flag ortogonali: non si
 // scansiona più il catalogo per stato, si scarica esattamente ciò che è stato
 // scelto. Salta gli id già scaricati o in download; l'ordine è quello passato.
-export async function downloadPendingJob(params, { log, progress }) {
+export async function downloadPendingJob(params, { log, progress, signal }) {
   const requestedIds = Array.isArray(params?.videoIds) ? params.videoIds : [];
   const catalog = await readCatalog();
 
@@ -38,7 +38,7 @@ export async function downloadPendingJob(params, { log, progress }) {
     });
 
     try {
-      const fields = await downloadVideo(id, candidate.webpageUrl, { onLog: log, onProgress: progress });
+      const fields = await downloadVideo(id, candidate.webpageUrl, { onLog: log, onProgress: progress, signal });
       await updateCatalog((cat) => {
         Object.assign(cat.videos[id], fields, {
           download: DOWNLOAD_STATE.DOWNLOADED,
@@ -60,6 +60,12 @@ export async function downloadPendingJob(params, { log, progress }) {
       failed += 1;
       results.push({ id, status: 'failed' });
       log(`✘ ${id} fallito: ${err.message}`);
+      // Interruzione manuale (M51): ferma subito l'intero lotto, i video
+      // successivi restano "da scaricare" — mai avviati, non solo saltati.
+      if (signal?.aborted) {
+        log(`Lotto interrotto dall'utente: ${candidates.length - results.length} video rimasti non avviati.`);
+        break;
+      }
     }
   }
 

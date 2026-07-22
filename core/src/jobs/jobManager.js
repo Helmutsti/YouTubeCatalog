@@ -8,11 +8,19 @@ const emitter = new EventEmitter();
 const jobs = new Map();
 const queue = [];
 const handlers = new Map(); // type -> async (params, ctx) => summary
+// Un AbortController per ogni job "running" (M51, interruzione manuale): non
+// serializzabile, quindi vive solo qui in memoria, mai in jobs.json — un job
+// interrotto dopo un riavvio del processo torna semplicemente a girare come se
+// nessuno l'avesse mai interrotto (nessun controller da recuperare).
+const controllers = new Map();
 let processing = false;
 let loaded = false;
 
-export function registerJobHandler(type, handler) {
-  handlers.set(type, handler);
+// interruptible (M51): solo downloadSingle/downloadPending lo dichiarano —
+// gli altri tipi (metadati soltanto, pochi secondi) restano non interrompibili
+// di proposito, vedi PIANO.md.
+export function registerJobHandler(type, handler, { interruptible = false } = {}) {
+  handlers.set(type, { handler, interruptible });
 }
 
 function storeFilePath() {
@@ -121,11 +129,43 @@ export function deleteJob(id) {
   const job = jobs.get(id);
   if (!job) throw new Error(`Job non trovato: "${id}"`);
   if (job.status === 'running' || job.status === 'queued') {
-    throw new Error('Non puoi cancellare un job in corso o in coda: attendi che finisca.');
+    throw new Error('Non puoi cancellare un job in corso o in coda: attendi che finisca, oppure interrompilo prima.');
   }
   jobs.delete(id);
   persistStore();
   return { deleted: 1 };
+}
+
+// Interruzione manuale (M51): solo per i tipi che la dichiarano interrompibile
+// (downloadSingle/downloadPending — vedi INTERRUPTIBLE_TYPES in jobs/jobs/).
+// Un job "queued" non ha ancora nessun processo: basta toglierlo dalla coda.
+// Un job "running" viene fermato inviando l'abort al suo AbortController — lo
+// stesso `signal` passato all'handler, che lo inoltra fino a `runYtdlp()`
+// (spawn con opzione `signal`, uccide davvero il processo yt-dlp in corso).
+// In entrambi i casi il job chiude come "failed", stesso trattamento di un
+// qualunque altro errore (nessun nuovo stato): l'handler stesso, ricevendo
+// l'abort, lancia/propaga un errore che jobManager già gestisce così.
+export function cancelJob(id) {
+  ensureLoaded();
+  const job = jobs.get(id);
+  if (!job) throw new Error(`Job non trovato: "${id}"`);
+  if (job.status === 'queued') {
+    const idx = queue.indexOf(id);
+    if (idx !== -1) queue.splice(idx, 1);
+    job.status = 'failed';
+    job.error = { message: 'Interrotto dall\'utente prima di partire.' };
+    job.finishedAt = new Date().toISOString();
+    persistStore();
+    emitter.emit(`job:${job.id}:status`, job.status);
+    return { cancelled: true };
+  }
+  if (job.status === 'running') {
+    const controller = controllers.get(id);
+    if (!controller) throw new Error('Questo tipo di job non supporta l\'interruzione.');
+    controller.abort();
+    return { cancelled: true };
+  }
+  throw new Error('Il job è già terminato, non c\'è nulla da interrompere.');
 }
 
 // Svuota lo storico: cancella tutti i job terminati (`success`/`failed`),
@@ -182,15 +222,19 @@ async function processQueue() {
   };
   const progress = (pct) => emitter.emit(`job:${job.id}:progress`, pct);
 
+  const entry = handlers.get(job.type);
+  const controller = entry.interruptible ? new AbortController() : null;
+  if (controller) controllers.set(job.id, controller);
+
   try {
-    const handler = handlers.get(job.type);
-    job.summary = await handler(job.params, { log, progress });
+    job.summary = await entry.handler(job.params, { log, progress, signal: controller?.signal });
     job.status = 'success';
   } catch (err) {
     job.status = 'failed';
     job.error = { message: err.message };
     log(`✘ Job fallito: ${err.message}`);
   } finally {
+    if (controller) controllers.delete(job.id);
     job.finishedAt = new Date().toISOString();
     persistStore();
     emitter.emit(`job:${job.id}:status`, job.status);

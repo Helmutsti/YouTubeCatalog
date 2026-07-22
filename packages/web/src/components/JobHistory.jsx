@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Trash2, Download } from 'lucide-react';
-import { listJobs, deleteJob, clearJobs } from '../api/client.js';
+import { Trash2, Download, X } from 'lucide-react';
+import { listJobs, deleteJob, cancelJob, clearJobs } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
 import { alertDialog, confirmDialog } from '../lib/dialog.js';
+
+// M51: stessa lista di tipi dichiarati interrompibili in core/src/index.js
+// (registerJobHandler(..., { interruptible: true })) — duplicata qui solo per
+// decidere se mostrare il tasto "X", la vera regola resta lato server
+// (cancelJob rifiuta comunque gli altri tipi).
+const INTERRUPTIBLE_TYPES = new Set(['downloadSingle', 'downloadPending']);
 
 const JOB_TYPE_LABEL = {
   downloadPending: 'Scarica in coda',
@@ -94,6 +100,26 @@ export function JobHistory({ excludeId, refreshKey, onJobSettled, onQuickDownloa
     }
   }
 
+  async function handleCancel(id, e) {
+    e.stopPropagation();
+    const ok = await confirmDialog({
+      title: 'Interrompere il download?',
+      message: 'Il processo in corso viene fermato subito. Il video resta segnato come non riuscito, ri-scaricabile in un secondo momento.',
+      confirmLabel: 'Interrompi',
+      danger: true
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await cancelJob(id);
+      reload();
+    } catch (err) {
+      await alertDialog({ message: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleClear() {
     const ok = await confirmDialog({
       title: 'Svuotare lo storico?',
@@ -141,6 +167,7 @@ export function JobHistory({ excludeId, refreshKey, onJobSettled, onQuickDownloa
             isOpen={expanded === j.id}
             onToggle={() => setExpanded((cur) => (cur === j.id ? null : j.id))}
             onDelete={(e) => handleDelete(j.id, e)}
+            onCancel={(e) => handleCancel(j.id, e)}
             busy={busy}
             onSettled={handleSettled}
             onQuickDownload={onQuickDownload}
@@ -151,7 +178,7 @@ export function JobHistory({ excludeId, refreshKey, onJobSettled, onQuickDownloa
   );
 }
 
-function JobHistoryRow({ job, isOpen, onToggle, onDelete, busy, onSettled, onQuickDownload }) {
+function JobHistoryRow({ job, isOpen, onToggle, onDelete, onCancel, busy, onSettled, onQuickDownload }) {
   const live = useJobStream(isLive(job) ? job.id : null);
   const [starting, setStarting] = useState(false);
 
@@ -225,6 +252,11 @@ function JobHistoryRow({ job, isOpen, onToggle, onDelete, busy, onSettled, onQui
         {isTerminal(job) && !liveNow && (
           <button className="job-del" title="Cancella dallo storico" disabled={busy} onClick={onDelete}>
             <Trash2 size={14} />
+          </button>
+        )}
+        {liveNow && INTERRUPTIBLE_TYPES.has(job.type) && (
+          <button className="job-del" title="Interrompi" disabled={busy} onClick={onCancel}>
+            <X size={14} />
           </button>
         )}
       </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown, Star } from 'lucide-react';
-import { getVideo, listVideosByChannel, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown, Star, ChevronDown } from 'lucide-react';
+import { getVideo, listVideos, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
@@ -18,6 +18,7 @@ export function VideoDetailPage() {
   const { id } = useParams();
   const [video, setVideo] = useState(null);
   const [related, setRelated] = useState([]);
+  const [relatedCollapsed, setRelatedCollapsed] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [audioOnly, setAudioOnly] = useState(false);
@@ -88,12 +89,17 @@ export function VideoDetailPage() {
     }
   }
 
+  // "Video suggeriti" (punto 1 del backlog): selezione casuale su tutta la
+  // libreria (non più limitata allo stesso canale), esclusi il video corrente
+  // e gli archiviati — ricalcolata a ogni cambio di video, non ad ogni render.
   useEffect(() => {
     if (!video) return;
-    const key = channelKey(video);
-    if (!key) return;
-    listVideosByChannel(key)
-      .then((videos) => setRelated(videos.filter((v) => v.id !== video.id).slice(0, 5)))
+    listVideos()
+      .then((videos) => {
+        const pool = videos.filter((v) => v.id !== video.id && !v.hidden);
+        const shuffled = [...pool].sort(() => Math.random() - 0.5);
+        setRelated(shuffled.slice(0, 5));
+      })
       .catch(() => setRelated([]));
   }, [video]);
 
@@ -376,9 +382,19 @@ export function VideoDetailPage() {
         </div>
 
         {related.length > 0 && (
-          <div className="side-related">
-            <div className="rel-lbl">Altri video di {video.channel?.name}</div>
-            {related.map((r) => (
+          <div className={`side-related${relatedCollapsed ? ' collapsed' : ''}`}>
+            <div className="rel-header">
+              <div className="rel-lbl">Video suggeriti</div>
+              <button
+                className="rel-collapse-btn"
+                onClick={() => setRelatedCollapsed((c) => !c)}
+                title={relatedCollapsed ? 'Espandi' : 'Comprimi'}
+                aria-label={relatedCollapsed ? 'Espandi' : 'Comprimi'}
+              >
+                <ChevronDown size={16} className={`chev${relatedCollapsed ? '' : ' open'}`} />
+              </button>
+            </div>
+            {!relatedCollapsed && related.map((r) => (
               <Link key={r.id} to={`/videos/${r.id}`} className="rel-item">
                 <div className="rel-thumb">
                   {r.thumbnailUrl && <img src={r.thumbnailUrl} alt="" loading="lazy" />}
