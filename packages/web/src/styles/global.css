@@ -441,20 +441,45 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .res-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
-.source-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  margin-bottom: 10px;
+/* ===== Pagina Sorgenti: pannello "Aggiungi" (restyle) ===== */
+.add-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; margin-bottom: 36px; }
+.add-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.add-row { display: flex; gap: 12px; align-items: center; }
+.add-row input {
+  flex: 1; height: 46px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0 16px; color: var(--ink); font-size: 14px;
 }
-.source-row .name { font-weight: 600; color: var(--ink); }
-.source-row .url { font-size: 11.5px; color: var(--faint); word-break: break-all; }
-.source-row .count { font-size: 12px; color: var(--muted); flex: none; }
-.source-row .actions { display: flex; gap: 8px; flex: none; }
+.add-row input:focus { outline: none; border-color: var(--accent); }
+.add-row .btn-primary { flex: none; height: 46px; padding: 0 20px; font-size: 13.5px; }
+.add-hint { font-size: 11.5px; color: var(--faint); margin-top: 10px; }
+
+/* ===== Pagina Sorgenti: elenco fonti collassabile (accordion) ===== */
+.sources-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: transparent; border: none; padding: 0; margin-bottom: 12px; cursor: pointer;
+}
+.sources-toggle .chev { color: var(--faint); transition: transform .15s ease; }
+.sources-toggle .chev.open { transform: rotate(180deg); }
+.sources-summary { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 20px; margin-bottom: 44px; font-size: 12.5px; color: var(--faint); }
+.sources-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 44px; }
+.source-line-wrap:not(:last-child) { border-bottom: 1px solid var(--border2); }
+.source-line { display: flex; align-items: center; gap: 16px; padding: 16px 20px; }
+.source-line-main { flex: 1; min-width: 0; }
+.source-line .name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.source-line .url { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.source-line .count { font-size: 13px; color: var(--muted); flex: none; }
+.source-line .actions { display: flex; gap: 6px; flex: none; }
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--border);
+  background: transparent; color: var(--ink2); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.icon-btn:hover { background: var(--panel2); }
+.icon-btn:disabled { opacity: .5; cursor: default; }
+/* Cestino neutro di default, rosso solo in hover — l'azione distruttiva non
+   deve "pesare" visivamente quando non è quella che si vuole compiere. */
+.icon-btn-danger { border-color: transparent; color: var(--faint); }
+.icon-btn-danger:hover { color: var(--st-failed); background: color-mix(in oklch, var(--st-failed) 12%, transparent); }
+.source-line-progress, .source-line-result { padding: 0 20px 16px; }
 
 /* ===== Video detail / player ===== */
 .detail-body { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
@@ -593,39 +618,37 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 .job-del:hover { color: var(--st-failed); border-color: var(--border); background: var(--panel2); }
 .job-del:disabled { opacity: .5; cursor: default; }
-.hist-head { display: flex; align-items: center; justify-content: space-between; }
-/* Ogni item: una RIGA ad altezza costante (copertina + corpo) e, sotto, il log
-   espanso a tutta larghezza (fuori dalla riga, così non ne altera l'altezza).
-   Il corpo ha altezza fissa (titolo sempre su 2 righe riservate + meta), quindi
-   tutte le righe sono uguali e la copertina in stretch le riempie senza lasciare
-   bande: copertine tutte identiche a prescindere dalla lunghezza del titolo. */
+.hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+
+/* Restyle Sorgenti (design handoff): riga ad altezza VARIABILE (min-height,
+   non più fissa) — copertina e colonna esito/progresso in "align-self:stretch"
+   la riempiono comunque per intero, qualunque sia l'altezza del contenuto. */
 .job-hist { position: relative; padding: 0; overflow: hidden; }
-/* Riga ad altezza fissa pari a una copertina 16:9 (132px -> ~74px). La copertina
-   in stretch riempie ESATTAMENTE un box 16:9, quindi object-fit cover ritaglia
-   via le eventuali bande di letterbox "cotte" in una thumbnail non-16:9 (es. una
-   4:3) rivelando solo il contenuto 16:9 — e non resta mai spazio vuoto sotto.
-   Il titolo sta su una riga sola per far combaciare l'altezza del corpo con la
-   copertina, così tutte le righe (e le copertine) sono identiche. */
-.job-hist-row { display: flex; align-items: stretch; height: 74px; }
-.job-hist-cover { flex: none; width: 132px; align-self: stretch; position: relative; overflow: hidden; background: var(--panel2); }
+.job-hist-row { display: flex; align-items: stretch; min-height: 88px; }
+.job-hist-cover { flex: none; width: 140px; align-self: stretch; position: relative; overflow: hidden; background: var(--panel2); }
 .job-hist-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .job-hist-cover.empty { display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px; color: var(--faint); font-size: 10.5px; }
-.job-hist-body { flex: 1 1 auto; min-width: 0; height: 74px; padding: 0 44px 0 16px; display: flex; flex-direction: column; justify-content: center; gap: 7px; overflow: hidden; cursor: pointer; }
+.job-hist-body { flex: 1 1 auto; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; justify-content: center; gap: 8px; cursor: pointer; }
 .job-hist-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .job-hist-meta { display: flex; align-items: center; gap: 10px; }
 .job-hist-more { font-size: 11.5px; color: var(--faint); }
-/* Esito/progresso: FUORI dalla riga ad altezza fissa (stesso principio del log
-   espanso sopra), così un job "in coda"/"in corso" mostra la barra qui sotto
-   senza alterare l'altezza costante di .job-hist-row. Sempre visibile (non
-   dietro un click), a differenza del log grezzo che resta dietro isOpen. */
-/* Allineata sotto il titolo (132px copertina + 16px), non sotto la copertina
-   stessa — prima partiva da 16px puro e sembrava "attaccata" alla copertina,
-   sia in orizzontale che in verticale (0 di margine sopra). */
-.job-hist-extra { padding: 10px 16px 14px 148px; }
-.job-hist-outcome-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.job-hist-outcome { font-size: 12.5px; color: var(--ink2); }
+/* Colonna destra esito/progresso: DENTRO la riga (non più sotto), separata dal
+   corpo da un bordo verticale sottile — leggibile a colpo d'occhio, non
+   allunga la riga anche quando l'esito è un errore lungo. Sempre visibile
+   (non dietro un click), a differenza del log grezzo dietro isOpen. */
+.job-hist-side {
+  /* Allineato in basso, non centrato: da centrato finiva troppo vicino al
+     cestino (in alto a destra sulla card) — con lo spazio verticale extra
+     ora sopra, non più a ridosso dell'icona. */
+  flex: none; width: 260px; align-self: stretch; border-left: 1px solid var(--border2);
+  padding: 14px 18px; display: flex; flex-direction: column; justify-content: flex-end;
+  align-items: flex-end; text-align: right; gap: 6px;
+}
+.job-hist-phase { font-size: 11px; color: var(--faint); }
+.job-hist-side .progress-bar { width: 180px; }
+.job-hist-outcome { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
 .job-hist-outcome.err { color: var(--st-failed); }
-.job-hist-progress .job-hist-phase { font-size: 12px; color: var(--faint); margin-bottom: 6px; }
 
 /* ===== Sidebar disclosure on mobile ===== */
 .mobile-nav { display: none; }
@@ -652,6 +675,17 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   }
   .grid { grid-template-columns: 1fr; }
   .detail-body { flex-direction: column; }
+
+  /* Cronologia: la colonna destra fissa (260px) non ci sta in uno schermo
+     stretto — impilata sotto, a tutta larghezza, invece che a fianco. */
+  .job-hist-row { flex-wrap: wrap; }
+  .job-hist-cover { width: 100%; height: 130px; }
+  .job-hist-body { flex: 1 1 100%; padding: 12px 14px; }
+  .job-hist-side {
+    width: 100%; border-left: none; border-top: 1px solid var(--border2);
+    align-items: flex-start; text-align: left; padding: 12px 14px;
+  }
+  .job-hist-side .progress-bar { width: 100%; }
 }
 
 /* Selezione multipla in Libreria (M28) */
@@ -667,8 +701,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 
 /* Sync contestuale alla sorgente (barra + esito sulla riga) */
 .spin { animation: spin 1s linear infinite; }
-.source-block { margin-bottom: 10px; }
-.source-block .source-row { margin-bottom: 0; }
 .source-result { font-size: 12px; margin: 6px 2px 0; color: var(--st-downloaded); }
 .source-result.err { color: var(--st-failed); }
 

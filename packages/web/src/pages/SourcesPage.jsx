@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Trash2, Plus, ImageIcon } from 'lucide-react';
+import { RefreshCw, Trash2, Plus, ImageIcon, ChevronDown } from 'lucide-react';
 import { listSources, removeSource, syncSources, syncChannelAvatars, getJob, triggerJob } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
 import { useTitle } from '../hooks/useTitle.js';
@@ -21,11 +21,11 @@ function looksLikePlaylist(input) {
 
 export function SourcesPage() {
   const [sources, setSources] = useState(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [forceAvatars, setForceAvatars] = useState(false);
   const [jobRefreshKey, setJobRefreshKey] = useState(0);
 
   // Sincronizzazione contestuale alla sorgente (una per volta).
@@ -56,6 +56,7 @@ export function SourcesPage() {
   }
 
   async function syncOne(sourceId) {
+    setSourcesOpen(true); // il progresso per riga vive dentro l'accordion: aprilo
     setActiveSyncId(sourceId);
     setPhase('enumerating');
     setActiveJobId(null);
@@ -127,11 +128,15 @@ export function SourcesPage() {
     }
   }
 
+  // Aggiorna solo i creator che NON hanno ancora una foto (mai "force" da qui):
+  // un creator nuovo la prende già in automatico alla creazione; forzare il
+  // refresh di una foto già presente è un'azione sul singolo creator, da
+  // spostare sulla sua pagina (fuori scope di questa pagina).
   async function handleAvatarSync() {
     setBusy(true);
     setError(null);
     try {
-      const r = await syncChannelAvatars(forceAvatars);
+      const r = await syncChannelAvatars(false);
       setNotice(
         `Foto creator: ${r.fetchedCount} scaricate, ${r.skippedCount} già presenti` +
         (r.failedCount ? `, ${r.failedCount} non trovate.` : '.')
@@ -169,25 +174,20 @@ export function SourcesPage() {
         </div>
       </div>
 
-      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-        <input type="checkbox" checked={forceAvatars} onChange={(e) => setForceAvatars(e.target.checked)} />
-        Aggiorna anche le foto già presenti (un creator ha cambiato foto profilo)
-      </label>
-
-      <form className="form-row" onSubmit={handleAdd} style={{ marginBottom: 20 }}>
-        <div className="field" style={{ marginBottom: 0, flex: 1 }}>
-          <label>Aggiungi: playlist o singolo video</label>
+      <div className="add-panel">
+        <div className="add-eyebrow">Aggiungi playlist o singolo video</div>
+        <form className="add-row" onSubmit={handleAdd}>
           <input
             placeholder="Incolla una playlist YouTube, oppure un link/id di un singolo video (anche Rumble…)"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
-          <div className="hint">Playlist → nuova sorgente · singolo video → aggiunto alla libreria. Solo metadati: il video si scarica dopo, dalla scheda.</div>
-        </div>
-        <button className="btn btn-primary" type="submit">
-          <Plus size={14} />Aggiungi
-        </button>
-      </form>
+          <button className="btn btn-primary" type="submit">
+            <Plus size={14} />Aggiungi
+          </button>
+        </form>
+        <div className="add-hint">Playlist → nuova sorgente · singolo video → aggiunto alla libreria. Solo metadati: il video si scarica dopo, dalla scheda.</div>
+      </div>
 
       {error && <div className="notice error">{error}</div>}
       {notice && <div className="notice success">{notice}</div>}
@@ -197,48 +197,60 @@ export function SourcesPage() {
       ) : sources.length === 0 ? (
         <div className="empty-state">Nessuna fonte configurata.</div>
       ) : (
-        sources.map((s) => {
-          const active = activeSyncId === s.id;
-          const r = results[s.id];
-          const rowErr = rowErrors[s.id];
-          return (
-            <div key={s.id} className="source-block">
-              <div className="source-row">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="name">{s.name}</div>
-                  <div className="url">{s.url}</div>
-                </div>
-                <div className="count">{s.videoCount} video</div>
-                <div className="actions">
-                  <button className="btn small" disabled={busy || syncing} onClick={() => syncOne(s.id)}>
-                    <RefreshCw size={13} className={active ? 'spin' : undefined} />
-                  </button>
-                  <button className="btn small btn-danger" disabled={syncing} onClick={() => handleRemove(s)}><Trash2 size={13} /></button>
-                </div>
-              </div>
+        <>
+          <button className="sources-toggle" onClick={() => setSourcesOpen((o) => !o)}>
+            <span className="eyebrow">Fonti registrate · {sources.length}</span>
+            <ChevronDown size={16} className={`chev${sourcesOpen ? ' open' : ''}`} />
+          </button>
 
-              {active && (
-                <div style={{ marginTop: 8 }}>
-                  <div className="hint" style={{ marginBottom: 6 }}>
-                    {phase === 'enriching' ? 'Arricchimento metadati e copertine…' : 'Sincronizzazione in corso…'}
-                  </div>
-                  <div className={`progress-bar${phase === 'enriching' ? '' : ' indeterminate'}`}>
-                    <div style={phase === 'enriching' ? { width: `${live.progress ?? 0}%` } : undefined}></div>
-                  </div>
-                </div>
-              )}
+          {!sourcesOpen ? (
+            <div className="sources-summary">{sources.length} fonti — clicca per espandere l'elenco.</div>
+          ) : (
+            <div className="sources-panel">
+              {sources.map((s) => {
+                const active = activeSyncId === s.id;
+                const r = results[s.id];
+                const rowErr = rowErrors[s.id];
+                return (
+                  <div key={s.id} className="source-line-wrap">
+                    <div className="source-line">
+                      <div className="source-line-main">
+                        <div className="name">{s.name}</div>
+                        <div className="url">{s.url}</div>
+                      </div>
+                      <div className="count">{s.videoCount} video</div>
+                      <div className="actions">
+                        <button className="icon-btn" disabled={busy || syncing} onClick={() => syncOne(s.id)} title="Sincronizza">
+                          <RefreshCw size={14} className={active ? 'spin' : undefined} />
+                        </button>
+                        <button className="icon-btn icon-btn-danger" disabled={syncing} onClick={() => handleRemove(s)} title="Rimuovi fonte">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
 
-              {!active && r && <div className="source-result">✓ {summaryLine(r)}</div>}
-              {!active && rowErr && <div className="source-result err">✘ {rowErr}</div>}
+                    {active && (
+                      <div className="source-line-progress">
+                        <div className="hint" style={{ marginBottom: 6 }}>
+                          {phase === 'enriching' ? 'Arricchimento metadati e copertine…' : 'Sincronizzazione in corso…'}
+                        </div>
+                        <div className={`progress-bar${phase === 'enriching' ? '' : ' indeterminate'}`}>
+                          <div style={phase === 'enriching' ? { width: `${live.progress ?? 0}%` } : undefined}></div>
+                        </div>
+                      </div>
+                    )}
+
+                    {!active && r && <div className="source-line-result">✓ {summaryLine(r)}</div>}
+                    {!active && rowErr && <div className="source-line-result err">✘ {rowErr}</div>}
+                  </div>
+                );
+              })}
             </div>
-          );
-        })
+          )}
+        </>
       )}
 
-      <div style={{ marginTop: 32 }}>
-        <h2 style={{ fontSize: 15, margin: '0 0 12px', color: '#fff' }}>Cronologia</h2>
-        <JobHistory refreshKey={String(jobRefreshKey)} onJobSettled={handleJobSettled} onQuickDownload={handleQuickDownload} />
-      </div>
+      <JobHistory refreshKey={String(jobRefreshKey)} onJobSettled={handleJobSettled} onQuickDownload={handleQuickDownload} />
     </>
   );
 }
