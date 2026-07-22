@@ -84,7 +84,7 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
         <StatusBadge video={video} />
         {video.favorite && (
           <div className="fav-star" title="Preferito">
-            <Star size={14} fill="currentColor" />
+            <Star size={16} fill="currentColor" />
           </div>
         )}
         {dur && <div className="dur">{dur}</div>}

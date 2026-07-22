@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown } from 'lucide-react';
-import { getVideo, listVideosByChannel, setHidden, triggerJob, refreshMetadata } from '../api/client.js';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown, Star } from 'lucide-react';
+import { getVideo, listVideosByChannel, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
@@ -146,6 +146,17 @@ export function VideoDetailPage() {
     }
   }
 
+  // Preferito (M43 era limitato al menu ⋮ di VideoCard): estensione al
+  // dettaglio video, indipendente dallo stato di download come ogni altro
+  // uso del flag `favorite`.
+  async function toggleFavorite() {
+    try {
+      setVideo(await setFavorite(id, !video.favorite));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   useTitle(video?.title ?? null);
 
   if (error) {
@@ -244,6 +255,14 @@ export function VideoDetailPage() {
               </div>
             </div>
             <div className="d-actions">
+              <button
+                className={`icon-btn fav-toggle${video.favorite ? ' active' : ''}`}
+                onClick={toggleFavorite}
+                title={video.favorite ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}
+                aria-label={video.favorite ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}
+              >
+                <Star size={18} fill={video.favorite ? 'currentColor' : 'none'} />
+              </button>
               {isDownloaded && (
                 <button className="btn" onClick={() => setAudioOnly((v) => !v)}>
                   {audioOnly ? <VideoIcon size={14} /> : <Volume2 size={14} />}

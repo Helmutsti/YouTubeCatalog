@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiUrl } from '../lib/apiBase.js';
 
 // Bridge lato client sullo stream SSE di /api/jobs/:id/stream. Chiude
 // esplicitamente la EventSource a fine job (success/failed): il server
@@ -16,7 +17,7 @@ export function useJobStream(jobId) {
     setProgress(null);
     if (!jobId) return undefined;
 
-    const source = new EventSource(`/api/jobs/${encodeURIComponent(jobId)}/stream`);
+    const source = new EventSource(apiUrl(`/api/jobs/${encodeURIComponent(jobId)}/stream`));
 
     source.addEventListener('log', (e) => {
       setLogLines((prev) => [...prev, JSON.parse(e.data)]);
