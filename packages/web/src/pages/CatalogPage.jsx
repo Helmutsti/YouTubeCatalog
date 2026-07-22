@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVideos, listSources, setHidden, triggerJob, refreshMetadata, deleteVideoFile } from '../api/client.js';
+import { Star } from 'lucide-react';
+import { listVideos, listSources, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
@@ -23,6 +24,7 @@ export function CatalogPage() {
   const [sort, setSort] = useState('uploadDate');
   const [creator, setCreator] = useState('');
   const [source, setSource] = useState('');
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
@@ -54,13 +56,16 @@ export function CatalogPage() {
     return [...byKey.entries()].sort((a, b) => a[1].localeCompare(b[1], 'it', { sensitivity: 'base' }));
   }, [visible]);
 
+  const favoriteCount = useMemo(() => visible.filter((v) => v.favorite).length, [visible]);
+
   const filtered = useMemo(() => {
     let list = visible;
     if (category) list = list.filter((v) => v.category === category);
     if (creator) list = list.filter((v) => channelKey(v) === creator);
-    if (source) list = list.filter((v) => (source === SINGLE ? !v.source?.sourceId : v.source?.sourceId === source));
+    if (source) list = list.filter((v) => (source === SINGLE ? !v.sources?.length : v.sources?.some((s) => s.sourceId === source)));
+    if (favoriteOnly) list = list.filter((v) => v.favorite);
     return sortVideos(list, sort);
-  }, [visible, category, creator, source, sort]);
+  }, [visible, category, creator, source, favoriteOnly, sort]);
 
   async function handleAction(id, kind) {
     try {
@@ -77,9 +82,8 @@ export function CatalogPage() {
         reload();
         return;
       }
-      if (kind === 'deletefile') {
-        if (!window.confirm('Cancellare il file scaricato dal disco? Metadati e copertina restano, il video resta in libreria.')) return;
-        await deleteVideoFile(id);
+      if (kind === 'favorite' || kind === 'unfavorite') {
+        await setFavorite(id, kind === 'favorite');
         reload();
         return;
       }
@@ -96,7 +100,19 @@ export function CatalogPage() {
         <h1>Home</h1>
       </div>
       {error && <div className="notice error">{error}</div>}
-      <StatusChips value={category} counts={counts} onChange={setCategory} options={HOME_CHIPS} />
+      <StatusChips
+        value={category}
+        counts={counts}
+        onChange={setCategory}
+        options={HOME_CHIPS}
+        extra={
+          <div className={`chip${favoriteOnly ? ' active' : ''}`} onClick={() => setFavoriteOnly((f) => !f)}>
+            <Star size={12} fill={favoriteOnly ? 'currentColor' : 'none'} />
+            Preferiti
+            {favoriteCount > 0 && <span className="count">{favoriteCount}</span>}
+          </div>
+        }
+      />
       <div className="filter-bar">
         <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Ordina per">
           {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

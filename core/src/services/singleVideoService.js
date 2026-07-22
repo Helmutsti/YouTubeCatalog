@@ -71,8 +71,8 @@ export async function prepareSingleVideoDownload(input, { download = true } = {}
       originalUrl: url,
       extractor: info.extractor
     });
-    // Mai legato a una fonte: nessuna sync di playlist enumererà mai questo id.
-    stub.source = { sourceId: null, type: 'single' };
+    // Mai legato a una fonte (sources: [] già di default senza sourceId): nessuna
+    // sync di playlist enumererà mai questo id.
     cat.videos[info.id] = stub;
   });
 

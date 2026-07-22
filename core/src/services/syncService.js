@@ -66,6 +66,15 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
       restoredCount += 1;
     }
 
+    // Riuso in questa fonte (M41): un video già a catalogo (arrivato da
+    // un'altra fonte, o singolo) trovato anche negli entries di QUESTA fonte
+    // porta la sua etichetta, invece di essere ignorato dal dedup senza
+    // lasciare traccia del collegamento.
+    if (!existing.sources.some((s) => s.sourceId === sourceMeta.id)) {
+      existing.sources.push({ sourceId: sourceMeta.id, name: sourceMeta.name ?? null });
+      existing.updatedAt = now();
+    }
+
     if (existing.download === DOWNLOAD_STATE.DOWNLOADED) {
       const filePath = existing.video?.localPath ? path.join(paths.videosDir, existing.video.localPath) : null;
       if (!filePath || !existsSync(filePath)) {
@@ -88,7 +97,7 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
   // consecutive di assenza (periodo di grazia). Non cancella mai nulla.
   for (const video of Object.values(catalog.videos)) {
     if (
-      video.source?.sourceId === sourceMeta.id &&
+      video.sources?.some((s) => s.sourceId === sourceMeta.id) &&
       !foundIds.has(video.id) &&
       video.presence === PRESENCE.PRESENT
     ) {

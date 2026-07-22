@@ -21,7 +21,7 @@ export async function enrichSourceJob(params, { log, progress }) {
   const catalog = await readCatalog();
 
   const candidates = Object.values(catalog.videos).filter((v) =>
-    (!sourceId || v.source?.sourceId === sourceId)
+    (!sourceId || v.sources?.some((s) => s.sourceId === sourceId))
     && v.presence === PRESENCE.PRESENT
     && v.download !== DOWNLOAD_STATE.DOWNLOADED
     && v.download !== DOWNLOAD_STATE.DOWNLOADING

@@ -8,7 +8,7 @@ import { listVideos, getVideo, listAvailable, listChannels, listVideosByChannel,
 import { videoCategory, VIDEO_CATEGORY, PRESENCE, DOWNLOAD_STATE } from './catalog/catalogSchema.js';
 import { syncSource } from './services/syncService.js';
 import { listSources, addSource, removeSource } from './services/sourceService.js';
-import { setVideoHidden } from './services/decisionService.js';
+import { setVideoHidden, setVideoFavorite } from './services/decisionService.js';
 import { playVideo } from './services/playbackService.js';
 import { prepareSingleVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata, refreshVideoMetadata } from './services/metadataService.js';
@@ -50,6 +50,8 @@ export {
   syncSource,
   // stato: nascondere/mostrare un video (asse `hidden`)
   setVideoHidden,
+  // stato: preferito (asse `favorite`, M43)
+  setVideoFavorite,
   // job (download)
   triggerJob,
   getJob,

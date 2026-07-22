@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Trash2 } from 'lucide-react';
+import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Star, StarOff } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
 import { actionsFor } from '../lib/reviewActions.js';
@@ -18,9 +18,10 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
   const actions = actionsFor(video);
+  // Archivia/Ripristina va in fondo al menu, separato dalle altre azioni.
+  const archiveAction = actions.find((a) => a.kind === 'hide' || a.kind === 'unhide');
+  const otherActions = actions.filter((a) => a.kind !== 'hide' && a.kind !== 'unhide');
   const key = channelKey(video);
-  const isRemoved = video.presence === 'removed';
-  const isDownloaded = video.download === 'downloaded';
 
   function act(kind) {
     setMenuOpen(false);
@@ -42,6 +43,11 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
           />
         )}
         <StatusBadge video={video} />
+        {video.favorite && (
+          <div className="fav-star" title="Preferito">
+            <Star size={14} fill="currentColor" />
+          </div>
+        )}
         {dur && <div className="dur">{dur}</div>}
       </Link>
       <Link to={`/videos/${video.id}`} className="card-title">
@@ -75,7 +81,7 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
             <>
               <div className="menu-backdrop" onClick={(e) => { e.preventDefault(); setMenuOpen(false); }}></div>
               <div className="menu-list" onClick={(e) => e.stopPropagation()}>
-                {actions.map((a) => {
+                {otherActions.map((a) => {
                   const m = MENU[a.kind] ?? MENU.download;
                   const Icon = m.Icon;
                   return (
@@ -84,6 +90,11 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
                     </button>
                   );
                 })}
+                {/* Preferito (M43): toggle indipendente, ammesso in qualunque stato */}
+                <button className="menu-item" onClick={() => act(video.favorite ? 'unfavorite' : 'favorite')}>
+                  {video.favorite ? <StarOff size={15} /> : <Star size={15} />}
+                  {video.favorite ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}
+                </button>
                 {/* Aggiorna metadati: anche sui rimossi (ri-verifica) */}
                 <button className="menu-item" onClick={() => act('metadata')}>
                   <FileDown size={15} />Aggiorna metadati
@@ -93,10 +104,14 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
                     <User size={15} />Mostra profilo
                   </Link>
                 )}
-                {/* Cancella (solo il file): solo per gli scaricati e mai sui rimossi */}
-                {isDownloaded && !isRemoved && (
-                  <button className="menu-item danger" onClick={() => act('deletefile')}>
-                    <Trash2 size={15} />Cancella video
+                {/* Archivia/Ripristina: in fondo al menu, sempre rosso solo per "Archivia" */}
+                {archiveAction && (
+                  <button
+                    className={`menu-item${archiveAction.kind === 'hide' ? ' danger' : ''}`}
+                    onClick={() => act(archiveAction.kind)}
+                  >
+                    {archiveAction.kind === 'hide' ? <Archive size={15} /> : <ArchiveRestore size={15} />}
+                    {MENU[archiveAction.kind].label}
                   </button>
                 )}
               </div>

@@ -15,3 +15,15 @@ export async function setVideoHidden(id, hidden) {
     return video;
   });
 }
+
+// Preferito (M43): stesso pattern di setVideoHidden, asse indipendente —
+// ammesso qualunque siano presenza/download/hidden.
+export async function setVideoFavorite(id, favorite) {
+  return updateCatalog((catalog) => {
+    const video = catalog.videos[id];
+    if (!video) throw new Error(`Video non trovato nel catalogo: ${id}`);
+    video.favorite = !!favorite;
+    video.updatedAt = new Date().toISOString();
+    return video;
+  });
+}

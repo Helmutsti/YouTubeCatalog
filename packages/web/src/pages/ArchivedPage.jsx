@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVideos, setHidden, triggerJob, refreshMetadata, deleteVideoFile } from '../api/client.js';
+import { listVideos, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
@@ -58,9 +58,8 @@ export function ArchivedPage() {
         reload();
         return;
       }
-      if (kind === 'deletefile') {
-        if (!window.confirm('Cancellare il file scaricato dal disco? Metadati e copertina restano, il video resta in libreria.')) return;
-        await deleteVideoFile(id);
+      if (kind === 'favorite' || kind === 'unfavorite') {
+        await setFavorite(id, kind === 'favorite');
         reload();
         return;
       }

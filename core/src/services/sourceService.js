@@ -7,9 +7,9 @@ export async function listSources() {
   const catalog = await readCatalog();
   const counts = {};
   for (const video of Object.values(catalog.videos)) {
-    const sourceId = video.source?.sourceId;
-    if (!sourceId) continue;
-    counts[sourceId] = (counts[sourceId] ?? 0) + 1;
+    for (const s of video.sources ?? []) {
+      counts[s.sourceId] = (counts[s.sourceId] ?? 0) + 1;
+    }
   }
 
   return Object.values(catalog.sources)

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Trash2, Download } from 'lucide-react';
 import { listJobs, deleteJob, clearJobs } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
+import { alertDialog, confirmDialog } from '../lib/dialog.js';
 
 const JOB_TYPE_LABEL = {
   downloadPending: 'Scarica in coda',
@@ -87,20 +88,26 @@ export function JobHistory({ excludeId, refreshKey, onJobSettled, onQuickDownloa
       await deleteJob(id);
       reload();
     } catch (err) {
-      window.alert(err.message);
+      await alertDialog({ message: err.message });
     } finally {
       setBusy(false);
     }
   }
 
   async function handleClear() {
-    if (!window.confirm(`Svuotare lo storico? Verranno cancellati ${deletableCount} job terminati. I video scaricati restano.`)) return;
+    const ok = await confirmDialog({
+      title: 'Svuotare lo storico?',
+      message: `Verranno cancellati ${deletableCount} job terminati. I video scaricati restano.`,
+      confirmLabel: 'Svuota',
+      danger: true
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await clearJobs();
       reload();
     } catch (err) {
-      window.alert(err.message);
+      await alertDialog({ message: err.message });
     } finally {
       setBusy(false);
     }
