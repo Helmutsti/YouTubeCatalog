@@ -12,3 +12,5 @@ tools/ffmpeg.exe
 tools/ffprobe.exe
 core/cookies.txt
 .env
+.env.local
+.env.*.local
