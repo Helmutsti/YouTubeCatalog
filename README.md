@@ -124,7 +124,36 @@ npm run web         # Web GUI su http://localhost:5173
 Poi apri **<http://localhost:5173>** nel browser. La GUI parla con l'API sulla porta `3001` (in sviluppo Vite fa da proxy).
 
 - L'**API** è il server su `:3001` (rotte sotto `/api/...`, media sotto `/media/...`): la usa la GUI, ma è interrogabile anche direttamente (es. `curl http://localhost:3001/api/videos`).
-- Per usare la GUI da un altro dispositivo in rete locale: `npm run web:lan`.
+
+### Uso in rete locale (LAN)
+
+Due modalità, a seconda che tu voglia o no che l'API sia raggiungibile direttamente da altri dispositivi. `cli`, `server` (API) e `web` (GUI) restano comunque tre cartelle indipendenti che non si parlano mai tra loro a livello di codice — CLI e API importano entrambe (separatamente) solo `@catalog/core`, la GUI parla con l'API solo via HTTP.
+
+**Modalità A — "gui+proxy api" (consigliata): l'API non è mai esposta in rete**
+
+```bash
+npm run server:local   # API legata SOLO a 127.0.0.1 — irraggiungibile da altri dispositivi
+npm run web:lan         # GUI raggiungibile in LAN
+```
+
+La GUI resta pienamente funzionante: il proxy di sviluppo di Vite gira sulla stessa macchina del server e raggiunge comunque `127.0.0.1:3001` da lì. Nessun dispositivo remoto tocca mai l'API — solo la porta `5173` è esposta. Verificato dal vivo: `curl http://<ip-lan>:3001/api/videos` fallisce (connessione rifiutata), `curl http://<ip-lan>:5173/api/videos` funziona (passa dal proxy).
+
+**Modalità B — "api+gui": entrambe esposte, comunicazione diretta (niente proxy)**
+
+```bash
+npm run server          # API su tutte le interfacce, raggiungibile in LAN
+npm run web:lan
+```
+
+Serve anche impostare, in `packages/web/.env.local` (già presente nel progetto, con la riga commentata di default — decommentala e correggi l'IP):
+
+```
+VITE_API_BASE_URL=http://<ip-lan-del-pc-col-server>:3001
+```
+
+Con questa variabile impostata la GUI parla con l'API **direttamente** con l'IP indicato, senza passare dal proxy di Vite — utile, ad esempio, in vista di un futuro client separato (Electron) che deve raggiungere l'API senza un dev server in mezzo. Richiede **riavviare** `web:lan` dopo aver modificato `.env.local` (Vite legge le variabili solo all'avvio).
+
+> **Usa sempre l'IP, non il nome del PC** (in entrambe le modalità, per raggiungere la GUI). Un indirizzo tipo `http://nome-pc:5173` spesso **non** si raggiunge da altri dispositivi (telefoni, smart TV, altri PC) perché la risoluzione del nome macchina Windows (NetBIOS) non è affidabile su tutta la rete — non è un problema di firewall, è proprio il nome che non si risolve in un IP. Caso reale verificato: `http://pc-sala:5173` irraggiungibile, `http://192.168.5.44:5173` (stessa macchina) funzionante da subito. Se anche l'IP diretto non si raggiunge, allora sì il sospetto si sposta sul **firewall di Windows** (verifica una regola inbound "Allow" per Node.js sul profilo di rete attivo, `Get-NetFirewallRule -Direction Inbound | Where DisplayName -match node`) o su un eventuale isolamento tra dispositivi della rete Wi-Fi (comune sulle reti "ospiti").
 
 ### CLI
 
