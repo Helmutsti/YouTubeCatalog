@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Plus, ImageIcon } from 'lucide-react';
-import { listSources, addSource, removeSource, syncSources, syncChannelAvatars, getJob, downloadSingle } from '../api/client.js';
+import { listSources, removeSource, syncSources, syncChannelAvatars, getJob, triggerJob } from '../api/client.js';
 import { useJobStream } from '../hooks/useJobStream.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { JobHistory } from '../components/JobHistory.jsx';
@@ -22,7 +22,6 @@ function looksLikePlaylist(input) {
 export function SourcesPage() {
   const [sources, setSources] = useState(null);
   const [url, setUrl] = useState('');
-  const [immediate, setImmediate] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -85,47 +84,37 @@ export function SourcesPage() {
     for (const s of sources ?? []) await syncOne(s.id);
   }
 
+  // Aggiunta "istantanea" (M39): l'intera operazione (risoluzione yt-dlp +
+  // registrazione + metadati, MAI il video) gira come un job in coda — così il
+  // campo si libera subito e si può accodare un'aggiunta dopo l'altra; partono
+  // in differita, in ordine (il jobManager è single-worker, mai in parallelo).
+  // L'esito compare come nuovo item nella Cronologia sotto, non qui in pagina.
   async function handleAdd(e) {
     e.preventDefault();
     const input = url.trim();
     if (!input) return;
-    setBusy(true);
+    setUrl('');
     setError(null);
-    setNotice(null);
     try {
-      if (looksLikePlaylist(input)) {
-        // Playlist → nuova sorgente + arricchimento (barra sulla riga).
-        const result = await addSource(input);
-        setUrl('');
-        if (result.alreadyExists) { setNotice(`Fonte già presente: "${result.name}".`); return; }
-        await reload();
-        setResults((p) => ({ ...p, [result.sourceId]: { newCount: result.newCount ?? 0, removedCount: 0, restoredCount: 0, healedCount: 0 } }));
-        if (result.jobId) {
-          setActiveSyncId(result.sourceId);
-          setPhase('enriching');
-          setActiveJobId(result.jobId);
-          await waitForJobTerminal(result.jobId);
-          setJobRefreshKey((k) => k + 1);
-          setActiveJobId(null);
-          setPhase(null);
-          setActiveSyncId(null);
-          await reload();
-        }
-      } else {
-        // Singolo video → scaricato subito (se "Download immediato") o solo aggiunto.
-        const r = await downloadSingle(input, immediate);
-        setUrl('');
-        if (r.action === 'download') { setNotice(`"${r.title ?? r.videoId}" — download avviato (vedi cronologia sotto).`); setJobRefreshKey((k) => k + 1); }
-        else if (r.action === 'added') setNotice(`"${r.title ?? r.videoId}" aggiunto alla libreria (compare in Home).`);
-        else if (r.action === 'already-downloaded') setNotice(`"${r.title ?? r.videoId}" è già in archivio.`);
-        else if (r.action === 'already-downloading') setNotice(`"${r.title ?? r.videoId}" è già in download.`);
-        else if (r.action === 'already-present') setNotice(`"${r.title ?? r.videoId}" è già in libreria.`);
-      }
+      await triggerJob(looksLikePlaylist(input) ? 'addSource' : 'addVideo', { url: input });
+      setJobRefreshKey((k) => k + 1);
     } catch (e) {
       setError(e.message);
-    } finally {
-      setBusy(false);
     }
+  }
+
+  // Un job addSource appena concluso ha registrato una nuova fonte: ricarica
+  // l'elenco sopra così compare senza dover cambiare pagina.
+  function handleJobSettled(job) {
+    if (job.type === 'addSource') reload();
+  }
+
+  // Tasto rapido "Scarica" su un item "aggiunto alla libreria" (M40): si è già
+  // su Sorgenti, quindi nessuna navigazione — il nuovo job compare da solo
+  // come item a sé in cima alla Cronologia.
+  async function handleQuickDownload(videoId) {
+    await triggerJob('downloadSingle', { videoId });
+    setJobRefreshKey((k) => k + 1);
   }
 
   async function handleRemove(source) {
@@ -193,14 +182,10 @@ export function SourcesPage() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
-          <div className="hint">Playlist → nuova sorgente · singolo video → aggiunto o scaricato</div>
+          <div className="hint">Playlist → nuova sorgente · singolo video → aggiunto alla libreria. Solo metadati: il video si scarica dopo, dalla scheda.</div>
         </div>
-        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-          <input type="checkbox" checked={immediate} onChange={(e) => setImmediate(e.target.checked)} />
-          Download immediato (singoli)
-        </label>
-        <button className="btn btn-primary" type="submit" disabled={busy || syncing}>
-          {busy ? <span className="spinner"></span> : <><Plus size={14} />Aggiungi</>}
+        <button className="btn btn-primary" type="submit">
+          <Plus size={14} />Aggiungi
         </button>
       </form>
 
@@ -251,8 +236,8 @@ export function SourcesPage() {
       )}
 
       <div style={{ marginTop: 32 }}>
-        <h2 style={{ fontSize: 15, margin: '0 0 12px', color: '#fff' }}>Cronologia download</h2>
-        <JobHistory refreshKey={String(jobRefreshKey)} />
+        <h2 style={{ fontSize: 15, margin: '0 0 12px', color: '#fff' }}>Cronologia</h2>
+        <JobHistory refreshKey={String(jobRefreshKey)} onJobSettled={handleJobSettled} onQuickDownload={handleQuickDownload} />
       </div>
     </>
   );

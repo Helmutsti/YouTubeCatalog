@@ -80,6 +80,7 @@ export function triggerJob(type, params = {}) {
     type,
     params,
     status: 'queued',
+    queuedAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
     logLines: [],
@@ -99,10 +100,15 @@ export function getJob(id) {
   return jobs.get(id) ?? null;
 }
 
+// Ordine più recenti prima. Un job appena messo in coda non ha ancora
+// `startedAt` (parte solo quando il worker single-thread lo raggiunge): senza
+// ripiego su `queuedAt` finirebbe in fondo alla lista invece che in cima,
+// vanificando l'aggiunta "istantanea" (l'item deve comparire subito, non solo
+// quando il worker lo prende in carico).
 export function listJobs(limit = 50) {
   ensureLoaded();
   return [...jobs.values()]
-    .sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''))
+    .sort((a, b) => (b.startedAt || b.queuedAt || '').localeCompare(a.startedAt || a.queuedAt || ''))
     .slice(0, limit);
 }
 

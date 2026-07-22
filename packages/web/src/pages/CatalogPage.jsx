@@ -7,6 +7,7 @@ import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
+import { startDownload } from '../lib/downloadActions.js';
 
 const SINGLE = '__single__';
 // Chip della Home: sottoinsieme mirato (gli archiviati vivono in "Archiviati").
@@ -19,7 +20,7 @@ export function CatalogPage() {
   const [videos, setVideos] = useState(null);
   const [sources, setSources] = useState([]);
   const [category, setCategory] = useState(null);
-  const [sort, setSort] = useState('addedAt');
+  const [sort, setSort] = useState('uploadDate');
   const [creator, setCreator] = useState('');
   const [source, setSource] = useState('');
   const [error, setError] = useState(null);
@@ -64,8 +65,7 @@ export function CatalogPage() {
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
-        const { jobId } = await triggerJob('downloadSingle', { videoId: id });
-        navigate(`/jobs?highlight=${jobId}`);
+        await startDownload(id, { triggerJob, navigate });
         return;
       }
       if (kind === 'hide') {

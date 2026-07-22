@@ -21,6 +21,15 @@ const JS_RUNTIME_ARGS = ['--js-runtimes', 'node'];
 // che lo sono trovano comunque formati funzionanti senza bisogno di un PO Token.
 const PLAYER_CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=default,android_vr'];
 
+// yt-dlp segnala così un video reso privato dall'autore (verificato dal vivo:
+// "ERROR: [youtube] <id>: Private video. Sign in if you've been granted
+// access..."): un segnale DEFINITIVO ed esplicito, diverso da un errore di
+// rete/server temporaneo — usato per marcare il video "Rimosso" subito invece
+// di lasciarlo per sempre in limbo come "da scaricare" senza titolo/canale.
+export function isPrivateVideoError(err) {
+  return /private video/i.test(err?.message ?? '');
+}
+
 let cachedVersion = null;
 
 export async function getYtdlpVersion() {

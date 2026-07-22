@@ -6,6 +6,7 @@ import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
+import { startDownload } from '../lib/downloadActions.js';
 
 // Pagina "Archiviati" (ex Libreria): mostra SOLO i video archiviati/nascosti,
 // con le copertine in bianco e nero. Da qui si ripristinano (menu ⋮ →
@@ -13,7 +14,7 @@ import { channelKey } from '../lib/format.js';
 export function ArchivedPage() {
   const [videos, setVideos] = useState(null);
   const [creator, setCreator] = useState('');
-  const [sort, setSort] = useState('addedAt');
+  const [sort, setSort] = useState('uploadDate');
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
@@ -45,8 +46,7 @@ export function ArchivedPage() {
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
-        const { jobId } = await triggerJob('downloadSingle', { videoId: id });
-        navigate(`/jobs?highlight=${jobId}`);
+        await startDownload(id, { triggerJob, navigate });
         return;
       }
       if (kind === 'hide') {

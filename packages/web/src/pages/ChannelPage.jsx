@@ -14,7 +14,7 @@ export function ChannelPage() {
   const { key } = useParams();
   const [videos, setVideos] = useState(null);
   const [error, setError] = useState(null);
-  const [sort, setSort] = useState('addedAt');
+  const [sort, setSort] = useState('uploadDate');
 
   useEffect(() => {
     setVideos(null);

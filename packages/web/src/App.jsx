@@ -5,7 +5,6 @@ import { VideoDetailPage } from './pages/VideoDetailPage.jsx';
 import { SearchPage } from './pages/SearchPage.jsx';
 import { ChannelPage } from './pages/ChannelPage.jsx';
 import { SourcesPage } from './pages/SourcesPage.jsx';
-import { JobsPage } from './pages/JobsPage.jsx';
 import { ArchivedPage } from './pages/ArchivedPage.jsx';
 import { SettingsPage } from './pages/SettingsPage.jsx';
 
@@ -18,7 +17,6 @@ export default function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/channels/:key" element={<ChannelPage />} />
         <Route path="/sources" element={<SourcesPage />} />
-        <Route path="/jobs" element={<JobsPage />} />
         <Route path="/archived" element={<ArchivedPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

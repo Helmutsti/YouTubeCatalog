@@ -2,6 +2,8 @@ import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, clearJobs,
 import { downloadPendingJob } from './jobs/jobs/downloadPending.js';
 import { downloadSingleJob } from './jobs/jobs/downloadSingle.js';
 import { enrichSourceJob } from './jobs/jobs/enrichSource.js';
+import { addSourceJob } from './jobs/jobs/addSource.js';
+import { addVideoJob } from './jobs/jobs/addVideo.js';
 import { listVideos, getVideo, listAvailable, listChannels, listVideosByChannel, channelKey } from './services/videoService.js';
 import { videoCategory, VIDEO_CATEGORY, PRESENCE, DOWNLOAD_STATE } from './catalog/catalogSchema.js';
 import { syncSource } from './services/syncService.js';
@@ -19,6 +21,12 @@ import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot } from 
 registerJobHandler('downloadPending', downloadPendingJob);
 registerJobHandler('downloadSingle', downloadSingleJob);
 registerJobHandler('enrichSource', enrichSourceJob);
+// Aggiunta "istantanea" dalla pagina Sorgenti (M39): l'intera operazione di
+// aggiunta (playlist o singolo video) gira come un job in coda — mai il
+// download del video, solo metadati. Vedi core/src/jobs/jobs/addSource.js e
+// addVideo.js.
+registerJobHandler('addSource', addSourceJob);
+registerJobHandler('addVideo', addVideoJob);
 
 export {
   // catalogo

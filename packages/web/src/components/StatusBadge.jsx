@@ -10,13 +10,15 @@ export function StatusBadge({ video, inline }) {
   const color = BADGE_COLOR[state];
   const label = BADGE_LABEL[state];
 
+  const pulse = state === 'downloading' ? ' downloading' : '';
+
   if (inline) {
     return (
       <span className="badge-inline">
-        <span className="badge-dot-sm" style={{ background: color }}></span>
+        <span className={`badge-dot-sm${pulse}`} style={{ background: color }}></span>
         {label}
       </span>
     );
   }
-  return <span className="badge-dot" style={{ background: color }} title={label}></span>;
+  return <span className={`badge-dot${pulse}`} style={{ background: color }} title={label}></span>;
 }
