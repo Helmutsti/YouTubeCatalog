@@ -26,6 +26,9 @@ export const getVideo = (id) => request(`/api/videos/${encodeURIComponent(id)}`)
 // Nasconde/mostra un video (asse `hidden` del modello a flag, M25).
 export const setHidden = (id, hidden) =>
   request(`/api/videos/${encodeURIComponent(id)}/hidden`, { method: 'POST', body: JSON.stringify({ hidden }) });
+// Preferito (asse `favorite` del modello a flag, M43).
+export const setFavorite = (id, favorite) =>
+  request(`/api/videos/${encodeURIComponent(id)}/favorite`, { method: 'POST', body: JSON.stringify({ favorite }) });
 // Cancella solo il file scaricato (M30); la scheda resta in libreria.
 export const deleteVideoFile = (id) =>
   request(`/api/videos/${encodeURIComponent(id)}/file`, { method: 'DELETE' });
@@ -59,8 +62,11 @@ export const clearJobs = () => request('/api/jobs', { method: 'DELETE' });
 export const reorganizeLibrary = (dryRun) =>
   request('/api/library/reorganize', { method: 'POST', body: JSON.stringify({ dryRun }) });
 
-export const syncChannelAvatars = (force) =>
-  request('/api/channels/avatars/sync', { method: 'POST', body: JSON.stringify(force ? { force } : {}) });
+export const syncChannelAvatars = (force, channelKey) =>
+  request('/api/channels/avatars/sync', {
+    method: 'POST',
+    body: JSON.stringify({ ...(force ? { force } : {}), ...(channelKey ? { channelKey } : {}) })
+  });
 
 // Backup: il download avviene via link diretto (<a href={BACKUP_URL}>), così il
 // browser scarica il .zip con il nome dato dall'header Content-Disposition.

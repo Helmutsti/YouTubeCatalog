@@ -44,7 +44,10 @@ export function toPublicVideo(video, channelAvatars = {}) {
     thumbnailUrl: resolveThumbnailUrl(video),
     channel: {
       ...video.channel,
-      avatarUrl: avatar?.localPath ? `/media/avatars/${encodeRelPath(avatar.localPath)}` : null
+      // Cache-bust con fetchedAt (M42): vedi stesso pattern in videos.routes.js.
+      avatarUrl: avatar?.localPath
+        ? `/media/avatars/${encodeRelPath(avatar.localPath)}?v=${encodeURIComponent(avatar.fetchedAt ?? '')}`
+        : null
     }
   };
 }

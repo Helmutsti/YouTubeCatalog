@@ -126,11 +126,19 @@ export function createNewVideoStub({
     missCount: 0,
     download: DOWNLOAD_STATE.NONE,
     hidden: false,
+    // Preferito (M43): asse ortogonale indipendente, come `hidden` — un video
+    // può essere scaricato/rimosso/nascosto E preferito insieme, per questo
+    // resta fuori da videoCategory() (che mostra un solo indicatore).
+    favorite: false,
     // Metadati completi + copertina già arricchiti (M26)? null finché il job
     // enrichSource non li estrae (i nuovi stub nascono solo con i campi leggeri
     // dell'enumerazione flat-playlist: id/titolo/durata/canale).
     enrichedAt: null,
-    source: { sourceId: sourceId ?? null, type: 'playlist' },
+    // Le fonti sono ETICHETTE portate dal video, non un vincolo di
+    // appartenenza/proprietà: un video esiste a sé (come un download singolo
+    // one-off) e può portare zero, una o più fonti. Array vuoto = nessuna
+    // etichetta, stato normale e completo, non un caso "orfano" speciale.
+    sources: sourceId ? [{ sourceId, name: playlistTitle ?? null }] : [],
     addedAt: now,
     updatedAt: now,
     attempts: 0,
@@ -165,5 +173,23 @@ export function migrateVideoToFlags(video) {
 
   delete video.status;
   delete video.decidedAt; // legato al vecchio ciclo di decisione (new/pending/excluded)
+  return true;
+}
+
+// Migrazione (M41) dal vecchio `source` singolo (appartenenza a UNA fonte) alle
+// `sources` come array di etichette (appartenenza a zero, una o più fonti).
+// `sources` di riferimento è `catalog.sources` al momento del caricamento, per
+// risolvere il `name` dal vecchio `sourceId` (stesso principio già usato per
+// `playlistContext.playlistTitle`). Idempotente: se `sources` esiste già non
+// fa nulla.
+export function migrateVideoToSources(video, sources) {
+  if ('sources' in video) return false; // già migrato
+
+  const legacy = video.source;
+  video.sources = legacy?.sourceId
+    ? [{ sourceId: legacy.sourceId, name: sources?.[legacy.sourceId]?.name ?? null }]
+    : [];
+
+  delete video.source;
   return true;
 }

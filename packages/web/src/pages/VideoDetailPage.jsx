@@ -8,6 +8,7 @@ import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
 import { startDownload } from '../lib/downloadActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
+import { confirmDialog } from '../lib/dialog.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
@@ -125,9 +126,15 @@ export function VideoDetailPage() {
   // Archivia dalla pagina video: volutamente defilato e con conferma (per gli
   // scaricati la conferma è il modale "Vuoi tenere il video?"; per gli altri un
   // confirm), così non è un click accidentale.
-  function handleArchive() {
+  async function handleArchive() {
     if (video.download === 'downloaded') { requestHide(video); return; }
-    if (window.confirm(`Archiviare "${video.title ?? video.id}"? Andrà tra gli Archiviati (puoi ripristinarlo).`)) {
+    const ok = await confirmDialog({
+      title: 'Archiviare il video?',
+      message: `Archiviare "${video.title ?? video.id}"? Andrà tra gli Archiviati (puoi ripristinarlo).`,
+      confirmLabel: 'Archivia',
+      danger: true
+    });
+    if (ok) {
       setHidden(id, true).then(reload).catch((e) => setError(e.message));
     }
   }
@@ -318,9 +325,9 @@ export function VideoDetailPage() {
               <div>
                 <span className="tech-key">Sorgente</span>
                 <span className="tech-val">
-                  {video.source?.sourceId
-                    ? (video.playlistContext?.playlistTitle ?? video.source.sourceId)
-                    : (video.source?.type === 'single' ? 'Video singolo' : '—')}
+                  {video.sources?.length
+                    ? video.sources.map((s) => s.name ?? s.sourceId).join(', ')
+                    : 'Video singolo'}
                 </span>
               </div>
             </div>

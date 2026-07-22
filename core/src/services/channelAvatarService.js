@@ -44,11 +44,17 @@ export async function getChannelAvatarMap() {
 // — copre il caso in cui un creator cambi la propria foto. Un fallimento su
 // un singolo canale non interrompe il batch, coerente con la tolleranza ai
 // fallimenti già usata altrove nel progetto (es. downloadPendingJob).
-export async function syncChannelAvatars({ force = false } = {}) {
+export async function syncChannelAvatars({ force = false, channelKey = null } = {}) {
   const paths = getPaths();
   // Tutti i creator (non solo quelli con video scaricati): un creator appena
   // aggiunto, con soli video "disponibili", deve comunque avere la sua foto.
-  const channels = await listChannels();
+  // channelKey: se presente, limita il refresh a un solo creator (M42) — usato
+  // dal bottone "Aggiorna" sulla sua pagina, invece del bulk su tutti.
+  const allChannels = await listChannels();
+  const channels = channelKey ? allChannels.filter((c) => c.key === channelKey) : allChannels;
+  if (channelKey && channels.length === 0) {
+    throw new Error(`Creator non trovato: "${channelKey}"`);
+  }
 
   let fetchedCount = 0;
   let skippedCount = 0;

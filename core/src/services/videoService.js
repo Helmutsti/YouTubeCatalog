@@ -3,12 +3,13 @@ import { DOWNLOAD_STATE, PRESENCE, isDownloaded } from '../catalog/catalogSchema
 
 // Filtro sui flag ortogonali (M25): ogni criterio passato deve combaciare
 // (AND). Omettere un criterio = non filtrare su quell'asse.
-export async function listVideos({ presence, download, hidden } = {}) {
+export async function listVideos({ presence, download, hidden, favorite } = {}) {
   const catalog = await readCatalog();
   let videos = Object.values(catalog.videos);
   if (presence !== undefined) videos = videos.filter((v) => v.presence === presence);
   if (download !== undefined) videos = videos.filter((v) => v.download === download);
   if (hidden !== undefined) videos = videos.filter((v) => !!v.hidden === !!hidden);
+  if (favorite !== undefined) videos = videos.filter((v) => !!v.favorite === !!favorite);
   return videos.sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
 }
 

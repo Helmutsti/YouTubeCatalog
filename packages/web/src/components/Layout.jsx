@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from
 import { Home, Rss, Search, Archive, Settings } from 'lucide-react';
 import { listChannels } from '../api/client.js';
 import { MobileNav } from './MobileNav.jsx';
+import { ToastHost } from './ToastHost.jsx';
+import { DialogHost } from './DialogHost.jsx';
 
 export function Layout() {
   const [channels, setChannels] = useState([]);
@@ -35,6 +37,8 @@ export function Layout() {
 
   return (
     <div className="shell">
+      <ToastHost />
+      <DialogHost />
       <header className="topbar">
         <Link to="/" className="logo"><img src="/ondo-logo.svg" alt="Ondo" /></Link>
         <form className="search-box" onSubmit={submitSearch}>

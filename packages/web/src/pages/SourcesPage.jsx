@@ -4,6 +4,8 @@ import { listSources, removeSource, syncSources, syncChannelAvatars, getJob, tri
 import { useJobStream } from '../hooks/useJobStream.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { JobHistory } from '../components/JobHistory.jsx';
+import { showToast } from '../lib/toast.js';
+import { confirmDialog } from '../lib/dialog.js';
 
 // Riconosce se l'input incollato è una PLAYLIST (→ nuova sorgente) o un SINGOLO
 // video (→ aggiunto/scaricato). Regola: la presenza di un `list=` (o di
@@ -61,17 +63,27 @@ export function SourcesPage() {
     setPhase('enumerating');
     setActiveJobId(null);
     setRowErrors((p) => { const n = { ...p }; delete n[sourceId]; return n; });
+    const sourceName = sources?.find((s) => s.id === sourceId)?.name ?? sourceId;
+    showToast(`Sincronizzazione di "${sourceName}" avviata…`, 'info');
     try {
       const { results: r, jobId } = await syncSources(sourceId);
       if (r?.[sourceId]) setResults((p) => ({ ...p, [sourceId]: r[sourceId] }));
       if (jobId) {
         setActiveJobId(jobId);
         setPhase('enriching');
-        await waitForJobTerminal(jobId);
+        const job = await waitForJobTerminal(jobId);
         setJobRefreshKey((k) => k + 1);
+        if (job.status === 'failed') {
+          showToast(`Sincronizzazione di "${sourceName}" fallita: ${job.error?.message ?? 'errore sconosciuto'}`, 'error');
+        } else {
+          showToast(`"${sourceName}" sincronizzata: ${summaryLine(r?.[sourceId] ?? {})}`, 'success');
+        }
+      } else if (r?.[sourceId]) {
+        showToast(`"${sourceName}" sincronizzata: ${summaryLine(r[sourceId])}`, 'success');
       }
     } catch (e) {
       setRowErrors((p) => ({ ...p, [sourceId]: e.message }));
+      showToast(`Sincronizzazione di "${sourceName}" fallita: ${e.message}`, 'error');
     } finally {
       setActiveJobId(null);
       setPhase(null);
@@ -119,7 +131,13 @@ export function SourcesPage() {
   }
 
   async function handleRemove(source) {
-    if (!window.confirm(`Rimuovere "${source.name}"? I video già scaricati non verranno toccati.`)) return;
+    const ok = await confirmDialog({
+      title: 'Rimuovere la fonte?',
+      message: `Rimuovere "${source.name}"? I video già scaricati non verranno toccati.`,
+      confirmLabel: 'Rimuovi',
+      danger: true
+    });
+    if (!ok) return;
     try {
       await removeSource(source.id);
       reload();
@@ -135,14 +153,16 @@ export function SourcesPage() {
   async function handleAvatarSync() {
     setBusy(true);
     setError(null);
+    showToast('Aggiornamento foto creator avviato…', 'info');
     try {
       const r = await syncChannelAvatars(false);
-      setNotice(
-        `Foto creator: ${r.fetchedCount} scaricate, ${r.skippedCount} già presenti` +
-        (r.failedCount ? `, ${r.failedCount} non trovate.` : '.')
-      );
+      const outcome = `Foto creator: ${r.fetchedCount} scaricate, ${r.skippedCount} già presenti` +
+        (r.failedCount ? `, ${r.failedCount} non trovate.` : '.');
+      setNotice(outcome);
+      showToast(outcome, r.failedCount ? 'error' : 'success');
     } catch (e) {
       setError(e.message);
+      showToast(`Aggiornamento foto creator fallito: ${e.message}`, 'error');
     } finally {
       setBusy(false);
     }

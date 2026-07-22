@@ -6,6 +6,7 @@ import {
   listChannels,
   listVideosByChannel,
   setVideoHidden,
+  setVideoFavorite,
   deleteVideoFile,
   playVideo,
   searchVideos,
@@ -63,10 +64,18 @@ videosRouter.get('/channels', asyncRoute(async (req, res) => {
     listChannels(),
     getChannelAvatarMap()
   ]);
-  res.json(channels.map((c) => ({
-    ...c,
-    avatarUrl: avatars[c.key]?.localPath ? `/media/avatars/${encodeURIComponent(avatars[c.key].localPath)}` : null
-  })));
+  res.json(channels.map((c) => {
+    const avatar = avatars[c.key];
+    return {
+      ...c,
+      // Cache-bust con fetchedAt: senza, un refresh forzato che riscrive lo
+      // stesso filename (stessa estensione) resterebbe nascosto dalla cache
+      // del browser sullo stesso URL (M42).
+      avatarUrl: avatar?.localPath
+        ? `/media/avatars/${encodeURIComponent(avatar.localPath)}?v=${encodeURIComponent(avatar.fetchedAt ?? '')}`
+        : null
+    };
+  }));
 }));
 
 // Manutenzione: ri-sincronizza le foto profilo dei canali (M14). Non in
@@ -75,7 +84,8 @@ videosRouter.get('/channels', asyncRoute(async (req, res) => {
 // YouTube", stessa famiglia concettuale di POST /api/sync.
 videosRouter.post('/channels/avatars/sync', asyncRoute(async (req, res) => {
   const force = req.body?.force === true;
-  res.json(await syncChannelAvatars({ force }));
+  const channelKey = typeof req.body?.channelKey === 'string' ? req.body.channelKey : null;
+  res.json(await syncChannelAvatars({ force, channelKey }));
 }));
 
 videosRouter.get('/channels/:key/videos', asyncRoute(async (req, res) => {
@@ -107,6 +117,12 @@ videosRouter.post('/videos/:id/metadata/refresh', asyncRoute(async (req, res) =>
 // il vecchio /decision (new/pending/excluded, ciclo di revisione ora rimosso).
 videosRouter.post('/videos/:id/hidden', asyncRoute(async (req, res) => {
   const [video, avatars] = await Promise.all([setVideoHidden(req.params.id, req.body?.hidden === true), getChannelAvatarMap()]);
+  res.json(toPublicVideo(video, avatars));
+}));
+
+// Preferito (asse `favorite` del modello a flag, M43) — stesso pattern di /hidden.
+videosRouter.post('/videos/:id/favorite', asyncRoute(async (req, res) => {
+  const [video, avatars] = await Promise.all([setVideoFavorite(req.params.id, req.body?.favorite === true), getChannelAvatarMap()]);
   res.json(toPublicVideo(video, avatars));
 }));
 
