@@ -614,6 +614,18 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .job-hist-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .job-hist-meta { display: flex; align-items: center; gap: 10px; }
 .job-hist-more { font-size: 11.5px; color: var(--faint); }
+/* Esito/progresso: FUORI dalla riga ad altezza fissa (stesso principio del log
+   espanso sopra), così un job "in coda"/"in corso" mostra la barra qui sotto
+   senza alterare l'altezza costante di .job-hist-row. Sempre visibile (non
+   dietro un click), a differenza del log grezzo che resta dietro isOpen. */
+/* Allineata sotto il titolo (132px copertina + 16px), non sotto la copertina
+   stessa — prima partiva da 16px puro e sembrava "attaccata" alla copertina,
+   sia in orizzontale che in verticale (0 di margine sopra). */
+.job-hist-extra { padding: 10px 16px 14px 148px; }
+.job-hist-outcome-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.job-hist-outcome { font-size: 12.5px; color: var(--ink2); }
+.job-hist-outcome.err { color: var(--st-failed); }
+.job-hist-progress .job-hist-phase { font-size: 12px; color: var(--faint); margin-bottom: 6px; }
 
 /* ===== Sidebar disclosure on mobile ===== */
 .mobile-nav { display: none; }
@@ -681,6 +693,16 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .badge-dot { position: absolute; left: 8px; top: 8px; width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,.4); z-index: 2; }
 .badge-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; padding: 0; border-radius: 0; background: transparent; color: var(--ink2); }
 .badge-dot-sm { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+/* "In download": un pallino statico non comunica un'attesa — pulsa come
+   un'icona app in installazione (un anello che si espande e svanisce). */
+.badge-dot.downloading, .badge-dot-sm.downloading { animation: badge-pulse 1.4s ease-in-out infinite; }
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 0 0 color-mix(in oklch, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 0 6px color-mix(in oklch, var(--accent) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-dot.downloading, .badge-dot-sm.downloading { animation: none; }
+}
 
 .btn-brick { color: #d98b7a; border-color: color-mix(in oklch, #a34a34 55%, transparent); background: color-mix(in oklch, #a34a34 12%, transparent); }
 .btn-brick:hover { background: color-mix(in oklch, #a34a34 24%, transparent); color: #ecaa98; }

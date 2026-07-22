@@ -1,7 +1,8 @@
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
 import { PRESENCE, DOWNLOAD_STATE } from '../../catalog/catalogSchema.js';
-import { fetchVideoMetadata } from '../../ytdlp/ytdlpWrapper.js';
+import { fetchVideoMetadata, isPrivateVideoError } from '../../ytdlp/ytdlpWrapper.js';
 import { syncChannelAvatars } from '../../services/channelAvatarService.js';
+import { markVideoRemoved } from '../../services/metadataService.js';
 
 // Seconda fase dell'ingest a due fasi (M26): dopo che addSource/syncSource hanno
 // popolato la libreria con i metadati LEGGERI dell'enumerazione flat-playlist
@@ -29,6 +30,7 @@ export async function enrichSourceJob(params, { log, progress }) {
 
   let enriched = 0;
   let failed = 0;
+  let removed = 0;
 
   if (candidates.length === 0) {
     log('Nessun video da arricchire (già completi o già arricchiti).');
@@ -56,11 +58,17 @@ export async function enrichSourceJob(params, { log, progress }) {
       enriched += 1;
       log(`✔ ${video.id} arricchito.`);
     } catch (err) {
-      failed += 1;
-      log(`✘ ${video.id} non arricchito: ${err.message}`);
+      if (isPrivateVideoError(err)) {
+        await markVideoRemoved(video.id);
+        removed += 1;
+        log(`⊘ ${video.id} è privato — segnato come "Rimosso".`);
+      } else {
+        failed += 1;
+        log(`✘ ${video.id} non arricchito: ${err.message}`);
+      }
     }
   }
-  log(`Arricchimento completato: ${enriched} arricchiti, ${failed} falliti.`);
+  log(`Arricchimento completato: ${enriched} arricchiti, ${failed} falliti${removed ? `, ${removed} privati (segnati "Rimosso")` : ''}.`);
   }
 
   progress(100);
@@ -76,5 +84,5 @@ export async function enrichSourceJob(params, { log, progress }) {
     log(`Foto creator non aggiornate: ${err.message}`);
   }
 
-  return { enriched, failed, total: candidates.length };
+  return { enriched, failed, removed, total: candidates.length };
 }

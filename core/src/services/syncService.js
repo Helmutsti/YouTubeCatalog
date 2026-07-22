@@ -4,6 +4,7 @@ import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
 import { createNewVideoStub, DOWNLOAD_STATE, PRESENCE } from '../catalog/catalogSchema.js';
 import { listEntries } from '../sourceProviders/playlistProvider.js';
+import { removeFromDownloadArchive } from './libraryService.js';
 
 export function extractPlaylistId(url) {
   try {
@@ -68,10 +69,14 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
     if (existing.download === DOWNLOAD_STATE.DOWNLOADED) {
       const filePath = existing.video?.localPath ? path.join(paths.videosDir, existing.video.localPath) : null;
       if (!filePath || !existsSync(filePath)) {
-        // File sparito dal disco: torna scaricabile (auto-guarigione).
+        // File sparito dal disco: torna scaricabile (auto-guarigione). Va
+        // tolto anche dall'archivio yt-dlp (stesso bug di deleteVideoFile —
+        // altrimenti il prossimo download viene saltato "già fatto" senza
+        // scrivere nulla).
         existing.download = DOWNLOAD_STATE.NONE;
         existing.updatedAt = now();
         healedCount += 1;
+        removeFromDownloadArchive(paths, existing.id);
       }
     }
     // altri stati di download (none/downloading/failed) e il flag hidden:

@@ -9,13 +9,16 @@ export function formatDuration(seconds) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+// Il plurale italiano non si ottiene aggiungendo una lettera in fondo (era il
+// bug: "ora"+"e"="orae", "giorno"+"i"="giornoi") — cambia la vocale finale,
+// quindi serve la forma plurale per intero, non un suffisso.
 const RELATIVE_UNITS = [
-  { limit: 60, divisor: 1, unit: 'secondo' },
-  { limit: 3600, divisor: 60, unit: 'minuto' },
-  { limit: 86400, divisor: 3600, unit: 'ora' },
-  { limit: 604800, divisor: 86400, unit: 'giorno' },
-  { limit: 2629800, divisor: 604800, unit: 'settimana' },
-  { limit: 31557600, divisor: 2629800, unit: 'mese' }
+  { limit: 60, divisor: 1, singular: 'secondo', plural: 'secondi' },
+  { limit: 3600, divisor: 60, singular: 'minuto', plural: 'minuti' },
+  { limit: 86400, divisor: 3600, singular: 'ora', plural: 'ore' },
+  { limit: 604800, divisor: 86400, singular: 'giorno', plural: 'giorni' },
+  { limit: 2629800, divisor: 604800, singular: 'settimana', plural: 'settimane' },
+  { limit: 31557600, divisor: 2629800, singular: 'mese', plural: 'mesi' }
 ];
 
 // video.uploadDate/addedAt sono sempre nel passato per definizione (video già
@@ -27,10 +30,10 @@ export function formatRelativeDate(iso) {
   const diffSeconds = Math.max(0, (Date.now() - date.getTime()) / 1000);
 
   if (diffSeconds < 60) return 'proprio ora';
-  for (const { limit, divisor, unit } of RELATIVE_UNITS) {
+  for (const { limit, divisor, singular, plural } of RELATIVE_UNITS) {
     if (diffSeconds < limit) {
       const value = Math.floor(diffSeconds / divisor);
-      return `${value} ${unit}${value === 1 ? '' : (unit === 'mese' ? 'i' : (unit === 'ora' ? 'e' : 'i'))} fa`;
+      return `${value} ${value === 1 ? singular : plural} fa`;
     }
   }
   const years = Math.floor(diffSeconds / 31557600);

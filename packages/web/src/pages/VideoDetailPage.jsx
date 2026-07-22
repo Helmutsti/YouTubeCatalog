@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
+import { startDownload } from '../lib/downloadActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
@@ -100,8 +101,7 @@ export function VideoDetailPage() {
   async function handleAction(kind, label) {
     try {
       if (kind === 'download') {
-        const { jobId } = await triggerJob('downloadSingle', { videoId: id });
-        navigate(`/jobs?highlight=${jobId}`);
+        await startDownload(id, { triggerJob, navigate });
         return;
       }
       if (kind === 'hide') {
@@ -196,7 +196,7 @@ export function VideoDetailPage() {
             ) : video.download === 'downloading' ? (
               <div className="player-placeholder">
                 <span className="spinner"></span>
-                <span>Download in corso — vedi la <Link to="/jobs">pagina Job</Link> per il log live.</span>
+                <span>Download in corso — vedi il progresso in <Link to="/sources">Sorgenti</Link>.</span>
               </div>
             ) : (
               <div

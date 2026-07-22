@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, EyeOff, Eye } from 'lucide-react';
 import { searchVideos, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
@@ -7,6 +7,7 @@ import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
 import { formatDuration } from '../lib/format.js';
+import { startDownload } from '../lib/downloadActions.js';
 
 const ICONS = { download: Download, hide: EyeOff, unhide: Eye };
 
@@ -15,6 +16,7 @@ export function SearchPage() {
   const q = params.get('q') ?? '';
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   useTitle(q.trim() ? `Cerca: ${q.trim()}` : 'Cerca');
 
@@ -42,8 +44,7 @@ export function SearchPage() {
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
-        await triggerJob('downloadSingle', { videoId: id });
-        await reSearch();
+        await startDownload(id, { triggerJob, navigate });
         return;
       }
       if (kind === 'hide') {

@@ -1,10 +1,28 @@
 import { readMetadata } from '../catalog/metadataStore.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
-import { fetchVideoMetadata } from '../ytdlp/ytdlpWrapper.js';
+import { fetchVideoMetadata, isPrivateVideoError } from '../ytdlp/ytdlpWrapper.js';
 import { PRESENCE } from '../catalog/catalogSchema.js';
 
 export async function getRawMetadata(id) {
   return readMetadata(id);
+}
+
+// Marca un video "Rimosso" per un motivo DEFINITIVO segnalato da yt-dlp (oggi:
+// reso privato dall'autore) — a differenza dello sweep di sincronizzazione
+// (missCount, un paio di tentativi di grazia per un glitch temporaneo), qui il
+// segnale è esplicito e immediato: non serve aspettare. File/metadati/copertina
+// mai toccati — coerente con "Rimosso" ovunque nel progetto.
+export async function markVideoRemoved(id) {
+  return updateCatalog((cat) => {
+    const v = cat.videos[id];
+    if (!v) return null;
+    if (v.presence !== PRESENCE.REMOVED) {
+      v.presence = PRESENCE.REMOVED;
+      v.removedAt = new Date().toISOString();
+    }
+    v.updatedAt = new Date().toISOString();
+    return v;
+  });
 }
 
 // "Aggiorna metadati" (M31): ri-scarica i metadati completi + la copertina di un
@@ -32,6 +50,9 @@ export async function refreshVideoMetadata(id) {
       return cur;
     });
   } catch (err) {
+    if (isPrivateVideoError(err)) {
+      return markVideoRemoved(id);
+    }
     if (video.presence === PRESENCE.REMOVED) {
       return video; // stato "rimosso" confermato: nessuna modifica
     }

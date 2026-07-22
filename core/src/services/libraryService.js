@@ -1,8 +1,25 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
 import { DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
+
+// yt-dlp non ricontrolla mai se il file esiste ancora: `--download-archive`
+// (il ledger ridondante di dedup, vedi PIANO.md) resta valorizzato per sempre
+// una volta scritto. Se si cancella solo il file locale senza toglierlo da lì,
+// un ri-download successivo viene SALTATO da yt-dlp (crede sia già scaricato),
+// che chiude comunque con successo ma senza scrivere alcun file — da cui
+// l'errore "Download completato ma file mancanti" (bug reale riscontrato
+// dall'utente su pEhoILkfG8w). Righe nel formato "<extractor> <id>".
+export function removeFromDownloadArchive(paths, videoId) {
+  const file = paths.downloadArchivePath;
+  if (!existsSync(file)) return;
+  const lines = readFileSync(file, 'utf-8').split('\n');
+  const filtered = lines.filter((line) => line.trim().split(/\s+/)[1] !== videoId);
+  if (filtered.length !== lines.length) {
+    writeFileSync(file, filtered.join('\n'));
+  }
+}
 
 // Cancella SOLO il file video scaricato dal disco (M30), riportando il video a
 // download:'none'. NON cancella l'entry di catalogo, i metadati grezzi né la
@@ -28,6 +45,7 @@ export async function deleteVideoFile(id) {
         rmdirSync(dir);
       }
     }
+    removeFromDownloadArchive(paths, id);
 
     // Reset dei soli campi legati al file fisico; metadati curati, thumbnail e
     // grezzo (data/metadata.json) restano intatti.

@@ -33,6 +33,22 @@ export async function toPublicJob(job) {
     };
   }
 
+  // addVideo (M39): l'id non è noto in params (risolto DENTRO il job), solo nel
+  // summary a job terminato — quindi la copertina compare solo dopo il successo.
+  if (job.type === 'addVideo' && job.summary?.videoId) {
+    const v = await safeVideo(job.summary.videoId);
+    return {
+      ...job,
+      thumbnails: v?.thumbnailUrl ? [v.thumbnailUrl] : [],
+      thumbnailsMore: 0,
+      title: v?.title ?? job.summary.title ?? null
+    };
+  }
+
+  if (job.type === 'addSource' && job.summary?.name) {
+    return { ...job, thumbnails: [], thumbnailsMore: 0, title: job.summary.name };
+  }
+
   if (job.type === 'downloadPending' && Array.isArray(job.summary?.results)) {
     const succeededIds = job.summary.results.filter((r) => r.status === 'downloaded').map((r) => r.id);
     const shownIds = succeededIds.slice(0, MAX_THUMBNAILS);
