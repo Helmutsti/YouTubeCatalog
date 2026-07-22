@@ -21,13 +21,20 @@ const JS_RUNTIME_ARGS = ['--js-runtimes', 'node'];
 // che lo sono trovano comunque formati funzionanti senza bisogno di un PO Token.
 const PLAYER_CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=default,android_vr'];
 
-// yt-dlp segnala così un video reso privato dall'autore (verificato dal vivo:
-// "ERROR: [youtube] <id>: Private video. Sign in if you've been granted
-// access..."): un segnale DEFINITIVO ed esplicito, diverso da un errore di
-// rete/server temporaneo — usato per marcare il video "Rimosso" subito invece
-// di lasciarlo per sempre in limbo come "da scaricare" senza titolo/canale.
-export function isPrivateVideoError(err) {
-  return /private video/i.test(err?.message ?? '');
+// yt-dlp segnala così un video reso privato dall'autore o comunque sparito per
+// sempre da YouTube — verificato dal vivo su 3 varianti reali: "Private video.
+// Sign in if you've been granted access...", "Video unavailable. This video is
+// no longer available because the YouTube account associated with this video
+// has been terminated.", "Video unavailable. It was removed following a
+// copyright removal request by <titolare>". Tutte iniziano con "Private video"
+// o "Video unavailable" — segnali DEFINITIVI, diversi da un errore di
+// rete/server temporaneo — usati per marcare il video "Rimosso" subito invece
+// di lasciarlo per sempre in limbo come "da scaricare" senza titolo/canale
+// (bug reale trovato: solo "private video" era intercettato, i video con
+// account terminato/rimozione per copyright restavano bloccati per sempre,
+// ri-tentati a ogni sync senza mai avere successo né essere segnalati).
+export function isVideoGoneError(err) {
+  return /private video|video unavailable/i.test(err?.message ?? '');
 }
 
 let cachedVersion = null;

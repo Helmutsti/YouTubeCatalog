@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Star } from 'lucide-react';
-import { listVideos, listSources, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
+import { listVideos, listSources, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { StatusChips } from '../components/StatusChips.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
@@ -9,6 +8,7 @@ import { useTitle } from '../hooks/useTitle.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 import { startDownload } from '../lib/downloadActions.js';
+import { showToast } from '../lib/toast.js';
 
 const SINGLE = '__single__';
 // Chip della Home: sottoinsieme mirato (gli archiviati vivono in "Archiviati").
@@ -26,7 +26,6 @@ export function CatalogPage() {
   const [source, setSource] = useState('');
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [error, setError] = useState(null);
-  const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
   useTitle('Home');
 
@@ -43,6 +42,9 @@ export function CatalogPage() {
   const counts = useMemo(() => {
     const acc = {};
     for (const v of visible) acc[v.category] = (acc[v.category] ?? 0) + 1;
+    // "Da scaricare" include anche i video in download (restano visibili lì
+    // finché non finiscono, invece di sparire per poi ricomparire altrove).
+    acc.available = (acc.available ?? 0) + (acc.downloading ?? 0);
     return acc;
   }, [visible]);
 
@@ -60,7 +62,12 @@ export function CatalogPage() {
 
   const filtered = useMemo(() => {
     let list = visible;
-    if (category) list = list.filter((v) => v.category === category);
+    // "Da scaricare" (available) resta valida anche per i video in download:
+    // ci restano finché non finiscono (successo o fallimento), invece di
+    // sparire subito all'avvio per poi ricomparire in un'altra categoria.
+    if (category) {
+      list = list.filter((v) => v.category === category || (category === 'available' && v.category === 'downloading'));
+    }
     if (creator) list = list.filter((v) => channelKey(v) === creator);
     if (source) list = list.filter((v) => (source === SINGLE ? !v.sources?.length : v.sources?.some((s) => s.sourceId === source)));
     if (favoriteOnly) list = list.filter((v) => v.favorite);
@@ -70,7 +77,8 @@ export function CatalogPage() {
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
-        await startDownload(id, { triggerJob, navigate });
+        const title = visible.find((v) => v.id === id)?.title;
+        await startDownload(id, { triggerJob, onSettled: reload, title });
         return;
       }
       if (kind === 'hide') {
@@ -84,6 +92,12 @@ export function CatalogPage() {
       }
       if (kind === 'favorite' || kind === 'unfavorite') {
         await setFavorite(id, kind === 'favorite');
+        reload();
+        return;
+      }
+      if (kind === 'deletevideo') {
+        await deleteVideo(id);
+        showToast('Video cancellato definitivamente.', 'success');
         reload();
         return;
       }

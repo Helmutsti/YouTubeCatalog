@@ -1,6 +1,6 @@
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
 import { prepareSingleVideoDownload } from '../../services/singleVideoService.js';
-import { fetchVideoMetadata, isPrivateVideoError } from '../../ytdlp/ytdlpWrapper.js';
+import { fetchVideoMetadata, isVideoGoneError } from '../../ytdlp/ytdlpWrapper.js';
 import { syncChannelAvatars } from '../../services/channelAvatarService.js';
 import { markVideoRemoved } from '../../services/metadataService.js';
 
@@ -43,7 +43,7 @@ export async function addVideoJob({ url }, { log, progress }) {
     });
     log(`✔ Metadati completi salvati.`);
   } catch (err) {
-    if (isPrivateVideoError(err)) {
+    if (isVideoGoneError(err)) {
       await markVideoRemoved(result.videoId);
       log(`⊘ Video privato — segnato come "Rimosso".`);
     } else {

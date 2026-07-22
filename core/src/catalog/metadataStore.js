@@ -36,6 +36,25 @@ export async function readMetadata(id) {
 
 // Stessa strategia di mutex di catalogStore.js: coda di promise, errori isolati
 // al chiamante che li ha causati senza bloccare le scritture successive.
+// Rimuove i metadati grezzi di un video (usata dalla cancellazione totale,
+// M-punto 11): a differenza di setMetadata non fallisce se l'id non c'è.
+export async function deleteMetadata(id) {
+  await ensureLoaded();
+  let error;
+  writeQueue = writeQueue.then(async () => {
+    try {
+      if (id in metadata) {
+        delete metadata[id];
+        persistToDisk(metadata);
+      }
+    } catch (err) {
+      error = err;
+    }
+  });
+  await writeQueue;
+  if (error) throw error;
+}
+
 export async function setMetadata(id, info) {
   await ensureLoaded();
   // automatic_captions elenca URL di sottotitoli auto-tradotti in 150+ lingue:

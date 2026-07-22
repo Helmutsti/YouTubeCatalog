@@ -32,6 +32,9 @@ export const setFavorite = (id, favorite) =>
 // Cancella solo il file scaricato (M30); la scheda resta in libreria.
 export const deleteVideoFile = (id) =>
   request(`/api/videos/${encodeURIComponent(id)}/file`, { method: 'DELETE' });
+// Cancellazione totale e irreversibile (punto 11): scheda+file+copertina+metadati.
+export const deleteVideo = (id) =>
+  request(`/api/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
 // Aggiorna metadati + copertina (M31); sui rimossi funge da ri-verifica.
 export const refreshMetadata = (id) =>
   request(`/api/videos/${encodeURIComponent(id)}/metadata/refresh`, { method: 'POST' });
@@ -86,3 +89,8 @@ export const setMediaRoot = (path) =>
   request('/api/config/media-root', { method: 'POST', body: JSON.stringify({ path }) });
 export const setVideosRoot = (path) =>
   request('/api/config/videos-root', { method: 'POST', body: JSON.stringify({ path }) });
+
+// Cookie YouTube (core/cookies.txt): corpo grezzo del file .txt, nessun riavvio richiesto.
+export const uploadCookies = (text) =>
+  request('/api/config/cookies', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });
+export const deleteCookies = () => request('/api/config/cookies', { method: 'DELETE' });

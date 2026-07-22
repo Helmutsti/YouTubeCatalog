@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Download, EyeOff, Eye } from 'lucide-react';
 import { searchVideos, setHidden, triggerJob } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
@@ -16,7 +16,6 @@ export function SearchPage() {
   const q = params.get('q') ?? '';
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
-  const navigate = useNavigate();
 
   useTitle(q.trim() ? `Cerca: ${q.trim()}` : 'Cerca');
 
@@ -44,7 +43,8 @@ export function SearchPage() {
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
-        await startDownload(id, { triggerJob, navigate });
+        const title = (results ?? []).find((v) => v.id === id)?.title;
+        await startDownload(id, { triggerJob, onSettled: reSearch, title });
         return;
       }
       if (kind === 'hide') {

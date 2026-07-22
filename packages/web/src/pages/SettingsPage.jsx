@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, FolderCog, Clapperboard } from 'lucide-react';
-import { BACKUP_URL, restoreBackup, getConfig, setMediaRoot, setVideosRoot } from '../api/client.js';
+import { Download, Upload, FolderCog, Clapperboard, Cookie, Trash2 } from 'lucide-react';
+import { BACKUP_URL, restoreBackup, getConfig, setMediaRoot, setVideosRoot, uploadCookies, deleteCookies } from '../api/client.js';
 import { useTitle } from '../hooks/useTitle.js';
+import { confirmDialog } from '../lib/dialog.js';
+import { showToast } from '../lib/toast.js';
 
 export function SettingsPage() {
   useTitle('Impostazioni');
@@ -22,14 +24,23 @@ export function SettingsPage() {
   const [videosResult, setVideosResult] = useState(null);
   const [videosError, setVideosError] = useState(null);
 
+  // --- Cookie YouTube ---
+  const [cookiesStatus, setCookiesStatus] = useState(null);
+  const [cookiesBusy, setCookiesBusy] = useState(false);
+  const [cookiesError, setCookiesError] = useState(null);
+
+  function reloadConfig() {
+    return getConfig().then((c) => {
+      setConfig(c);
+      setMediaInput(c.mediaRoot ?? '');
+      setVideosInput(c.videosRoot ?? '');
+      setCookiesStatus(c.cookies);
+      return c;
+    });
+  }
+
   useEffect(() => {
-    getConfig()
-      .then((c) => {
-        setConfig(c);
-        setMediaInput(c.mediaRoot ?? '');
-        setVideosInput(c.videosRoot ?? '');
-      })
-      .catch((e) => setMediaError(e.message));
+    reloadConfig().catch((e) => setMediaError(e.message));
   }, []);
 
   async function handleRestore(e) {
@@ -71,6 +82,47 @@ export function SettingsPage() {
       setVideosError(err.message);
     } finally {
       setVideosBusy(false);
+    }
+  }
+
+  async function handleUploadCookies(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permette di riselezionare lo stesso file
+    if (!file) return;
+    setCookiesError(null);
+    setCookiesBusy(true);
+    try {
+      const text = await file.text();
+      const status = await uploadCookies(text);
+      setCookiesStatus(status);
+      showToast('Cookie caricati.', 'success');
+    } catch (err) {
+      setCookiesError(err.message);
+      showToast(`Caricamento cookie fallito: ${err.message}`, 'error');
+    } finally {
+      setCookiesBusy(false);
+    }
+  }
+
+  async function handleDeleteCookies() {
+    const ok = await confirmDialog({
+      title: 'Cancellare i cookie?',
+      message: 'I video privati, non listati o con limite d\'età smetteranno di essere accessibili finché non ne carichi di nuovi.',
+      confirmLabel: 'Cancella',
+      danger: true
+    });
+    if (!ok) return;
+    setCookiesError(null);
+    setCookiesBusy(true);
+    try {
+      const status = await deleteCookies();
+      setCookiesStatus(status);
+      showToast('Cookie cancellati.', 'success');
+    } catch (err) {
+      setCookiesError(err.message);
+      showToast(`Cancellazione cookie fallita: ${err.message}`, 'error');
+    } finally {
+      setCookiesBusy(false);
     }
   }
 
@@ -148,6 +200,30 @@ export function SettingsPage() {
             {' '}<strong>Riavvia il server</strong> per applicare.
           </div>
         )}
+      </div>
+
+      <div className="d-desc">
+        <span className="label">Cookie YouTube</span>
+        Necessari per i video privati/non listati del tuo account o con limite d'età. Esporta i cookie dal browser (es. estensione "Get cookies.txt") mentre sei loggato su YouTube, poi caricali qui — sostituiscono quelli attuali, effetto immediato (nessun riavvio). Il file non viene mai versionato né incluso nel backup.
+        {cookiesStatus && (
+          <div style={{ marginTop: 12, fontSize: 12.5 }}>
+            {cookiesStatus.present
+              ? <>Cookie presenti, caricati il {new Date(cookiesStatus.updatedAt).toLocaleString('it-IT')}.</>
+              : <span style={{ color: 'var(--faint)' }}>Nessun cookie configurato.</span>}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <label className="btn btn-primary" style={{ cursor: cookiesBusy ? 'default' : 'pointer' }}>
+            <Cookie size={15} /> {cookiesBusy ? 'Caricamento…' : 'Carica cookie…'}
+            <input type="file" accept=".txt" hidden onChange={handleUploadCookies} disabled={cookiesBusy} />
+          </label>
+          {cookiesStatus?.present && (
+            <button className="btn btn-danger" onClick={handleDeleteCookies} disabled={cookiesBusy}>
+              <Trash2 size={15} /> Cancella cookie
+            </button>
+          )}
+        </div>
+        {cookiesError && <div className="notice error" style={{ marginTop: 14 }}>{cookiesError}</div>}
       </div>
 
       <div className="d-desc">

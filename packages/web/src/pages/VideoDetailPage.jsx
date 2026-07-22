@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown } from 'lucide-react';
 import { getVideo, listVideosByChannel, setHidden, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
@@ -9,6 +9,7 @@ import { useTitle } from '../hooks/useTitle.js';
 import { startDownload } from '../lib/downloadActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 import { confirmDialog } from '../lib/dialog.js';
+import { showToast, updateToast } from '../lib/toast.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
@@ -25,7 +26,6 @@ export function VideoDetailPage() {
   const [pipError, setPipError] = useState(null);
   const [speedIndex, setSpeedIndex] = useState(0);
   const videoRef = useRef(null);
-  const navigate = useNavigate();
 
   function reload() {
     setError(null);
@@ -102,7 +102,7 @@ export function VideoDetailPage() {
   async function handleAction(kind, label) {
     try {
       if (kind === 'download') {
-        await startDownload(id, { triggerJob, navigate });
+        await startDownload(id, { triggerJob, onSettled: reload, title: video.title });
         return;
       }
       if (kind === 'hide') {
@@ -110,9 +110,16 @@ export function VideoDetailPage() {
         return;
       }
       if (kind === 'metadata') {
-        await refreshMetadata(id);
-        setNotice('Metadati aggiornati.');
-        reload();
+        const toastId = showToast('Aggiornamento metadati avviato…', 'info', 0);
+        try {
+          await refreshMetadata(id);
+          setNotice('Metadati aggiornati.');
+          updateToast(toastId, { message: 'Metadati aggiornati.', type: 'success' });
+          reload();
+        } catch (e) {
+          updateToast(toastId, { message: `Aggiornamento metadati fallito: ${e.message}`, type: 'error' });
+          throw e;
+        }
         return;
       }
       await setHidden(id, false); // unhide
@@ -307,7 +314,7 @@ export function VideoDetailPage() {
                 <span className="tech-val">
                   {video.presence === 'removed'
                     ? `Rimosso da YouTube${video.removedAt ? ` · ${new Date(video.removedAt).toLocaleDateString('it-IT')}` : ''}`
-                    : 'Presente su YouTube'}
+                    : <a href={video.webpageUrl} target="_blank" rel="noopener noreferrer">Presente su YouTube</a>}
                 </span>
               </div>
               <div>

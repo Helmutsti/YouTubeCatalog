@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Home, Rss, Search, Archive, Settings } from 'lucide-react';
+import { Home, Rss, Search, Archive, Settings, X } from 'lucide-react';
 import { listChannels } from '../api/client.js';
 import { MobileNav } from './MobileNav.jsx';
 import { ToastHost } from './ToastHost.jsx';
 import { DialogHost } from './DialogHost.jsx';
+import { registerNavigate } from '../lib/navigation.js';
 
 export function Layout() {
   const [channels, setChannels] = useState([]);
@@ -13,6 +14,8 @@ export function Layout() {
   const [query, setQuery] = useState(urlQ);
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => { registerNavigate(navigate); }, [navigate]);
 
   // Rifetch a ogni cambio pagina: dataset piccolo (canali distinti tra i
   // video scaricati), costo trascurabile, evita una sidebar disallineata
@@ -33,6 +36,14 @@ export function Layout() {
     if (trimmed) navigate(`/search?q=${encodeURIComponent(trimmed)}`);
   }
 
+  // Punto 14 del backlog: svuota rapidamente il campo; se si è già sulla
+  // pagina Cerca, torna in Home invece di lasciarla con la query nell'URL ma
+  // il campo vuoto (disallineati).
+  function clearSearch() {
+    setQuery('');
+    if (location.pathname === '/search') navigate('/');
+  }
+
   const navCls = ({ isActive }) => `side-item${isActive ? ' active' : ''}`;
 
   return (
@@ -48,6 +59,11 @@ export function Layout() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {query && (
+            <button type="button" className="search-clear" onClick={clearSearch} aria-label="Svuota ricerca">
+              <X size={14} />
+            </button>
+          )}
         </form>
       </header>
       <div className="body-area">

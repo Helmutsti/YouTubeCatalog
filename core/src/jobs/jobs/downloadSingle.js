@@ -1,6 +1,6 @@
 import { readCatalog, updateCatalog } from '../../catalog/catalogStore.js';
 import { DOWNLOAD_STATE } from '../../catalog/catalogSchema.js';
-import { downloadVideo, isPrivateVideoError } from '../../ytdlp/ytdlpWrapper.js';
+import { downloadVideo, isVideoGoneError } from '../../ytdlp/ytdlpWrapper.js';
 import { syncChannelAvatars } from '../../services/channelAvatarService.js';
 import { markVideoRemoved } from '../../services/metadataService.js';
 
@@ -50,7 +50,7 @@ export async function downloadSingleJob(params, { log, progress }) {
       v.error = { message: err.message, occurredAt: new Date().toISOString(), attempts: v.attempts };
       v.updatedAt = new Date().toISOString();
     });
-    if (isPrivateVideoError(err)) {
+    if (isVideoGoneError(err)) {
       await markVideoRemoved(videoId);
       log(`⊘ ${videoId} è privato — segnato come "Rimosso".`);
     }

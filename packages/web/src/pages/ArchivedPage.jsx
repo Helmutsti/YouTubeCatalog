@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { listVideos, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
+import { listVideos, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
 import { VideoCard } from '../components/VideoCard.jsx';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
 import { channelKey } from '../lib/format.js';
 import { startDownload } from '../lib/downloadActions.js';
+import { showToast } from '../lib/toast.js';
 
 // Pagina "Archiviati" (ex Libreria): mostra SOLO i video archiviati/nascosti,
 // con le copertine in bianco e nero. Da qui si ripristinano (menu ⋮ →
@@ -16,7 +16,6 @@ export function ArchivedPage() {
   const [creator, setCreator] = useState('');
   const [sort, setSort] = useState('uploadDate');
   const [error, setError] = useState(null);
-  const navigate = useNavigate();
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
   useTitle('Archiviati');
 
@@ -46,7 +45,8 @@ export function ArchivedPage() {
   async function handleAction(id, kind) {
     try {
       if (kind === 'download') {
-        await startDownload(id, { triggerJob, navigate });
+        const title = archived.find((v) => v.id === id)?.title;
+        await startDownload(id, { triggerJob, onSettled: reload, title });
         return;
       }
       if (kind === 'hide') {
@@ -60,6 +60,12 @@ export function ArchivedPage() {
       }
       if (kind === 'favorite' || kind === 'unfavorite') {
         await setFavorite(id, kind === 'favorite');
+        reload();
+        return;
+      }
+      if (kind === 'deletevideo') {
+        await deleteVideo(id);
+        showToast('Video cancellato definitivamente.', 'success');
         reload();
         return;
       }

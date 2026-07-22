@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -134,6 +134,33 @@ export function setVideosRoot(newPath) {
   }
   updateConfig({ videosRoot: value });
   return { videosRoot: value, resolved, requiresRestart: true };
+}
+
+// Cookie per YouTube (video privati/non listati/con limite d'età) — file
+// Netscape cookie-jar esportato dal browser, path fisso `core/cookies.txt`
+// (mai in git, vedi .gitignore). getPaths() lo rileva da solo a ogni chiamata
+// (existsSync su questo stesso percorso): niente riavvio dopo un
+// upload/cancellazione, il prossimo comando yt-dlp lo vede già.
+const DEFAULT_COOKIES_PATH = path.join(CORE_DIR, 'cookies.txt');
+
+export function getCookiesStatus() {
+  if (!existsSync(DEFAULT_COOKIES_PATH)) return { present: false, updatedAt: null };
+  return { present: true, updatedAt: statSync(DEFAULT_COOKIES_PATH).mtime.toISOString() };
+}
+
+export function saveCookiesFile(content) {
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('File cookie vuoto o non valido.');
+  }
+  const tmp = `${DEFAULT_COOKIES_PATH}.tmp`;
+  writeFileSync(tmp, content, 'utf-8');
+  renameSync(tmp, DEFAULT_COOKIES_PATH);
+  return getCookiesStatus();
+}
+
+export function deleteCookiesFile() {
+  if (existsSync(DEFAULT_COOKIES_PATH)) unlinkSync(DEFAULT_COOKIES_PATH);
+  return getCookiesStatus();
 }
 
 export function getPaths() {

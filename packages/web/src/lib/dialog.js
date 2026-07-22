@@ -3,16 +3,20 @@
 // pattern a singleton di toast.js: un solo <DialogHost/> montato in Layout,
 // funzioni imperative che restituiscono una Promise (come window.confirm, ma
 // non bloccante e risolta dal click dell'utente sul modale React).
-let setState = null;
+//
+// Stato su `globalThis` invece che in una `let` di modulo, per lo stesso
+// motivo di toast.js: sopravvive alla duplicazione del modulo sotto Vite HMR
+// (nessun impatto in produzione, build unica).
+const STATE = (globalThis.__ondoDialogState ??= { setState: null });
 
 export function registerDialogHost(setter) {
-  setState = setter;
+  STATE.setState = setter;
 }
 
 function open(config) {
   return new Promise((resolve) => {
-    if (!setState) { resolve(config.type === 'confirm' ? false : undefined); return; }
-    setState({ ...config, resolve });
+    if (!STATE.setState) { resolve(config.type === 'confirm' ? false : undefined); return; }
+    STATE.setState({ ...config, resolve });
   });
 }
 

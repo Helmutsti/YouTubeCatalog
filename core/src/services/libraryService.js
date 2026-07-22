@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
 import { DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
+import { deleteMetadata } from '../catalog/metadataStore.js';
 
 // yt-dlp non ricontrolla mai se il file esiste ancora: `--download-archive`
 // (il ledger ridondante di dedup, vedi PIANO.md) resta valorizzato per sempre
@@ -56,6 +57,46 @@ export async function deleteVideoFile(id) {
     };
     video.updatedAt = new Date().toISOString();
     return video;
+  });
+}
+
+// Cancellazione TOTALE e irreversibile (punto 11 del backlog, promossa a
+// funzionalità): richiedibile SOLO su un video già archiviato (hidden) — un
+// gate a due passi deliberato (prima archivia, poi eventualmente cancella per
+// sempre), lo stesso spirito del pulsante "Cancella" mostrato solo in
+// Archiviati. A differenza di deleteVideoFile qui sparisce anche la SCHEDA dal
+// catalogo (file video + copertina + entry di catalogo + metadati grezzi in
+// data/metadata.json), non solo il file fisico. Se il video appartiene ancora
+// a una fonte attiva su YouTube, la prossima sync la ricrea da zero (nuovo
+// stub, poi ri-arricchito) — non è un blocklist permanente, è "come se non
+// l'avessimo mai catalogato". Tolto anche dall'archivio yt-dlp
+// (--download-archive), stesso motivo di removeFromDownloadArchive sopra.
+export async function deleteVideoCompletely(id) {
+  const paths = getPaths();
+  await updateCatalog(async (catalog) => {
+    const video = catalog.videos[id];
+    if (!video) throw new Error(`Video non trovato nel catalogo: ${id}`);
+    if (!video.hidden) {
+      throw new Error(`Il video "${id}" va prima archiviato prima di poterlo cancellare definitivamente.`);
+    }
+
+    const videoRel = video.video?.localPath;
+    if (videoRel) {
+      const abs = path.join(paths.videosDir, videoRel);
+      if (existsSync(abs)) unlinkSync(abs);
+      const dir = path.dirname(abs);
+      if (dir !== paths.videosDir && existsSync(dir) && readdirSync(dir).length === 0) {
+        rmdirSync(dir);
+      }
+    }
+    const thumbRel = video.thumbnail?.localPath;
+    if (thumbRel) {
+      const thumbAbs = path.join(paths.thumbnailsDir, thumbRel);
+      if (existsSync(thumbAbs)) unlinkSync(thumbAbs);
+    }
+    removeFromDownloadArchive(paths, id);
+    await deleteMetadata(id);
+    delete catalog.videos[id];
   });
 }
 

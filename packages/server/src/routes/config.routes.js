@@ -1,5 +1,5 @@
-import { Router } from 'express';
-import { loadConfig, getPaths, setMediaRoot, setVideosRoot } from '@catalog/core';
+import express, { Router } from 'express';
+import { loadConfig, getPaths, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
 
 export const configRouter = Router();
@@ -15,8 +15,27 @@ configRouter.get(
       mediaRoot: cfg.mediaRoot,
       mediaRootResolved: paths.mediaRoot,
       videosRoot: cfg.videosRoot ?? null,
-      videosDirResolved: paths.videosDir
+      videosDirResolved: paths.videosDir,
+      cookies: getCookiesStatus()
     });
+  })
+);
+
+// Cookie YouTube (core/cookies.txt): corpo grezzo del file .txt esportato dal
+// browser (stesso pattern del ripristino backup — middleware raw a livello di
+// route). Nessun riavvio richiesto: il prossimo comando yt-dlp lo vede subito.
+configRouter.post(
+  '/config/cookies',
+  express.text({ type: () => true, limit: '5mb' }),
+  asyncRoute(async (req, res) => {
+    res.json(saveCookiesFile(req.body));
+  })
+);
+
+configRouter.delete(
+  '/config/cookies',
+  asyncRoute(async (req, res) => {
+    res.json(deleteCookiesFile());
   })
 );
 
