@@ -1,6 +1,7 @@
 import { getJob } from '../api/client.js';
 import { showToast, updateToast } from './toast.js';
 import { appNavigate } from './navigation.js';
+import { trackVideoDownload, untrackVideoDownload } from './downloadTracker.js';
 
 // onRunning: chiamato la PRIMA volta che il job risulta 'running' (non subito
 // dopo l'accodamento). Bug reale trovato in verifica: chiamare il refresh
@@ -51,8 +52,12 @@ function waitForJobTerminal(jobId, onRunning) {
 export async function startDownload(videoId, { triggerJob, onSettled, title }) {
   const label = title ? `"${title}"` : 'Video';
   const toastId = showToast(`${label}: download avviato…`, 'info', 0, () => appNavigate('/sources'));
+  let jobId;
   try {
-    const { jobId } = await triggerJob('downloadSingle', { videoId });
+    ({ jobId } = await triggerJob('downloadSingle', { videoId }));
+    // Da qui in poi la card del video (in qualunque griglia sia montata) può
+    // agganciarsi al progresso reale via useJobStream(jobId).
+    trackVideoDownload(videoId, jobId);
     const job = await waitForJobTerminal(jobId, onSettled);
     if (job.status === 'failed') {
       updateToast(toastId, { message: `${label}: download fallito (${job.error?.message ?? 'errore sconosciuto'})`, type: 'error' });
@@ -63,5 +68,7 @@ export async function startDownload(videoId, { triggerJob, onSettled, title }) {
   } catch (e) {
     updateToast(toastId, { message: `${label}: download fallito (${e.message})`, type: 'error' });
     onSettled?.();
+  } finally {
+    if (jobId) untrackVideoDownload(videoId);
   }
 }

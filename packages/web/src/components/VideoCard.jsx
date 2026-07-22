@@ -5,6 +5,8 @@ import { StatusBadge } from './StatusBadge.jsx';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
 import { actionsFor } from '../lib/reviewActions.js';
 import { confirmDialog } from '../lib/dialog.js';
+import { useActiveDownloadJobId } from '../lib/downloadTracker.js';
+import { useJobStream } from '../hooks/useJobStream.js';
 
 // Voci del menu ⋮ per tipo di azione (kind da actionsFor). Etichette/icone in
 // stile YouTube; "hide"→Archivia, "unhide"→Ripristina (contestuale allo stato).
@@ -19,6 +21,18 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
   const actions = actionsFor(video);
+  const downloading = video.download === 'downloading';
+  // Non ancora in libreria: copertina blur+B/N (sulla sola immagine, mai su
+  // bordo/overlay). Esclude "downloading", che ha già il proprio trattamento
+  // dedicato qui sotto (blur più forte + anello di progresso) — sommare
+  // anche questo li farebbe scontrare.
+  const notDownloaded = video.download !== 'downloaded' && !downloading;
+  // jobId noto solo se il download è stato avviato da questa stessa sessione
+  // (vedi lib/downloadTracker.js): se assente (pagina ricaricata a metà
+  // download, o avviato altrove) niente percentuale reale, il cerchio ricade
+  // su un'animazione indeterminata.
+  const activeJobId = useActiveDownloadJobId(video.id);
+  const { progress } = useJobStream(downloading ? activeJobId : null);
   // Archivia/Ripristina va in fondo al menu, separato dalle altre azioni.
   const archiveAction = actions.find((a) => a.kind === 'hide' || a.kind === 'unhide');
   const otherActions = actions.filter((a) => a.kind !== 'hide' && a.kind !== 'unhide');
@@ -42,8 +56,21 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect }) {
 
   return (
     <div className={`card${video.hidden ? ' dimmed' : ''}${selected ? ' selected' : ''}`}>
-      <Link to={`/videos/${video.id}`} className="thumb">
+      <Link to={`/videos/${video.id}`} className={`thumb${downloading ? ' downloading' : ''}${notDownloaded ? ' not-downloaded' : ''}`}>
         {video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" loading="lazy" /> : null}
+        {downloading && (
+          <div className="dl-overlay">
+            <svg className="dl-ring" viewBox="0 0 36 36">
+              <circle className="dl-ring-track" cx="18" cy="18" r="15.9155" />
+              <circle
+                className={`dl-ring-fill${progress == null ? ' indeterminate' : ''}`}
+                cx="18" cy="18" r="15.9155"
+                style={progress != null ? { strokeDashoffset: 100 - progress } : undefined}
+              />
+            </svg>
+            <Download size={16} className="dl-icon" />
+          </div>
+        )}
         {onToggleSelect && (
           <input
             type="checkbox"
