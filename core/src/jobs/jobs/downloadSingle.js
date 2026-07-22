@@ -4,7 +4,7 @@ import { downloadVideo, isVideoGoneError } from '../../ytdlp/ytdlpWrapper.js';
 import { syncChannelAvatars } from '../../services/channelAvatarService.js';
 import { markVideoRemoved } from '../../services/metadataService.js';
 
-export async function downloadSingleJob(params, { log, progress }) {
+export async function downloadSingleJob(params, { log, progress, signal }) {
   const { videoId } = params;
   if (!videoId) throw new Error('downloadSingle richiede il parametro "videoId"');
 
@@ -21,7 +21,7 @@ export async function downloadSingleJob(params, { log, progress }) {
   });
 
   try {
-    const fields = await downloadVideo(videoId, video.webpageUrl, { onLog: log, onProgress: progress });
+    const fields = await downloadVideo(videoId, video.webpageUrl, { onLog: log, onProgress: progress, signal });
     await updateCatalog((cat) => {
       Object.assign(cat.videos[videoId], fields, {
         download: DOWNLOAD_STATE.DOWNLOADED,

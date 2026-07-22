@@ -63,6 +63,8 @@ export const triggerJob = (type, params) =>
 export const listJobs = () => request('/api/jobs');
 export const getJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`);
 export const deleteJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+// Interruzione manuale di un job running/queued (M51): solo downloadSingle/downloadPending la supportano.
+export const cancelJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
 export const clearJobs = () => request('/api/jobs', { method: 'DELETE' });
 
 export const reorganizeLibrary = (dryRun) =>

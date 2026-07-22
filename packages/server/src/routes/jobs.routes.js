@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { triggerJob, getJob, listJobs, deleteJob, clearJobs, onJobLog, onJobProgress, onJobStatus } from '@catalog/core';
+import { triggerJob, getJob, listJobs, deleteJob, cancelJob, clearJobs, onJobLog, onJobProgress, onJobStatus } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
 import { toPublicJob, toPublicJobs } from '../lib/publicJob.js';
 
@@ -24,6 +24,13 @@ jobsRouter.delete('/jobs', asyncRoute(async (req, res) => {
 
 jobsRouter.delete('/jobs/:id', asyncRoute(async (req, res) => {
   res.json(deleteJob(req.params.id));
+}));
+
+// Interruzione manuale (M51): solo per i job che la dichiarano interrompibile
+// (downloadSingle/downloadPending) — cancelJob() rifiuta gli altri stati/tipi
+// con un errore chiaro, propagato come 400 da asyncRoute.
+jobsRouter.post('/jobs/:id/cancel', asyncRoute(async (req, res) => {
+  res.json(cancelJob(req.params.id));
 }));
 
 jobsRouter.get('/jobs/:id', asyncRoute(async (req, res) => {
