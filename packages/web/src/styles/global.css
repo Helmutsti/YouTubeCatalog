@@ -808,6 +808,44 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   .badge-dot.downloading, .badge-dot-sm.downloading { animation: none; }
 }
 
+/* Video non ancora scaricato: copertina blur leggero + B/N, per distinguerlo
+   a colpo d'occhio da quelli già in libreria. Filtro sulla sola <img>, MAI su
+   .thumb: il bordo arrotondato del contenitore e gli overlay sopra la
+   copertina (badge-dot, fav-star, durata) sono elementi fratelli successivi
+   nel DOM/z-index, quindi restano nitidi senza bisogno di escluderli a mano. */
+.thumb.not-downloaded img { filter: blur(1.5px) grayscale(1); transition: filter .2s ease; }
+
+/* M45: copertina in download — blur (stesso schema di .grayscale-grid) +
+   overlay con freccia e anello di progresso. Il pallino badge-pulse resta
+   com'è (piccolo indicatore d'angolo); questo è il feedback grande e
+   centrale sulla card stessa. */
+.thumb.downloading img { filter: blur(6px); transition: filter .25s ease; }
+.dl-overlay {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.35);
+}
+.dl-ring { width: 46px; height: 46px; transform: rotate(-90deg); }
+.dl-ring-track { fill: none; stroke: rgba(255,255,255,.28); stroke-width: 2.5; }
+.dl-ring-fill {
+  fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round;
+  stroke-dasharray: 100 100; stroke-dashoffset: 100;
+  transition: stroke-dashoffset .3s ease;
+  transform-box: fill-box; transform-origin: 50% 50%;
+}
+/* Percentuale non disponibile (nessun jobId noto per questo video, es. dopo
+   un refresh a metà download): arco parziale che gira invece di un cerchio
+   fermo a metà — comunica "in corso" senza mentire su un progresso preciso. */
+.dl-ring-fill.indeterminate {
+  stroke-dasharray: 28 72; stroke-dashoffset: 0;
+  animation: dl-ring-spin 1s linear infinite;
+}
+@keyframes dl-ring-spin { to { transform: rotate(360deg); } }
+.dl-icon { position: absolute; color: #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+@media (prefers-reduced-motion: reduce) {
+  .dl-ring-fill.indeterminate { animation: none; stroke-dasharray: 100 100; stroke-dashoffset: 72; }
+}
+
 .btn-brick { color: #d98b7a; border-color: color-mix(in oklch, #a34a34 55%, transparent); background: color-mix(in oklch, #a34a34 12%, transparent); }
 .btn-brick:hover { background: color-mix(in oklch, #a34a34 24%, transparent); color: #ecaa98; }
 .d-archive-row { margin-top: 12px; }
