@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Minimize2, Maximize2, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Minimize2, Maximize2, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X, SkipForward } from 'lucide-react';
 import { getVideo, listVideos, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { VideoCard } from '../components/VideoCard.jsx';
@@ -13,6 +13,7 @@ import { confirmDialog } from '../lib/dialog.js';
 import { showToast, updateToast } from '../lib/toast.js';
 import { useQueue, removeFromQueue, clearQueue } from '../lib/queueStore.js';
 import { usePlayer, setCurrent, getVideoEl, useMiniPlayerEnabled, setMinimized } from '../lib/playerStore.js';
+import { useQueueAdvance } from '../hooks/useQueueAdvance.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
@@ -39,6 +40,9 @@ export function VideoDetailPage() {
   // esiste solo dopo che il player si è agganciato allo slot di questa pagina).
   const player = usePlayer();
   const miniEnabled = useMiniPlayerEnabled();
+  // Avanzamento coda condiviso con MiniPlayer (M57): stesso percorso della fine
+  // video, così i pulsanti "Successivo" e l'autoplay non divergono.
+  const goToNext = useQueueAdvance();
   // Autoplay in coda (M52): evita di richiedere il play più di una volta per
   // ogni navigazione — l'effetto qui sotto ha video?.videoUrl tra le
   // dipendenze e ri-scatterebbe altrimenti a ogni suo re-render.
@@ -287,6 +291,11 @@ export function VideoDetailPage() {
   const key = channelKey(video);
   const actions = actionsFor(video);
   const isDownloaded = video.download === 'downloaded';
+  // Esiste un "successivo" reale in coda? (M57) Tiene conto della guardia di
+  // goToNext: se l'unico elemento in coda è il video già in visione non c'è un
+  // successivo, quindi i pulsanti ⏭ non compaiono. Indipendente da isDownloaded:
+  // far avanzare la coda non dipende dal file locale del video corrente.
+  const hasNext = queue.some((q) => q.id !== id);
   const downloadAction = actions.find((a) => a.kind === 'download');
   const hideAction = actions.find((a) => a.kind === 'hide' || a.kind === 'unhide');
   const dur = formatDuration(video.durationSeconds);
@@ -394,6 +403,14 @@ export function VideoDetailPage() {
                 <button className="btn" onClick={cycleSpeed} title="Cambia velocità di riproduzione">
                   <Gauge size={14} />
                   {SPEEDS[speedIndex]}x
+                </button>
+              )}
+              {/* "Successivo" (M57): salto manuale al prossimo video in coda, come
+                  controllo di riproduzione in stile YouTube. Visibile solo se c'è
+                  un successivo reale; indipendente da isDownloaded. */}
+              {hasNext && (
+                <button className="btn" onClick={() => goToNext({ currentId: id })} title="Vai al prossimo video in coda">
+                  <SkipForward size={14} />Successivo
                 </button>
               )}
               {downloadAction && (
@@ -559,9 +576,18 @@ export function VideoDetailPage() {
                   <div className="queue-box">
                     <div className="rel-header">
                       <div className="rel-lbl"><ListMusic size={13} /> In coda ({queue.length})</div>
-                      <button className="rel-collapse-btn" onClick={clearQueue} title="Svuota coda" aria-label="Svuota coda">
-                        <X size={14} />
-                      </button>
+                      <div className="rel-actions">
+                        {/* "Successivo" (M57): seconda affordance dello stesso salto,
+                            accanto alla X "svuota coda". */}
+                        {hasNext && (
+                          <button className="rel-collapse-btn" onClick={() => goToNext({ currentId: id })} title="Vai al prossimo video" aria-label="Vai al prossimo video">
+                            <SkipForward size={14} />
+                          </button>
+                        )}
+                        <button className="rel-collapse-btn" onClick={clearQueue} title="Svuota coda" aria-label="Svuota coda">
+                          <X size={14} />
+                        </button>
+                      </div>
                     </div>
                     <div className="queue-list">
                       {queue.map((q) => (

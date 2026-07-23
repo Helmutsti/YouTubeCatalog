@@ -4,10 +4,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { X, Maximize2, Play } from 'lucide-react';
 import {
   usePlayer, useMiniPlayerEnabled,
-  setPlaying, setStarted, setCurrent, setVideoEl, setDetached, setMinimized, clear, consumePendingPlay, getPlayerState
+  setPlaying, setStarted, setVideoEl, setDetached, setMinimized, clear, consumePendingPlay, getPlayerState
 } from '../lib/playerStore.js';
-import { popNextInQueue } from '../lib/queueStore.js';
-import { getVideo } from '../api/client.js';
+import { useQueueAdvance } from '../hooks/useQueueAdvance.js';
 
 // Mini-player desktop-only (scelta di scope M54): su schermo piccolo vale il
 // comportamento attuale (il video si ferma al cambio pagina), così non resta
@@ -36,6 +35,7 @@ export function MiniPlayer() {
   const enabled = useMiniPlayerEnabled();
   const location = useLocation();
   const navigate = useNavigate();
+  const goToNext = useQueueAdvance();
   const videoRef = useRef(null);
   const floatHomeRef = useRef(null);
 
@@ -132,24 +132,12 @@ export function MiniPlayer() {
     }
   }, [current?.id]);
 
-  // Fine video: prosegue la coda M52. Se agganciati alla pagina di dettaglio si
-  // naviga al successivo (la pagina imposta current e avvia, come da M52); se si
-  // sta guardando dal riquadro flottante si carica e riproduce il successivo
-  // senza cambiare pagina.
-  async function handleEnded() {
-    setPlaying(false);
-    const next = popNextInQueue();
-    if (!next) return;
-    if (docked) {
-      navigate(`/videos/${next.id}`, { state: { autoplay: true } });
-      return;
-    }
-    try {
-      const full = await getVideo(next.id);
-      setCurrent(full, { play: true });
-    } catch {
-      clear();
-    }
+  // Fine video: prosegue la coda M52 tramite il percorso condiviso con i pulsanti
+  // "Successivo" manuali (M57) — vedi hooks/useQueueAdvance.js. Se agganciati
+  // alla pagina di dettaglio si naviga al successivo; se si sta guardando dal
+  // riquadro flottante si carica e riproduce il successivo senza cambiare pagina.
+  function handleEnded() {
+    goToNext();
   }
 
   // X del riquadro flottante: ferma la riproduzione e chiude.
