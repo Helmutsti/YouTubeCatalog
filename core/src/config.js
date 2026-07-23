@@ -14,7 +14,10 @@ const DEFAULT_CONFIG = {
   videosRoot: null,
   port: 3001,
   ytdlp: {
-    binaryPath: './tools/yt-dlp.exe',
+    // null = scelta automatica del binario in base al sistema operativo (vedi
+    // getPaths): tools/yt-dlp.exe su Windows, yt-dlp_linux su Linux, yt-dlp_macos
+    // su macOS. Un percorso esplicito qui ha comunque sempre la precedenza.
+    binaryPath: null,
     format: 'bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b',
     mergeOutputFormat: 'mp4',
     maxHeight: null,
@@ -194,18 +197,31 @@ export function getPaths() {
     cookiesPath = defaultCookiesPath;
   }
 
-  const ytdlpBinaryPath = path.resolve(PROJECT_ROOT, config.ytdlp.binaryPath);
+  // Binario yt-dlp: un percorso esplicito in config.json vince sempre; se non
+  // impostato (null), si sceglie da sé il nome giusto per il sistema operativo
+  // corrente — così lo stesso codice/config gira su Windows/Linux/macOS mettendo
+  // in tools/ solo il binario di quella piattaforma, col nome che yt-dlp usa nelle
+  // sue release ufficiali. Su Windows il default coincide con quello storico.
+  const ytdlpDefaultName =
+    process.platform === 'win32' ? 'yt-dlp.exe' :
+    process.platform === 'darwin' ? 'yt-dlp_macos' :
+    'yt-dlp_linux';
+  const ytdlpBinaryPath = config.ytdlp.binaryPath
+    ? path.resolve(PROJECT_ROOT, config.ytdlp.binaryPath)
+    : path.resolve(PROJECT_ROOT, 'tools', ytdlpDefaultName);
 
   // ffmpeg (usato da yt-dlp per fondere video+audio e convertire le copertine in
   // jpg): se impostato in config lo si usa; altrimenti, se accanto a yt-dlp c'è un
-  // ffmpeg.exe (stessa cartella tools/), si passa quella cartella a yt-dlp via
+  // ffmpeg (stessa cartella tools/), si passa quella cartella a yt-dlp via
   // --ffmpeg-location — così l'app funziona senza installare ffmpeg nel PATH di
-  // sistema. Se nulla di tutto ciò, resta null e yt-dlp cerca ffmpeg nel PATH.
+  // sistema. Il nome cercato dipende dal sistema operativo (ffmpeg.exe su Windows,
+  // ffmpeg altrove). Se nulla di tutto ciò, resta null e yt-dlp cerca ffmpeg nel PATH.
   const toolsDir = path.dirname(ytdlpBinaryPath);
+  const ffmpegName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   let ffmpegLocation = null;
   if (config.ytdlp.ffmpegLocation) {
     ffmpegLocation = path.resolve(PROJECT_ROOT, config.ytdlp.ffmpegLocation);
-  } else if (existsSync(path.join(toolsDir, 'ffmpeg.exe'))) {
+  } else if (existsSync(path.join(toolsDir, ffmpegName))) {
     ffmpegLocation = toolsDir;
   }
 

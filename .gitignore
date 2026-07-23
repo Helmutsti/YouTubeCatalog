@@ -8,8 +8,12 @@ data/config.json
 data/jobs/*.json
 data/jobs.json
 tools/yt-dlp.exe
+tools/yt-dlp_linux
+tools/yt-dlp_macos
 tools/ffmpeg.exe
 tools/ffprobe.exe
+tools/ffmpeg
+tools/ffprobe
 core/cookies.txt
 .env
 .env.local

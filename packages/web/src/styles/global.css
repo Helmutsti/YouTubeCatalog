@@ -567,8 +567,52 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; color: var(--muted); background: var(--panel);
+  overflow: hidden;
 }
 .player-frame:not(.audio-only) .audio-face { display: none; }
+/* Modalità "Solo audio": la copertina del video come sfondo (invece del grigio
+   piatto), resa irriconoscibile-al-primo-sguardo con B/N + blur + scurimento,
+   così la scritta resta il fuoco visivo. Filtro SOLO su questo layer di sfondo
+   dedicato (mai su .audio-face stessa): altrimenti sfoca/sbianca anche icona e
+   testo, che vivono in .audio-face-content sopra, senza alcun filtro. */
+.audio-face-bg {
+  position: absolute; inset: 0;
+  background-size: cover; background-position: center;
+  filter: grayscale(1) blur(10px) brightness(.45);
+}
+.audio-face-content {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  color: var(--ink);
+}
+/* Barra comandi custom della modalità "Solo audio": sopra il layer di sfondo
+   (z-index:1), ancorata in basso; sostituisce i comandi nativi del <video>
+   nascosto in questa modalità. */
+.audio-controls {
+  position: absolute; left: 0; right: 0; bottom: 16px; z-index: 1;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 18px;
+}
+.ac-play {
+  flex: none;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer;
+  background: var(--accent); color: var(--accent-contrast);
+}
+.ac-play:hover { filter: brightness(1.08); }
+.ac-seek {
+  flex: 1; min-width: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.ac-seek:disabled { cursor: default; opacity: .5; }
+.ac-time {
+  flex: none;
+  color: var(--ink);
+  font-size: 13px; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .player-placeholder {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -626,6 +670,20 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   font-size: 13px; line-height: 1.6; color: var(--ink2); white-space: pre-line;
 }
 .d-desc .label { font-size: 12px; font-weight: 600; color: var(--ink); display: block; margin-bottom: 6px; }
+/* Descrizione collassabile in stile YouTube: clampata a 3 righe finché
+   ".expanded" non viene aggiunta dal toggle in JSX. */
+.d-desc-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.d-desc-text.expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.d-desc-toggle {
+  display: block; margin-top: 8px; padding: 0; background: none; border: none;
+  font-size: 12.5px; font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.d-desc-toggle:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
 .d-tags { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .d-tag { font-size: 11.5px; color: var(--muted); background: rgba(255,255,255,.06); padding: 4px 10px; border-radius: 999px; }
 
@@ -641,13 +699,31 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* Collassata (punto 1 del backlog): la colonna si restringe al solo header,
    lasciando lo spazio al player invece di lasciare un vuoto a destra. */
 .side-related.collapsed { flex: none; min-width: 0; gap: 0; }
+/* Freccia di riapertura quando la colonna è collassata: larghezza naturale
+   (non stirata a tutta la colonna dal flex column) e ancorata in alto. */
+.rel-reopen-btn { align-self: flex-start; }
 .rel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rel-actions { display: flex; align-items: center; gap: 2px; }
 .rel-collapse-btn { background: transparent; border: none; color: var(--faint); cursor: pointer; display: flex; padding: 4px; border-radius: 6px; flex: none; }
 .rel-collapse-btn:hover { background: var(--panel2); color: var(--ink); }
 .rel-collapse-btn .chev { transition: transform .15s ease; }
 .rel-collapse-btn .chev.open { transform: rotate(180deg); }
-.rel-lbl { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+.rel-lbl { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 4px; }
 .rel-item { display: flex; gap: 10px; }
+
+/* Coda di riproduzione effimera (M52): box evidenziato sopra "Video
+   suggeriti" nella sidebar del dettaglio video, mostrato solo a coda non
+   vuota — un leggero tinteggio con --accent lo distingue a colpo d'occhio
+   dalla lista dei suggeriti sotto, che condivide invece lo stesso .rel-item. */
+.queue-box {
+  padding: 12px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px;
+  background: color-mix(in oklch, var(--accent) 8%, var(--panel));
+  border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border));
+}
+.queue-list { display: flex; flex-direction: column; gap: 10px; }
+.queue-item { align-items: center; }
+.queue-item .rel-thumb { width: 84px; }
+
 .rel-thumb {
   width: 120px; flex: none; aspect-ratio: 16/9; border-radius: 8px; position: relative; overflow: hidden;
   background: repeating-linear-gradient(135deg, #1e1e22 0 11px, #26262b 11px 22px);
@@ -867,9 +943,27 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .menu-item.danger, .menu-item.danger svg { color: var(--st-failed); }
 .menu-item.danger:hover { background: color-mix(in oklch, var(--st-failed) 14%, transparent); }
 
+/* M53: card orizzontale (VideoCard layout="row"), usata in Cerca a piena
+   larghezza e nella colonna stretta dei "Video suggeriti" (~260px). Stessa
+   copertina/menu ⋮ della card grid (.thumb, .card-menu, .badge-dot, .dl-*,
+   .fav-star), solo impaginati in riga: qui sotto SOLO le regole di
+   dimensione/allineamento specifiche del layout orizzontale. */
+.card-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; position: relative; }
+.card-row:hover { background: var(--panel2); }
+.card-row.dimmed .row-title { color: var(--muted); }
+.card-row.dimmed .thumb-row { opacity: .55; }
+.card-row.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Larghezza relativa (non fissa): si restringe da sola nella colonna stretta
+   dei suggeriti senza bisogno di media/container query, perché è una % della
+   riga stessa (che riempie il proprio contenitore, largo o stretto che sia). */
+.thumb-row { width: 35%; max-width: 168px; min-width: 84px; flex: none; }
+.row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.row-title { font-size: 13px; line-height: 1.3; font-weight: 600; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.row-meta { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Placeholder "non disponibile": niente più bande oblique; con copertina, uno
    sfondo scuro (impostato inline) così la scritta resta leggibile. */
 .player-placeholder { background: #0a0a0b; }
 
 /* Box "Stato e sincronizzazione" nel dettaglio video (M35) */
-.sync-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.sync-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }

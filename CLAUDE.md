@@ -30,6 +30,19 @@ Per le **micro-iterazioni di stile** (dimensioni, colori, piccoli aggiustamenti 
 
 Tienilo magro: quando un punto viene promosso a milestone o risolto, **rimuovilo** dalla lista (non limitarti a barrarlo) — mantiene l'elenco leggibile nel tempo.
 
+## Comandi rapidi di annotazione (prefissi)
+
+Quando un messaggio dell'utente **inizia** con uno di questi prefissi, è un **comando di sola annotazione**: non c'è nulla da implementare, correggere o verificare sul momento — va solo registrata la voce nell'elenco corrispondente, poi confermato all'utente **cosa** è stato annotato e **dove**. Nessun codice, nessuna build, nessun agent.
+
+- **`bug:`** → nuova voce in **"Bug noti da correggere"** (`PIANO.md`).
+- **`punto:`** → nuovo punto nel backlog **"Punti aperti → Da realizzare/definire"** (`PIANO.md`).
+- **`forse:`** → nuovo punto nel backlog **"Punti aperti → Forse"** (`PIANO.md`).
+- **`miglioramento:`** → nuova voce di miglioramento nel backlog "Punti aperti", nel gruppo più adatto per priorità ("Da realizzare/definire" di norma; "Forse" se resta incerto se farlo).
+
+Questo **prevale** sull'impulso a "fare subito": col prefisso esplicito si annota e basta, anche quando sarebbe una micro-rifinitura di stile che altrimenti si farebbe al volo. (Senza prefisso restano valide le regole normali: un bug vago va prima riprodotto, una micro-iterazione di stile può essere fatta direttamente, ecc.)
+
+Tieni le voci sintetiche ma con contesto sufficiente a riprenderle (file/sintomo/decisione aperta); quando la voce ha già abbastanza informazioni, arricchiscila col contesto reale letto dal codice, non a memoria — coerente col resto del backlog.
+
 ## Bug segnalati in modo vago
 
 Quando un problema è descritto genericamente (es. "il pulsante sparisce"), prima **prova a riprodurlo da solo** nel browser/ambiente reale. Se non è riproducibile, **chiedi di precisare** invece di applicare correzioni alla cieca sperando di aver indovinato il caso — una richiesta di chiarimento mirata isola il caso esatto molto più in fretta di un tentativo a caso.

@@ -2,7 +2,9 @@
 
 Archivio personale e locale dei video YouTube dei tuoi creator preferiti: scarica i video per non perderli, li cataloga in un file JSON e li rende sfogliabili/riproducibili tramite una web GUI o un CLI a menu.
 
-Strumento **locale, single-user** (pensato per Windows). Un unico linguaggio (Node.js), nessun Python.
+Strumento **locale, single-user**. Un unico linguaggio (Node.js), nessun Python.
+
+> **Piattaforme.** Nato e usato su **Windows**. Il codice sceglie automaticamente il binario giusto (yt-dlp/ffmpeg) anche su **Linux** e **macOS** in base al sistema operativo — vedi [Prerequisiti](#1-prerequisiti). Il supporto a Linux/macOS è implementato ma **non ancora verificato end-to-end**: se lo avvii lì, confermaci pure che i download funzionano davvero.
 
 ---
 
@@ -11,10 +13,15 @@ Strumento **locale, single-user** (pensato per Windows). Un unico linguaggio (No
 Prima di installare, procurati:
 
 1. **Node.js 20 o superiore** — <https://nodejs.org> (include `npm`). Verifica: `node --version`.
-2. **`yt-dlp.exe`** — il motore di download. Scaricalo dalle release ufficiali di yt-dlp e mettilo in `tools/yt-dlp.exe` (vedi passo 3).
+2. **yt-dlp** — il motore di download. Scaricalo dalle release ufficiali di yt-dlp e mettilo in `tools/`, **con il nome che yt-dlp usa per il tuo sistema** (l'app sceglie da sola quale cercare in base al sistema operativo):
+   - Windows → `tools/yt-dlp.exe`
+   - Linux → `tools/yt-dlp_linux`
+   - macOS → `tools/yt-dlp_macos`
+
+   Metti **solo** il binario del tuo sistema, non tutti (vedi passo 2).
 3. **ffmpeg** — richiesto da yt-dlp per unire video+audio alla massima qualità (e per convertire le copertine). Due modi, a scelta:
-   - **Senza toccare il sistema** *(consigliato)*: metti `ffmpeg.exe` e `ffprobe.exe` in `tools/` (accanto a `yt-dlp.exe`). L'app li rileva da sola e li passa a yt-dlp (`--ffmpeg-location`) — niente da installare.
-   - **Oppure** installa ffmpeg e mettilo nel **PATH** di sistema (verifica: `ffmpeg -version`).
+   - **Senza toccare il sistema** *(consigliato)*: metti `ffmpeg` e `ffprobe` in `tools/` (accanto al binario di yt-dlp), **con il nome del tuo sistema**: su Windows `ffmpeg.exe` + `ffprobe.exe`, su Linux/macOS `ffmpeg` + `ffprobe` (senza estensione). L'app rileva `ffmpeg` da sé e passa la cartella a yt-dlp (`--ffmpeg-location`) — niente da installare.
+   - **Oppure** installa ffmpeg e mettilo nel **PATH** di sistema (verifica: `ffmpeg -version`). Comune su macOS con Homebrew (`brew install ffmpeg`).
 4. **VLC** *(facoltativo)* — serve solo per la riproduzione tramite VLC (menu "Guarda" del CLI). La web GUI usa il player del browser e non ne ha bisogno.
 
 ---
@@ -31,12 +38,20 @@ npm install
 
 Installa in un colpo solo le dipendenze di tutti i pacchetti (core, server, CLI, web) grazie agli npm workspaces.
 
-**Passo 2 — Metti `yt-dlp.exe` al suo posto**
+**Passo 2 — Metti il binario di yt-dlp al suo posto**
 
-Crea la cartella `tools/` (se non c'è) e copiaci dentro il binario:
+Crea la cartella `tools/` (se non c'è) e copiaci dentro **il binario del tuo sistema** (vedi Prerequisiti per i nomi):
 
 ```
-tools/yt-dlp.exe
+tools/yt-dlp.exe      # Windows
+tools/yt-dlp_linux    # Linux
+tools/yt-dlp_macos    # macOS
+```
+
+Metti solo quello che ti serve. Su **Linux/macOS** rendi eseguibili i binari appena scaricati (non hanno il bit di esecuzione di default):
+
+```bash
+chmod +x tools/yt-dlp_* tools/ffmpeg tools/ffprobe
 ```
 
 **Passo 3 — Crea il file di configurazione**
@@ -57,6 +72,7 @@ Apri `data/config.json` e regola se necessario:
 | `videosRoot` | Cartella dei **file video** (default `null` = `mediaRoot/videos`). Impostalo a un percorso assoluto per tenere i video su un altro disco, es. `"D:\\YouTube\\Video"`. |
 | `port` | Porta del server API (default `3001`). |
 | `playback.vlcPath` | Percorso di `vlc.exe` (solo per la riproduzione via VLC). |
+| `ytdlp.binaryPath` | Lascia `null` (default): l'app sceglie da sola il binario giusto per il sistema operativo (`yt-dlp.exe`/`yt-dlp_linux`/`yt-dlp_macos` in `tools/`). Impostalo solo per forzare un percorso specifico. |
 | `ytdlp.cookiesFile` | Lascia `null` per usare `core/cookies.txt` se presente (vedi sotto). |
 
 > Attenzione: nei percorsi Windows dentro il JSON usa la doppia backslash, es. `"D:\\YouTube\\Video"`.
@@ -67,8 +83,8 @@ Le cartelle di `media/` e i file dati in `data/` vengono creati automaticamente 
 
 | File | Obbligatorio? | Dove |
 |------|---------------|------|
-| `tools/yt-dlp.exe` | Sì | binario yt-dlp |
-| `tools/ffmpeg.exe` + `tools/ffprobe.exe` | Facoltativo | ffmpeg dentro il progetto invece che nel PATH (vedi Prerequisiti) |
+| `tools/yt-dlp.exe` · `yt-dlp_linux` · `yt-dlp_macos` | Sì | binario yt-dlp, **solo** quello del tuo sistema |
+| `tools/ffmpeg(.exe)` + `tools/ffprobe(.exe)` | Facoltativo | ffmpeg dentro il progetto invece che nel PATH; su Linux/macOS senza estensione (vedi Prerequisiti) |
 | `data/config.json` | Consigliato (altrimenti auto-creato) | copia da `data/config.example.json` |
 | `core/cookies.txt` | Facoltativo | vedi sezione Cookie |
 

@@ -9,7 +9,6 @@ import {
   setVideoFavorite,
   deleteVideoFile,
   deleteVideoCompletely,
-  playVideo,
   searchVideos,
   getRawMetadata,
   refreshVideoMetadata,
@@ -140,13 +139,4 @@ videosRouter.delete('/videos/:id/file', asyncRoute(async (req, res) => {
 videosRouter.delete('/videos/:id', asyncRoute(async (req, res) => {
   await deleteVideoCompletely(req.params.id);
   res.json({ ok: true, id: req.params.id });
-}));
-
-// Lancia VLC lato server (stesso comportamento del CLI). Ha senso solo
-// perché server e browser girano sulla stessa macchina locale single-user;
-// il player nativo <video> del web resta il modo primario di guardare.
-videosRouter.post('/videos/:id/play', asyncRoute(async (req, res) => {
-  const mode = req.body?.mode === 'audio' ? 'audio' : 'video';
-  await playVideo(req.params.id, { mode });
-  res.json({ ok: true });
 }));
