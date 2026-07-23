@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, PictureInPicture2, Gauge, FileDown, Star, ChevronDown } from 'lucide-react';
-import { getVideo, listVideos, setHidden, setFavorite, triggerJob, refreshMetadata } from '../api/client.js';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, Pause, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X } from 'lucide-react';
+import { getVideo, listVideos, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
+import { VideoCard } from '../components/VideoCard.jsx';
 import { actionsFor } from '../lib/reviewActions.js';
 import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
@@ -10,14 +11,30 @@ import { startDownload } from '../lib/downloadActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast, updateToast } from '../lib/toast.js';
+import { useQueue, removeFromQueue, clearQueue, popNextInQueue } from '../lib/queueStore.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
 
+// Orologio mm:ss (o h:mm:ss oltre l'ora) per la barra comandi "Solo audio".
+// Locale invece di formatDuration: qui serve un formato fisso e a prova di
+// NaN/valori negativi mentre currentTime/duration si aggiornano dal vivo.
+function fmtClock(sec) {
+  if (!Number.isFinite(sec)) return '0:00';
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
 export function VideoDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [video, setVideo] = useState(null);
   const [related, setRelated] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
   const [relatedCollapsed, setRelatedCollapsed] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -26,7 +43,22 @@ export function VideoDetailPage() {
   const [isPiP, setIsPiP] = useState(false);
   const [pipError, setPipError] = useState(null);
   const [speedIndex, setSpeedIndex] = useState(0);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [descClamped, setDescClamped] = useState(false);
+  // Stato per la barra comandi custom della modalità "Solo audio": lì il tag
+  // <video> è nascosto (opacity:0), quindi i suoi comandi nativi non sono
+  // raggiungibili — questi valori, sincronizzati dagli eventi del <video>,
+  // alimentano play/pausa, seek e tempo mostrati sopra la copertina.
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const videoRef = useRef(null);
+  const descRef = useRef(null);
+  const queue = useQueue();
+  // Autoplay in coda (M52): evita di richiamare play() più di una volta per
+  // ogni navigazione — l'effetto qui sotto ha video?.videoUrl tra le
+  // dipendenze e ri-scatterebbe altrimenti a ogni suo re-render.
+  const autoplayedRef = useRef(false);
 
   function reload() {
     setError(null);
@@ -41,11 +73,67 @@ export function VideoDetailPage() {
   // stato in coppia, così l'etichetta del pulsante non mente sulla velocità
   // reale quando si passa da un video all'altro.
   useEffect(() => setSpeedIndex(0), [id]);
+  useEffect(() => { autoplayedRef.current = false; }, [id]);
+  useEffect(() => setDescExpanded(false), [id]);
+  useEffect(() => { setIsPlaying(false); setCurrentTime(0); setDuration(0); }, [id]);
+
+  // Descrizione collassabile in stile YouTube: il toggle "Mostra altro" deve
+  // comparire solo se il testo eccede davvero le righe clampate — una soglia
+  // sui caratteri sarebbe approssimativa (dipende da font/larghezza colonna),
+  // mentre confrontare scrollHeight/clientHeight sul nodo reale è esatto.
+  // useLayoutEffect (non useEffect) per misurare prima del paint ed evitare
+  // un flash del pulsante con lo stato della descrizione precedente quando
+  // si cambia video. La misura è valida quando descExpanded è false (clamp
+  // CSS attivo): è il caso che si verifica sempre al cambio di id, perché
+  // l'effetto sopra riporta descExpanded a false in coppia.
+  useLayoutEffect(() => {
+    const el = descRef.current;
+    setDescClamped(!!el && el.scrollHeight > el.clientHeight + 1);
+  }, [video?.description, video?.id]);
+
+  // Autoplay a fine video (M52): quando si arriva qui da handleEnded (navigate
+  // con state.autoplay), avvia subito la riproduzione appena il tag <video> ha
+  // una sorgente pronta. Best-effort: alcuni browser possono comunque
+  // bloccare l'autoplay con audio non collegato a un gesto utente diretto su
+  // QUESTA pagina — in quel caso resta comunque il pulsante "Riproduci" sulla
+  // copertina, nessun errore mostrato all'utente per questo.
+  useEffect(() => {
+    if (!location.state?.autoplay || !video?.videoUrl || autoplayedRef.current) return;
+    autoplayedRef.current = true;
+    videoRef.current?.play().catch(() => {});
+  }, [location.state, video?.videoUrl]);
+
+  // A fine video, se la coda ha un elemento successivo si passa lì da soli;
+  // se è vuota, nessun autoplay (niente fallback sui suggeriti casuali —
+  // scelta esplicita del piano M52).
+  function handleEnded() {
+    setIsPlaying(false);
+    const next = popNextInQueue();
+    if (next) navigate(`/videos/${next.id}`, { state: { autoplay: true } });
+  }
 
   function cycleSpeed() {
     const next = (speedIndex + 1) % SPEEDS.length;
     setSpeedIndex(next);
     if (videoRef.current) videoRef.current.playbackRate = SPEEDS[next];
+  }
+
+  // Comandi custom "Solo audio" (il <video> nativo è nascosto in quella
+  // modalità): agiscono direttamente sul videoRef; lo stato isPlaying/currentTime
+  // resta comunque allineato dagli eventi del <video> (onPlay/onPause/onTimeUpdate),
+  // così la barra è corretta anche se la riproduzione parte/finisce altrimenti.
+  function togglePlay() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {});
+    else v.pause();
+  }
+
+  function onSeek(e) {
+    const v = videoRef.current;
+    const t = Number(e.target.value);
+    if (v) v.currentTime = t;
+    setCurrentTime(t);
   }
 
   // Il pulsante PiP resta sincronizzato anche se l'utente chiude la finestra
@@ -91,17 +179,24 @@ export function VideoDetailPage() {
 
   // "Video suggeriti" (punto 1 del backlog): selezione casuale su tutta la
   // libreria (non più limitata allo stesso canale), esclusi il video corrente
-  // e gli archiviati — ricalcolata a ogni cambio di video, non ad ogni render.
-  useEffect(() => {
+  // e gli archiviati. Estratta in una funzione così il pulsante "rimescola" può
+  // ripescarne 5 nuovi su richiesta, ri-scaricando la lista dal server (vede
+  // eventuali video aggiunti/rimossi/archiviati nel frattempo).
+  const loadRelated = useCallback(() => {
     if (!video) return;
+    setRelatedLoading(true);
     listVideos()
       .then((videos) => {
         const pool = videos.filter((v) => v.id !== video.id && !v.hidden);
         const shuffled = [...pool].sort(() => Math.random() - 0.5);
         setRelated(shuffled.slice(0, 5));
       })
-      .catch(() => setRelated([]));
+      .catch(() => setRelated([]))
+      .finally(() => setRelatedLoading(false));
   }, [video]);
+
+  // Ricalcolo automatico a ogni cambio di video (loadRelated cambia con `video`).
+  useEffect(() => { loadRelated(); }, [loadRelated]);
 
   const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
 
@@ -130,6 +225,46 @@ export function VideoDetailPage() {
       }
       await setHidden(id, false); // unhide
       setNotice(`${label}: fatto.`);
+      reload();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  // Menu ⋮ della card orizzontale di un suggerito (M53): stesso ventaglio di
+  // azioni di handleAction, ma sul suggerito cliccato, non sul video in
+  // pagina. `reload()` sul video corrente basta anche qui: rilegge `video`
+  // (stesso id, dati invariati) ma ne cambia il riferimento, e questo da solo
+  // rifà scattare l'effetto che ricalcola "Video suggeriti" da dati freschi
+  // (nuovo pool + nuovo shuffle) — nessuna funzione di refresh separata.
+  async function handleRelatedAction(rid, kind) {
+    const target = related.find((r) => r.id === rid);
+    try {
+      if (kind === 'download') {
+        await startDownload(rid, { triggerJob, onSettled: reload, title: target?.title });
+        return;
+      }
+      if (kind === 'hide') {
+        requestHide(target);
+        return;
+      }
+      if (kind === 'metadata') {
+        await refreshMetadata(rid);
+        reload();
+        return;
+      }
+      if (kind === 'favorite' || kind === 'unfavorite') {
+        await setFavorite(rid, kind === 'favorite');
+        reload();
+        return;
+      }
+      if (kind === 'deletevideo') {
+        await deleteVideo(rid);
+        showToast('Video cancellato definitivamente.', 'success');
+        reload();
+        return;
+      }
+      await setHidden(rid, false); // unhide
       reload();
     } catch (e) {
       setError(e.message);
@@ -214,9 +349,43 @@ export function VideoDetailPage() {
                   preload="metadata"
                   poster={video.thumbnailUrl || undefined}
                   src={video.videoUrl}
-                  onPlay={() => setHasStarted(true)}
+                  onPlay={() => { setHasStarted(true); setIsPlaying(true); }}
+                  onPause={() => setIsPlaying(false)}
+                  onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
+                  onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
+                  onEnded={handleEnded}
                 />
-                <div className="audio-face"><Volume2 size={32} /><span>Solo audio</span></div>
+                <div className="audio-face">
+                  {video.thumbnailUrl && (
+                    <div className="audio-face-bg" style={{ backgroundImage: `url("${video.thumbnailUrl}")` }} />
+                  )}
+                  <div className="audio-face-content"><Volume2 size={32} /><span>Solo audio</span></div>
+                  {/* Comandi custom: la modalità solo-audio nasconde il <video>
+                      (opacity:0) e con esso i comandi nativi — qui una barra
+                      minimale sempre visibile sopra la copertina. */}
+                  <div className="audio-controls">
+                    <button
+                      className="ac-play"
+                      onClick={togglePlay}
+                      aria-label={isPlaying ? 'Pausa' : 'Riproduci'}
+                      title={isPlaying ? 'Pausa' : 'Riproduci'}
+                    >
+                      {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+                    </button>
+                    <input
+                      className="ac-seek"
+                      type="range"
+                      min={0}
+                      max={duration || 0}
+                      step="any"
+                      value={Math.min(currentTime, duration || 0)}
+                      onChange={onSeek}
+                      disabled={!duration}
+                      aria-label="Avanzamento"
+                    />
+                    <span className="ac-time">{fmtClock(currentTime)} / {fmtClock(duration)}</span>
+                  </div>
+                </div>
                 {!hasStarted && (
                   <button className="player-cover" onClick={() => videoRef.current?.play()} aria-label="Riproduci">
                     {video.thumbnailUrl && <img src={video.thumbnailUrl} alt="" />}
@@ -307,7 +476,29 @@ export function VideoDetailPage() {
 
           {(video.description || video.tags?.length > 0) && (
             <div className="d-desc">
-              {video.description && (<><span className="label">Descrizione</span>{video.description}</>)}
+              {video.description && (
+                <>
+                  <span className="label">Descrizione</span>
+                  <div ref={descRef} className={`d-desc-text${descExpanded ? ' expanded' : ''}`}>
+                    {video.description}
+                  </div>
+                  {descClamped && (
+                    <button
+                      type="button"
+                      className="d-desc-toggle"
+                      onClick={() => setDescExpanded((v) => !v)}
+                      aria-expanded={descExpanded}
+                    >
+                      {descExpanded ? 'Mostra meno' : 'Mostra altro'}
+                    </button>
+                  )}
+                </>
+              )}
+              {/* I tag restano sempre visibili (non nella parte collassabile):
+                  sono chip brevi già pensati per una scansione rapida, non
+                  prosa da troncare come la descrizione — nasconderli dietro
+                  "Mostra altro" li renderebbe meno utili senza risparmiare
+                  spazio in modo apprezzabile. */}
               {video.tags?.length > 0 && (
                 <div className="d-tags">
                   {video.tags.slice(0, 12).map((tag) => <div key={tag} className="d-tag">{tag}</div>)}
@@ -381,31 +572,87 @@ export function VideoDetailPage() {
           </div>
         </div>
 
-        {related.length > 0 && (
+        {(queue.length > 0 || related.length > 0) && (
           <div className={`side-related${relatedCollapsed ? ' collapsed' : ''}`}>
-            <div className="rel-header">
-              <div className="rel-lbl">Video suggeriti</div>
+            {relatedCollapsed ? (
+              /* Collassata (M49, ridisegnato): scompare tutto — coda, header e
+                 suggeriti — e resta solo una freccia "‹" per riaprire, ancorata
+                 in alto; il player si prende lo spazio liberato. */
               <button
-                className="rel-collapse-btn"
-                onClick={() => setRelatedCollapsed((c) => !c)}
-                title={relatedCollapsed ? 'Espandi' : 'Comprimi'}
-                aria-label={relatedCollapsed ? 'Espandi' : 'Comprimi'}
+                className="rel-collapse-btn rel-reopen-btn"
+                onClick={() => setRelatedCollapsed(false)}
+                title="Espandi i suggeriti"
+                aria-label="Espandi i suggeriti"
               >
-                <ChevronDown size={16} className={`chev${relatedCollapsed ? '' : ' open'}`} />
+                <ChevronLeft size={18} />
               </button>
-            </div>
-            {!relatedCollapsed && related.map((r) => (
-              <Link key={r.id} to={`/videos/${r.id}`} className="rel-item">
-                <div className="rel-thumb">
-                  {r.thumbnailUrl && <img src={r.thumbnailUrl} alt="" loading="lazy" />}
-                  {formatDuration(r.durationSeconds) && <div className="dur">{formatDuration(r.durationSeconds)}</div>}
-                </div>
-                <div>
-                  <div className="rel-title">{r.title ?? r.id}</div>
-                  <div className="rel-meta">{videoDisplayDate(r)}</div>
-                </div>
-              </Link>
-            ))}
+            ) : (
+              <>
+                {/* Coda di riproduzione effimera (M52): box evidenziato, sopra
+                    "Video suggeriti", mostrato solo a coda non vuota. */}
+                {queue.length > 0 && (
+                  <div className="queue-box">
+                    <div className="rel-header">
+                      <div className="rel-lbl"><ListMusic size={13} /> In coda ({queue.length})</div>
+                      <button className="rel-collapse-btn" onClick={clearQueue} title="Svuota coda" aria-label="Svuota coda">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="queue-list">
+                      {queue.map((q) => (
+                        <div key={q.id} className="rel-item queue-item">
+                          <Link to={`/videos/${q.id}`} className="rel-thumb">
+                            {q.thumbnailUrl && <img src={q.thumbnailUrl} alt="" loading="lazy" />}
+                            {formatDuration(q.durationSeconds) && <div className="dur">{formatDuration(q.durationSeconds)}</div>}
+                          </Link>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Link to={`/videos/${q.id}`} className="rel-title">{q.title}</Link>
+                            {q.channelName && <div className="rel-meta">{q.channelName}</div>}
+                          </div>
+                          <button
+                            className="rel-collapse-btn"
+                            onClick={() => removeFromQueue(q.id)}
+                            title="Rimuovi dalla coda"
+                            aria-label="Rimuovi dalla coda"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {related.length > 0 && (
+                  <>
+                    <div className="rel-header">
+                      <div className="rel-lbl">Video suggeriti</div>
+                      <div className="rel-actions">
+                        <button
+                          className="rel-collapse-btn"
+                          onClick={loadRelated}
+                          disabled={relatedLoading}
+                          title="Rimescola i suggeriti"
+                          aria-label="Rimescola i suggeriti"
+                        >
+                          <RefreshCw size={15} className={relatedLoading ? 'spin' : undefined} />
+                        </button>
+                        <button
+                          className="rel-collapse-btn"
+                          onClick={() => setRelatedCollapsed(true)}
+                          title="Comprimi i suggeriti"
+                          aria-label="Comprimi i suggeriti"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    {related.map((r) => (
+                      <VideoCard key={r.id} video={r} layout="row" onDecide={handleRelatedAction} />
+                    ))}
+                  </>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

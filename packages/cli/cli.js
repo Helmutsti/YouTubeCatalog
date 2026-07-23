@@ -2,6 +2,7 @@ import { select, confirm, input, search } from '@inquirer/prompts';
 import path from 'node:path';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import * as core from '../../core/src/index.js';
+import { resolveVideoPath, playFiles } from './vlcQueuePlayer.js';
 
 // Titolo da mostrare per un video: normalmente quello originale scaricato da
 // YouTube (video.title). Se manca, si ricava dal nome file già scelto da
@@ -35,6 +36,26 @@ function formatDate(iso) {
 }
 
 const BACK = '__back__';
+
+// --- Coda di riproduzione effimera (M52) -------------------------------------
+// Lista in memoria per la durata del processo CLI (nessuna persistenza, niente
+// playlist nominate — scelta esplicita dell'utente, vedi PIANO.md M52). Tiene
+// solo {id, title}: la risoluzione del percorso file avviene al momento di
+// "Guarda", così un video scaricato nel frattempo viene comunque trovato.
+const queue = [];
+
+function isQueued(id) {
+  return queue.some((q) => q.id === id);
+}
+
+function enqueueVideo(video) {
+  if (isQueued(video.id)) {
+    setMessage(`\n"${displayTitle(video)}" è già in coda.\n`);
+    return;
+  }
+  queue.push({ id: video.id, title: displayTitle(video) });
+  setMessage(`\n✔ "${displayTitle(video)}" aggiunto alla coda (${queue.length} in coda).\n`);
+}
 
 // --- Reset schermata + messaggio in sospeso ---------------------------------
 // I menu (@inquirer/prompts dentro cicli while(true)) non puliscono mai il
@@ -189,6 +210,8 @@ function cliActions(video) {
 }
 
 const DOWNLOAD_QUEUE = '__download_queue__';
+const PLAY_QUEUE = '__play_queue__';
+const CLEAR_QUEUE = '__clear_queue__';
 
 // Stampa le righe di log di un job in tempo reale e si risolve al termine
 // (successo o fallimento), ritornando il job completo. Condiviso da
@@ -341,10 +364,60 @@ async function reviewFlow() {
   }
 }
 
-// Estratta da watchChannelFlow per essere riusata anche da searchFlow.
+// Estratta da watchChannelFlow per essere riusata anche da searchFlow. Oltre
+// alla riproduzione immediata (invariata), offre "Aggiungi alla coda" (M52):
+// non lancia nulla, si limita a mettere il video nella coda in memoria, da
+// riprodurre tutta insieme più tardi con "▶ Riproduci coda" in watchFlow.
 async function playVideoWithModeChoice(video) {
   const mode = await select({
     message: displayTitle(video),
+    choices: [
+      { name: 'Video', value: 'video' },
+      { name: 'Solo audio', value: 'audio' },
+      { name: isQueued(video.id) ? 'Aggiungi alla coda (già in coda)' : 'Aggiungi alla coda', value: 'queue' },
+      { name: '← Annulla', value: BACK }
+    ]
+  });
+  if (mode === BACK) return;
+
+  if (mode === 'queue') {
+    enqueueVideo(video);
+    return;
+  }
+
+  playFiles([resolveVideoPath(video)], { mode });
+  setMessage('\n▶ VLC avviato.\n');
+}
+
+// Riproduce l'intera coda con un solo VLC (M52): VLC accoda nativamente più
+// file sulla riga di comando, nessuna logica di sequenziamento da scrivere.
+// Risolve i percorsi al momento (non quando erano stati accodati), così un
+// video nel frattempo scaricato/spostato/cancellato viene gestito qui invece
+// che al momento dell'aggiunta.
+async function playQueueFlow() {
+  if (queue.length === 0) {
+    setMessage('\nLa coda è vuota.\n');
+    return;
+  }
+
+  const resolved = [];
+  const skipped = [];
+  for (const item of queue) {
+    try {
+      const video = await core.getVideo(item.id);
+      resolved.push(resolveVideoPath(video));
+    } catch (err) {
+      skipped.push(item.title);
+    }
+  }
+
+  if (resolved.length === 0) {
+    setMessage(`\n✘ Nessun video della coda è riproducibile ora (${skipped.length} scartati).\n`);
+    return;
+  }
+
+  const mode = await select({
+    message: `Riprodurre la coda (${resolved.length} video pronti${skipped.length ? `, ${skipped.length} scartati` : ''})`,
     choices: [
       { name: 'Video', value: 'video' },
       { name: 'Solo audio', value: 'audio' },
@@ -353,8 +426,8 @@ async function playVideoWithModeChoice(video) {
   });
   if (mode === BACK) return;
 
-  await core.playVideo(video.id, { mode });
-  setMessage('\n▶ VLC avviato.\n');
+  playFiles(resolved, { mode });
+  setMessage(`\n▶ VLC avviato con ${resolved.length} video in coda${skipped.length ? ` (${skipped.length} scartati: non più riproducibili)` : ''}.\n`);
 }
 
 async function watchChannelFlow(channelKey) {
@@ -393,11 +466,29 @@ async function watchFlow() {
     const channelKey = await select({
       message: 'Guarda — scegli un creator',
       choices: [
+        // Coda di riproduzione (M52): compare solo quando c'è qualcosa da
+        // riprodurre, accodato scegliendo "Aggiungi alla coda" su un video.
+        ...(queue.length > 0
+          ? [
+              { name: `▶ Riproduci coda (${queue.length})`, value: PLAY_QUEUE },
+              { name: `Svuota coda (${queue.length})`, value: CLEAR_QUEUE }
+            ]
+          : []),
         ...channels.map((c) => ({ name: `${c.name} (${c.count})`, value: c.key })),
         { name: '← Torna al menu principale', value: BACK }
       ]
     });
     if (channelKey === BACK) return;
+
+    if (channelKey === PLAY_QUEUE) {
+      await playQueueFlow();
+      continue;
+    }
+    if (channelKey === CLEAR_QUEUE) {
+      queue.length = 0;
+      setMessage('\n✔ Coda svuotata.\n');
+      continue;
+    }
 
     await watchChannelFlow(channelKey);
   }

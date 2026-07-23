@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
-import { listVideosByChannel, syncChannelAvatars } from '../api/client.js';
-import { StatusBadge } from '../components/StatusBadge.jsx';
+import { listVideosByChannel, syncChannelAvatars, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
+import { VideoCard } from '../components/VideoCard.jsx';
+import { useHideWithPrompt } from '../hooks/useHideWithPrompt.jsx';
 import { useTitle } from '../hooks/useTitle.js';
-import { formatDuration, videoDisplayDate } from '../lib/format.js';
 import { SORT_OPTIONS, sortVideos } from '../lib/sort.js';
+import { startDownload } from '../lib/downloadActions.js';
 import { showToast } from '../lib/toast.js';
 
 // Pagina del creator: TUTTI i suoi video (scaricati e non), non solo gli
 // scaricati — così un creator appena aggiunto mostra subito i suoi video
 // "disponibili". Esclude solo i nascosti (visibili unicamente in Libreria).
+// Le card sono le stesse VideoCard della Home (stesso cablaggio di handler),
+// menu ⋮ incluso — niente più card semplificata propria (bug fix).
 export function ChannelPage() {
   const { key } = useParams();
   const [videos, setVideos] = useState(null);
@@ -18,10 +21,15 @@ export function ChannelPage() {
   const [sort, setSort] = useState('uploadDate');
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState(null);
+  const { requestHide, modal } = useHideWithPrompt({ onDone: reload, onError: setError });
+
+  function reload() {
+    listVideosByChannel(key).then(setVideos).catch((e) => setError(e.message));
+  }
 
   useEffect(() => {
     setVideos(null);
-    listVideosByChannel(key).then(setVideos).catch((e) => setError(e.message));
+    reload();
   }, [key]);
 
   // Forza il refresh della foto profilo di QUESTO creator (M42): a differenza
@@ -55,6 +63,42 @@ export function ChannelPage() {
   );
 
   useTitle(videos?.[0]?.channel?.name ?? decodeURIComponent(key));
+
+  // Stesso cablaggio di handler della Home/Archiviati (CatalogPage/ArchivedPage):
+  // VideoCard richiede un unico onDecide che smista in base al `kind` d'azione.
+  async function handleAction(id, kind) {
+    try {
+      if (kind === 'download') {
+        const title = sorted.find((v) => v.id === id)?.title;
+        await startDownload(id, { triggerJob, onSettled: reload, title });
+        return;
+      }
+      if (kind === 'hide') {
+        requestHide(sorted.find((v) => v.id === id));
+        return;
+      }
+      if (kind === 'metadata') {
+        await refreshMetadata(id);
+        reload();
+        return;
+      }
+      if (kind === 'favorite' || kind === 'unfavorite') {
+        await setFavorite(id, kind === 'favorite');
+        reload();
+        return;
+      }
+      if (kind === 'deletevideo') {
+        await deleteVideo(id);
+        showToast('Video cancellato definitivamente.', 'success');
+        reload();
+        return;
+      }
+      await setHidden(id, false); // unhide
+      reload();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
 
   if (error) return <div className="notice error">{error}</div>;
   if (!videos) return <div className="empty-state"><span className="spinner"></span></div>;
@@ -96,18 +140,11 @@ export function ChannelPage() {
       ) : (
         <div className="grid">
           {sorted.map((v) => (
-            <Link key={v.id} to={`/videos/${v.id}`} className="card">
-              <div className="thumb">
-                {v.thumbnailUrl && <img src={v.thumbnailUrl} alt="" loading="lazy" />}
-                <StatusBadge video={v} />
-                {formatDuration(v.durationSeconds) && <div className="dur">{formatDuration(v.durationSeconds)}</div>}
-              </div>
-              <div className="card-title">{v.title ?? v.id}</div>
-              <div className="card-meta">{videoDisplayDate(v)}</div>
-            </Link>
+            <VideoCard key={v.id} video={v} onDecide={handleAction} />
           ))}
         </div>
       )}
+      {modal}
     </>
   );
 }
