@@ -13,6 +13,7 @@ import {
   getRawMetadata,
   refreshVideoMetadata,
   prepareSingleVideoDownload,
+  analyzeVideoDownload,
   triggerJob,
   syncChannelAvatars,
   getChannelAvatarMap
@@ -51,6 +52,38 @@ videosRouter.post('/videos/download-single', asyncRoute(async (req, res) => {
     return;
   }
   res.json(result);
+}));
+
+// M55 — Analizza un download SENZA avviarlo, per far scegliere all'utente prima
+// (confirm "elimina e ri-scarica" se già scaricato; scelta audio A/B se manca
+// l'audio-only da fondere con la risoluzione massima). Body: { url } (nuovo/da
+// link — crea lo stub come download-single, ma NON avvia il job) oppure
+// { videoId } (video già in catalogo). Ritorna videoId/title/alreadyDownloaded/
+// needsAudioChoice/maxVideoHeight/maxCombinedHeight.
+videosRouter.post('/videos/analyze-download', asyncRoute(async (req, res) => {
+  if (req.body?.videoId) {
+    res.json(await analyzeVideoDownload(req.body.videoId));
+    return;
+  }
+  res.json(await prepareSingleVideoDownload(req.body?.url, { download: true }));
+}));
+
+// M55 — Avvia il download di un video già in catalogo, con la strategia audio
+// scelta e, opzionalmente, eliminando prima la copia esistente (ramo "Elimina e
+// ri-scarica" del confirm). deleteFirst usa deleteVideoFile (file + riga
+// d'archivio + reset a none), così il ri-download riparte pulito.
+videosRouter.post('/videos/:id/download', asyncRoute(async (req, res) => {
+  const audioStrategy = ['combined', 'merged'].includes(req.body?.audioStrategy) ? req.body.audioStrategy : undefined;
+  // M56: tetto di risoluzione scelto dall'utente. number (>0) = cap; null =
+  // "massima" (nessun cap); assente/undefined = usa il default di config.
+  let maxHeight;
+  if (req.body?.maxHeight === null) maxHeight = null;
+  else if (Number.isFinite(req.body?.maxHeight) && req.body.maxHeight > 0) maxHeight = req.body.maxHeight;
+  if (req.body?.deleteFirst === true) {
+    await deleteVideoFile(req.params.id);
+  }
+  const { jobId } = triggerJob('downloadSingle', { videoId: req.params.id, audioStrategy, maxHeight });
+  res.json({ jobId, videoId: req.params.id, audioStrategy: audioStrategy ?? null, maxHeight: maxHeight ?? null });
 }));
 
 videosRouter.get('/search', asyncRoute(async (req, res) => {

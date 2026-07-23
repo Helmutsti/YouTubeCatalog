@@ -114,6 +114,19 @@ export function ingestPlaylistEntries(catalog, sourceMeta, entries, paths) {
   return { newCount, healedCount, removedCount, restoredCount };
 }
 
+// Copertura dell'enumerazione (backlog #4): confronta i video realmente
+// enumerati col totale dichiarato da YouTube. `missingCount > 0` = alcuni video
+// della playlist non erano visibili in questa estrazione (privati/rimossi/glitch
+// temporaneo). Il conteggio non è infallibile (a volte i privati compaiono come
+// entry-segnaposto), quindi va presentato come indizio, non come verità assoluta.
+export function playlistCoverage(declaredCount, enumeratedCount) {
+  return {
+    declaredCount: declaredCount ?? null,
+    enumeratedCount,
+    missingCount: declaredCount != null ? Math.max(0, declaredCount - enumeratedCount) : 0
+  };
+}
+
 export async function syncSource(sourceId) {
   const catalog = await readCatalog();
   const sourceMeta = catalog.sources[sourceId];
@@ -121,7 +134,7 @@ export async function syncSource(sourceId) {
     throw new Error(`Fonte non trovata: "${sourceId}" — aggiungila prima da "Gestisci fonti"`);
   }
 
-  const { entries } = await listEntries(sourceMeta);
+  const { entries, declaredCount } = await listEntries(sourceMeta);
   const paths = getPaths();
 
   let result;
@@ -132,5 +145,5 @@ export async function syncSource(sourceId) {
     meta.lastCheckedAt = new Date().toISOString();
   });
 
-  return result;
+  return { ...result, ...playlistCoverage(declaredCount, entries.length) };
 }

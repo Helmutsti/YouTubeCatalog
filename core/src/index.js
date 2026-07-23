@@ -9,7 +9,7 @@ import { videoCategory, VIDEO_CATEGORY, PRESENCE, DOWNLOAD_STATE } from './catal
 import { syncSource } from './services/syncService.js';
 import { listSources, addSource, removeSource } from './services/sourceService.js';
 import { setVideoHidden, setVideoFavorite } from './services/decisionService.js';
-import { prepareSingleVideoDownload } from './services/singleVideoService.js';
+import { prepareSingleVideoDownload, analyzeVideoDownload } from './services/singleVideoService.js';
 import { getRawMetadata, refreshVideoMetadata } from './services/metadataService.js';
 import { searchVideos } from './services/searchService.js';
 import { reorganizeLibrary, deleteVideoFile, deleteVideoCompletely } from './services/libraryService.js';
@@ -67,6 +67,8 @@ export {
   onJobProgress,
   // download one-off di un singolo video, senza passare da una fonte
   prepareSingleVideoDownload,
+  // M55: analisi del ri-download di un video già in catalogo (scelta audio)
+  analyzeVideoDownload,
   // metadati grezzi consolidati (data/metadata.json)
   getRawMetadata,
   // "Aggiorna metadati": ri-scarica metadati+copertina (ri-verifica i rimossi)

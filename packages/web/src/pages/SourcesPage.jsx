@@ -6,6 +6,7 @@ import { useTitle } from '../hooks/useTitle.js';
 import { JobHistory } from '../components/JobHistory.jsx';
 import { showToast } from '../lib/toast.js';
 import { confirmDialog } from '../lib/dialog.js';
+import { startDownload } from '../lib/downloadActions.js';
 
 // Riconosce se l'input incollato è una PLAYLIST (→ nuova sorgente) o un SINGOLO
 // video (→ aggiunto/scaricato). Regola: la presenza di un `list=` (o di
@@ -124,10 +125,11 @@ export function SourcesPage() {
 
   // Tasto rapido "Scarica" su un item "aggiunto alla libreria" (M40): si è già
   // su Sorgenti, quindi nessuna navigazione — il nuovo job compare da solo
-  // come item a sé in cima alla Cronologia.
+  // come item a sé in cima alla Cronologia. Passa da startDownload (M55) così
+  // anche questo download by-id ottiene il confirm "elimina e ri-scarica" e la
+  // scelta audio, invece di avviare downloadSingle alla cieca e sovrascrivere.
   async function handleQuickDownload(videoId) {
-    await triggerJob('downloadSingle', { videoId });
-    setJobRefreshKey((k) => k + 1);
+    await startDownload(videoId, { triggerJob, onSettled: () => setJobRefreshKey((k) => k + 1) });
   }
 
   async function handleRemove(source) {
@@ -175,6 +177,11 @@ export function SourcesPage() {
     if (r.removedCount) parts.push(`${r.removedCount} rimossi`);
     if (r.restoredCount) parts.push(`${r.restoredCount} ricomparsi`);
     if (r.healedCount) parts.push(`${r.healedCount} riparati`);
+    // backlog #4: avvisa se YouTube dichiara più video di quanti enumerati
+    // (alcuni non visibili ora: privati/rimossi/glitch — riprova la sync).
+    if (r.missingCount > 0) {
+      parts.push(`⚠ enumerati ${r.enumeratedCount} su ${r.declaredCount} — ${r.missingCount} non visibili ora`);
+    }
     return parts.join(' · ');
   }
 

@@ -5,7 +5,7 @@ import { syncChannelAvatars } from '../../services/channelAvatarService.js';
 import { markVideoRemoved } from '../../services/metadataService.js';
 
 export async function downloadSingleJob(params, { log, progress, signal }) {
-  const { videoId } = params;
+  const { videoId, audioStrategy, maxHeight } = params;
   if (!videoId) throw new Error('downloadSingle richiede il parametro "videoId"');
 
   const catalog = await readCatalog();
@@ -21,7 +21,7 @@ export async function downloadSingleJob(params, { log, progress, signal }) {
   });
 
   try {
-    const fields = await downloadVideo(videoId, video.webpageUrl, { onLog: log, onProgress: progress, signal });
+    const fields = await downloadVideo(videoId, video.webpageUrl, { onLog: log, onProgress: progress, signal, audioStrategy, maxHeight });
     await updateCatalog((cat) => {
       Object.assign(cat.videos[videoId], fields, {
         download: DOWNLOAD_STATE.DOWNLOADED,

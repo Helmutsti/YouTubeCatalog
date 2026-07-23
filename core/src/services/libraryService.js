@@ -53,7 +53,9 @@ export async function deleteVideoFile(id) {
     video.download = DOWNLOAD_STATE.NONE;
     video.video = {
       localPath: null, formatId: null, container: null, videoCodec: null, audioCodec: null,
-      bitrateKbps: null, sizeBytes: null, sha256: null, downloadedAt: null, ytdlpVersion: null
+      bitrateKbps: null, sizeBytes: null, sha256: null, downloadedAt: null, ytdlpVersion: null,
+      // M55: azzera anche l'eventuale nota di qualità ridotta del download precedente.
+      qualityNote: null
     };
     video.updatedAt = new Date().toISOString();
     return video;

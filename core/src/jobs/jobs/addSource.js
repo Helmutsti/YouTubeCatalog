@@ -21,6 +21,11 @@ export async function addSourceJob({ url }, { log, progress }) {
   }
 
   log(`Fonte "${result.name}" registrata — ${result.newCount} video trovati.`);
+  // backlog #4: se YouTube dichiara più video di quanti enumerati, avvisa (alcuni
+  // non visibili ora: privati/rimossi/glitch). Non blocca l'aggiunta.
+  if (result.missingCount > 0) {
+    log(`⚠ Enumerati ${result.enumeratedCount} su ${result.declaredCount} dichiarati — ${result.missingCount} video non visibili ora (riprova la sync più tardi).`);
+  }
   const enrich = await enrichSourceJob({ sourceId: result.sourceId }, { log, progress });
 
   return {
@@ -28,6 +33,9 @@ export async function addSourceJob({ url }, { log, progress }) {
     sourceId: result.sourceId,
     name: result.name,
     newCount: result.newCount,
+    declaredCount: result.declaredCount,
+    enumeratedCount: result.enumeratedCount,
+    missingCount: result.missingCount,
     enriched: enrich.enriched,
     failed: enrich.failed,
     removed: enrich.removed

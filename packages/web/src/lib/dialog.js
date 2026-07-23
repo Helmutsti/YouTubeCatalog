@@ -15,7 +15,12 @@ export function registerDialogHost(setter) {
 
 function open(config) {
   return new Promise((resolve) => {
-    if (!STATE.setState) { resolve(config.type === 'confirm' ? false : undefined); return; }
+    // Valore "annullato" coerente col tipo se nessun host è montato (es. HMR a
+    // metà): false per il confirm, null per la scelta multipla, undefined per l'alert.
+    if (!STATE.setState) {
+      resolve(config.type === 'confirm' ? false : (config.type === 'choice' || config.type === 'radio') ? null : undefined);
+      return;
+    }
     STATE.setState({ ...config, resolve });
   });
 }
@@ -28,4 +33,19 @@ export function confirmDialog({ title, message, confirmLabel = 'Conferma', cance
 // Sostituisce window.alert(message): risolve (senza valore) alla chiusura.
 export function alertDialog({ title = 'Errore', message, okLabel = 'OK' }) {
   return open({ type: 'alert', title, message, okLabel });
+}
+
+// Scelta fra più opzioni (M55, es. strategia audio A/B): risolve col `value`
+// dell'opzione scelta, oppure null se l'utente annulla. `options` è un array di
+// { value, label, description? }; ogni opzione è un pulsante nel modale.
+export function choiceDialog({ title, message, options, cancelLabel = 'Annulla' }) {
+  return open({ type: 'choice', title, message, options, cancelLabel });
+}
+
+// Scelta singola a radio button + conferma (M56, es. risoluzione di download):
+// a differenza di choiceDialog (un click = scelta immediata), qui si seleziona
+// un'opzione e poi si conferma. `options` = { value, label }[]; `defaultValue`
+// preseleziona. Risolve col value scelto, o null se annullato.
+export function radioDialog({ title, message, options, defaultValue, confirmLabel = 'Scarica', cancelLabel = 'Annulla' }) {
+  return open({ type: 'radio', title, message, options, defaultValue, confirmLabel, cancelLabel });
 }

@@ -98,6 +98,11 @@ async function addSourceFlow() {
     setMessage(`\nLa fonte "${result.name}" è già presente.\n`);
     return;
   }
+  if (result.missingCount > 0) {
+    // backlog #4: YouTube dichiara più video di quanti enumerati (alcuni non
+    // visibili ora: privati/rimossi/glitch — riprova la sync più tardi).
+    console.log(`⚠ Enumerati ${result.enumeratedCount} su ${result.declaredCount} dichiarati — ${result.missingCount} non visibili ora.`);
+  }
   if (result.newCount > 0) {
     console.log(`\n✔ Aggiunta "${result.name}" — ${result.newCount} video trovati.`);
     await enrichAfterIngest(result.sourceId);
@@ -184,6 +189,10 @@ async function syncFlow() {
   for (const source of targets) {
     const result = await core.syncSource(source.id);
     console.log(`${source.name}: ${result.newCount} novità, ${result.removedCount} rimossi, ${result.restoredCount} ricomparsi, ${result.healedCount} riparati.`);
+    // backlog #4: avviso se qualche video dichiarato non è stato enumerato.
+    if (result.missingCount > 0) {
+      console.log(`  ⚠ enumerati ${result.enumeratedCount} su ${result.declaredCount} — ${result.missingCount} non visibili ora (riprova la sync).`);
+    }
   }
   // Fase 2: arricchimento (tutti i pendenti se "tutte le fonti", altrimenti la singola).
   await enrichAfterIngest(choice === '__all__' ? null : choice);
@@ -226,6 +235,86 @@ async function runJobToCompletion(jobId) {
   return core.getJob(jobId);
 }
 
+// M55 — Avvio "consapevole" di un download di singolo video, condiviso da tutti
+// i punti del CLI che scaricano un video (link incollato + azione
+// "Scarica/Riprova" su un video già in catalogo). Prima di lanciare il job usa
+// l'analisi dei formati (già risolta dal core: prepareSingleVideoDownload o
+// analyzeVideoDownload) per due decisioni che hanno senso solo qui, davanti
+// all'utente:
+//  (a) se il video è GIÀ scaricato, si chiede se eliminarlo e ri-scaricarlo
+//      (unico modo per riprovare una qualità più alta) — no = non si fa nulla;
+//  (b) se i flussi migliori sono separati (needsAudioChoice), si fa scegliere
+//      tra risoluzione combinata (audio+video insieme) e video ad alta
+//      risoluzione unito a un audio inferiore → diventa l'audioStrategy del job.
+// `analysis` ha la stessa forma nei due casi d'uso, quindi qui non serve sapere
+// da dove arriva. Ritorna false se l'utente annulla, true se un job è partito.
+async function startAnalyzedDownload(analysis) {
+  const { videoId } = analysis;
+  const title = analysis.title ?? videoId;
+
+  // (a) Già scaricato: eliminare la copia e ri-scaricare, o non fare nulla.
+  if (analysis.alreadyDownloaded) {
+    const redownload = await confirm({
+      message: 'Il video è già scaricato. Eliminare la copia attuale e ri-scaricare?',
+      default: false
+    });
+    if (!redownload) return false;
+    // deleteVideoFile riporta il catalogo a download:'none', così il job può
+    // ripartire da zero come per un video mai scaricato.
+    await core.deleteVideoFile(videoId);
+  }
+
+  // (a2) M56: scelta della risoluzione. La più alta è "(massima)" → maxHeight
+  // null (nessun cap, prende il meglio); le altre cappano a quell'altezza.
+  let maxHeight;
+  const heights = analysis.availableHeights ?? [];
+  if (heights.length > 0) {
+    const picked = await select({
+      message: 'A quale risoluzione scaricare?',
+      choices: [
+        ...heights.map((h, i) => ({ name: i === 0 ? `${h}p (massima)` : `${h}p`, value: h })),
+        { name: '← Annulla', value: BACK }
+      ]
+    });
+    if (picked === BACK) return false;
+    maxHeight = picked === heights[0] ? null : picked;
+  }
+
+  // (b) Scelta audio quando i flussi migliori sono separati.
+  let audioStrategy;
+  if (analysis.needsAudioChoice) {
+    const strategy = await select({
+      message: 'Come vuoi scaricare questo video?',
+      choices: [
+        { name: `Scarica a ${analysis.maxCombinedHeight}p (audio e video insieme)`, value: 'combined' },
+        { name: `Video ${analysis.maxVideoHeight}p + audio ${analysis.maxCombinedHeight}p (video nitido, audio inferiore)`, value: 'merged' },
+        { name: '← Annulla', value: BACK }
+      ]
+    });
+    if (strategy === BACK) return false;
+    audioStrategy = strategy;
+  }
+
+  const { jobId } = core.triggerJob('downloadSingle', { videoId, audioStrategy, maxHeight });
+  console.log('');
+  const job = await runJobToCompletion(jobId);
+  if (job.status === 'failed') {
+    setMessage(`\n✘ Download fallito: ${job.error?.message}\n`);
+    return true;
+  }
+
+  // Avviso di qualità ridotta: il core registra qualityNote quando ha dovuto
+  // ripiegare su una risoluzione più bassa di quella disponibile. L'avviso
+  // sostituisce il messaggio di successo semplice (implica comunque il successo).
+  const note = (await core.getVideo(videoId)).video?.qualityNote;
+  if (note) {
+    setMessage(`\n⚠ Qualità ridotta: scaricato a ${note.downloadedHeight}p (disponibili fino a ${note.maxAvailableHeight}p). Puoi ri-scaricare per riprovare l'alta qualità.\n`);
+  } else {
+    setMessage(`\n✔ "${title}" scaricato.\n`);
+  }
+  return true;
+}
+
 // Estratta da reviewFlow per essere riusata anche da searchFlow: mostra le
 // azioni derivate dai flag del video (scarica / nascondi / mostra) e le applica.
 async function applyReviewDecision(video) {
@@ -239,10 +328,12 @@ async function applyReviewDecision(video) {
   if (decision === BACK) return;
 
   if (decision === 'download') {
-    const { jobId } = core.triggerJob('downloadSingle', { videoId: video.id });
-    console.log('');
-    const job = await runJobToCompletion(jobId);
-    setMessage(job.status === 'failed' ? `\n✘ Download fallito: ${job.error?.message}\n` : `\n✔ "${displayTitle(video)}" scaricato.\n`);
+    // M55: si analizzano i formati attuali (per id, il video è già in catalogo)
+    // e si passa tutto al flusso condiviso, che gestisce ri-download ed
+    // eventuale scelta audio. displayTitle è più robusto del title grezzo.
+    console.log('\nAnalisi formati in corso…');
+    const analysis = await core.analyzeVideoDownload(video.id);
+    await startAnalyzedDownload({ ...analysis, title: displayTitle(video) });
     return;
   }
 
@@ -299,29 +390,24 @@ async function singleDownloadFlow() {
 
   let result;
   try {
+    console.log('\nAnalisi formati in corso…');
     result = await core.prepareSingleVideoDownload(url);
   } catch (err) {
     setMessage(`\n✘ ${err.message}\n`);
     return;
   }
 
-  if (result.action === 'already-downloaded') {
-    setMessage(`\n"${result.title ?? result.videoId}" è già nell'archivio.\n`);
-    return;
-  }
+  // Un video già in download non si tocca (nessun abort disponibile).
   if (result.action === 'already-downloading') {
     setMessage(`\n"${result.title ?? result.videoId}" è già in download in questo momento.\n`);
     return;
   }
 
-  const { jobId } = core.triggerJob('downloadSingle', { videoId: result.videoId });
-  console.log('');
-  const job = await runJobToCompletion(jobId);
-  if (job.status === 'failed') {
-    setMessage(`\n✘ Download fallito: ${job.error?.message}\n`);
-  } else {
-    setMessage(`\n✔ Video aggiunto all'archivio.\n`);
-  }
+  // Per action 'already-downloaded' (offre ri-download) e 'download' (video
+  // nuovo appena aggiunto, o già in libreria non scaricato) il risultato porta
+  // già i campi di analisi (alreadyDownloaded/needsAudioChoice/altezze): lo si
+  // passa direttamente al flusso condiviso, senza una seconda risoluzione.
+  await startAnalyzedDownload(result);
 }
 
 // Vista unica: novità da decidere + già decise (in coda/archiviate) + il download
