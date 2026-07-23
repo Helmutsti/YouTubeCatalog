@@ -1383,3 +1383,20 @@ Obiettivo: lasciando la pagina di un video **in riproduzione**, il video non si 
 **Desktop-only** (scope M54): sotto il breakpoint mobile (640px) il riquadro non compare mai — doppia mandata `isDesktopViewport()` (gate JS che evita di staccare il player) + `@media` in CSS.
 
 **Verifica.** Build di produzione pulita. La verifica visiva end-to-end (punti a–f) l'ha fatta l'utente via HMR (il browser dell'automazione non raggiungeva `localhost` in sessione — limite noto documentato; `curl` a 200 su `:5173`/`:3001`). Esito confermato dall'utente.
+
+## M57 — Pulsante "Successivo" per saltare al prossimo video in coda
+
+Obiettivo: un controllo **manuale** per saltare al video successivo della coda M52 prima che quello corrente finisca (l'autoplay a fine video esisteva già da M52/M54). Interamente lato `packages/web`.
+
+**Numero.** Nato come "M56" ma **rinumerato a M57**: M56 era già occupato da "Scelta della risoluzione a ogni download" (referenziato in `core`/`cli`/`server`/`web`). La svista era passata perché al momento della creazione della milestone si erano controllati solo `PIANO.md` e il git log, non `storico.md` a fondo.
+
+**Sviluppo in parallelo (nota di processo).** Implementata da un secondo agente in un **git worktree separato** (branch `agente2`) mentre un primo agente lavorava a M54 sugli stessi file — così i due non collidevano in tempo reale (working tree fisici distinti). Il worktree partiva da un checkpoint del WIP di M54; a M54 conclusa e committata su `main`, M57 è stata **riconciliata a mano** sopra la versione finale (non un merge automatico: M54 aveva ristrutturato profondamente `VideoDetailPage`). Worktree e branch rimossi a riconciliazione avvenuta.
+
+**Riconciliazione col nuovo assetto di M54.** M54 aveva spostato il `<video>` (e con esso l'`onEnded` che prosegue la coda) da `VideoDetailPage` a `components/MiniPlayer.jsx`, sopra il router. Per non duplicare la logica di avanzamento (principio M57 "un solo percorso"), è stato **estratto un hook condiviso `hooks/useQueueAdvance.js`** usato sia da `MiniPlayer.onEnded` (fine video) sia dai pulsanti manuali di `VideoDetailPage`.
+- L'hook riproduce esattamente il comportamento introdotto in M54: se il player è **agganciato** alla pagina del suo video (docked) → naviga al successivo con `state.autoplay`; se sta suonando nel **riquadro flottante** (staccato/minimizzato) → carica e riproduce il successivo **senza cambiare pagina**. Legge lo stato fresco dallo store (`getPlayerState`), non le closure di render.
+- **Guardia edge-case**: la testa della coda viene scartata finché coincide con l'`id` del video in visione (l'utente ha accodato il video che sta già guardando), per non "avanzare" allo stesso video. Inattiva a fine video (il video finito è già uscito dalla coda).
+- Effetto collaterale positivo: cliccando "Successivo" col player **minimizzato**, il ramo flottante fa partire il successivo restando sulla pagina — coerente con la rifinitura M54 "minimizza non deve uscire dalla pagina".
+
+**UI.** Due affordance per lo stesso salto (scelta di scope): un pulsante ⏭ "Successivo" nei comandi del player (`.d-actions`, indipendente da `isDownloaded` perché fa avanzare la coda) e un ⏭ nell'header del box "In coda" (`.rel-header`, avvolto in un `.rel-actions` accanto alla X "svuota coda"). Entrambi visibili solo se esiste un successivo reale (`hasNext = queue.some(q => q.id !== id)`). Nessuna modifica a `queueStore.js`; riuso degli stili `.btn`/`.rel-collapse-btn`/`.rel-actions` esistenti. Niente pulsante "Precedente" (coda FIFO consumata, nessuno storico dei già visti) e nessun indicatore "autoplay attivo" (scelte di scope).
+
+**Verifica.** Build di produzione pulita (`vite build`, nessun errore). Verifica visiva end-to-end (⏭ dai due punti, coda vuota, video in pausa, nessuna regressione autoplay, ramo minimizzato, guardia edge-case) a carico dell'utente via HMR — limite noto del browser dell'automazione su `localhost`.
