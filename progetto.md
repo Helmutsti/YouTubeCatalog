@@ -235,14 +235,6 @@ YouTubeCatalog/
   PIANO.md                       # questo file: la specifica tecnica di riferimento
 ```
 
-## Documentazione continua (CLAUDE.md + documentazione.md)
-
-`CLAUDE.md` contiene questa istruzione permanente:
-
-> Al termine dell'esecuzione di una parte del piano, questo deve confluire in un file `documentazione.md` dove vengono esplicitate le decisioni del progetto e come è stato costruito.
-
-In pratica: ogni volta che una milestone viene completata, prima di passare alla successiva va aggiunta una sezione a `documentazione.md` che racconta **cosa è stato costruito, quali decisioni tecniche sono state prese e perché** (non un changelog di commit, ma la logica dietro le scelte). `documentazione.md` cresce in modo incrementale, diventando nel tempo la documentazione di riferimento del progetto — complementare a questo file (`PIANO.md`), che resta la fotografia della progettazione iniziale e non va aggiornato milestone per milestone (se un requisito cambia sostanzialmente, va invece aggiornato qui e la decisione spiegata in `documentazione.md`).
-
 ## Schema del catalogo (`data/catalog.json`)
 
 Oggetto unico, `videos` è una mappa **keyed by YouTube id** (lookup O(1), dedup naturale, diff-friendly):
