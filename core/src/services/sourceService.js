@@ -1,7 +1,7 @@
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
 import { getPlaylistEntries } from '../ytdlp/ytdlpWrapper.js';
-import { extractPlaylistId, ingestPlaylistEntries } from './syncService.js';
+import { extractPlaylistId, ingestPlaylistEntries, playlistCoverage } from './syncService.js';
 
 export async function listSources() {
   const catalog = await readCatalog();
@@ -29,7 +29,7 @@ export async function addSource(url) {
     return { alreadyExists: true, sourceId: playlistId, name: existing.sources[playlistId].name };
   }
 
-  const { title, entries } = await getPlaylistEntries(canonicalUrl);
+  const { title, entries, declaredCount } = await getPlaylistEntries(canonicalUrl);
   const paths = getPaths();
 
   let result;
@@ -50,7 +50,9 @@ export async function addSource(url) {
       alreadyExists: false,
       sourceId: playlistId,
       name: catalog.sources[playlistId].name,
-      newCount: ingestResult.newCount
+      newCount: ingestResult.newCount,
+      // backlog #4: copertura enumerazione (enumerati vs dichiarati da YouTube)
+      ...playlistCoverage(declaredCount, entries.length)
     };
   });
 

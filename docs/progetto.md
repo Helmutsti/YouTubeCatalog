@@ -10,8 +10,8 @@
 
 Invarianti di default (fuori dalle scelte del profilo), ma modificabili su richiesta esplicita dell'utente previa conferma — l'utente resta l'autorità.
 
-1. **Non tenere memoria esterna.** L'unica fonte di verità sono i file versionati del progetto (`CLAUDE.md`/`progetto.md`, `PIANO.md`, `documentazione.md`); niente store di memoria persistente separato.
-   *Esempio:* una decisione architetturale va scritta in `documentazione.md`, non "ricordata" in una memoria esterna che un altro computer non vedrebbe.
+1. **Non tenere memoria esterna.** L'unica fonte di verità sono i file versionati del progetto (`CLAUDE.md`/`progetto.md`, `PIANO.md`, `documentazione.md`, `storico.md`); niente store di memoria persistente separato.
+   *Esempio:* una decisione architetturale va appesa nello `storico.md` (e riflessa in `documentazione.md` se cambia il presente), non "ricordata" in una memoria esterna che un altro computer non vedrebbe.
 2. **Non scrivere fuori dalla cartella del progetto senza autorizzazione.** Tutti i file restano dentro la cartella del progetto; niente scritture su Desktop/home/sistema salvo richiesta esplicita.
    *Esempio:* un file temporaneo va nello scratchpad di sessione o in una sottocartella, non sul Desktop — a meno che l'utente non lo chieda.
 3. **Progetto sempre auto-portante.** Deve girare qui e proseguire su altre macchine: nessun percorso assoluto macchina-specifico cablato, `config.example` versionata, binari risolti per sistema operativo.
@@ -53,11 +53,13 @@ Un messaggio che **inizia** con `bug:`/`miglioramento:`/`punto:`/`forse:` è **s
 Prima si prova a **riprodurre** nell'ambiente reale; se non riproducibile, si **chiede di precisare** invece di correggere alla cieca.
 *Esempio:* "il menu sparisce" → provo ad aprirlo in vari punti; se non si riproduce, chiedo "quale pagina/posizione/larghezza finestra?".
 
-### A6 — Tre documenti di riferimento (ruoli distinti, log continuo)
+### A6 — Quattro documenti di riferimento (ruoli distinti)
+Vivono tutti nella cartella **`docs/`** (`docs/progetto.md`, `docs/PIANO.md`, `docs/documentazione.md`, `docs/storico.md`); `CLAUDE.md` resta in radice e delega con `@docs/progetto.md`.
 - **`progetto.md`** (questo) = **specifiche**: regole, comportamenti, profilo, contesto/architettura, convenzioni.
 - **`PIANO.md`** = **futuro**: milestone pianificate + backlog (Da fare/Forse/Scartati) + bug da correggere. Da leggere prima di ogni milestone.
-- **`documentazione.md`** = **esiti**: cosa è stato fatto e perché (milestone completate, scoperte, bug risolti); **continuo**, una sezione per milestone prima di iniziare la successiva.
-*Flusso:* pesco la milestone dal `PIANO.md` → lavoro → a milestone chiusa scrivo l'esito in `documentazione.md`.
+- **`documentazione.md`** = **stato attuale**: riassunto vivo del presente — core del progetto, decisioni più attuali ancora valide, funzionamenti controintuitivi da ricordare, e decisioni "negative" (cose deliberatamente non implementate, col perché). **Non** un log che cresce: si aggiorna/sfoltisce per riflettere il presente.
+- **`storico.md`** = **storia**: log append-only completo di tutte le implementazioni e decisioni prese (milestone completate, scoperte, bug risolti), una sezione per milestone. `documentazione.md` ne è il distillato attuale.
+*Flusso:* pesco la milestone dal `PIANO.md` → lavoro → a milestone chiusa: (a) appendo l'esito in `storico.md` (sempre); (b) aggiorno `documentazione.md` **solo se** cambia il presente (nuova meccanica controintuitiva, decisione core, cosa decisa-e-non-fatta).
 
 ### A7 — Feature che mutano file reali su disco
 Per operazioni rischiose, mini-dataset sandbox isolato; se si opera sui dati veri, **conteggio/hash prima-dopo** e **pulizia** dei residui.
@@ -112,13 +114,14 @@ Il catalogo è tenuto in memoria da ogni processo che lo carica (server, CLI, sc
 
 ---
 
-## Documenti di riferimento del progetto (triade)
+## Documenti di riferimento del progetto (quattro, in `docs/`)
+
+Tutti in `docs/`; `CLAUDE.md` in radice delega con `@docs/progetto.md`.
 
 - **`progetto.md`** (questo file) — **specifiche**: regole/comportamenti/profilo + contesto e architettura del progetto.
 - **`PIANO.md`** — **futuro**: milestone pianificate + "Punti aperti" (Da realizzare/Forse/Scartati) + "Bug noti da correggere". Da leggere prima di ogni milestone.
-- **`documentazione.md`** — **esiti**: una sezione per milestone completata (cosa/perché + scoperte) + bug risolti.
-
-*(Riorganizzazione dei contenuti reali verso questa triade tracciata come milestone in `PIANO.md`.)*
+- **`documentazione.md`** — **stato attuale**: riassunto vivo del presente (core, decisioni correnti, funzionamenti controintuitivi, scelte negative). Si sfoltisce, non cresce.
+- **`storico.md`** — **storia**: log append-only completo (una sezione per milestone completata: cosa/perché + scoperte, + bug risolti). È il dettaglio integrale di cui `documentazione.md` è il distillato.
 
 
 ---
@@ -144,7 +147,7 @@ Decisioni già prese con l'utente:
 - **Storage**: video salvati dentro il progetto in `./media`.
 - **Qualità**: massima qualità disponibile, nessun cap di risoluzione (merge in MP4 tramite ffmpeg). Conseguenza diretta, chiesta dall'utente ("perché durante il download i file vengono creati tutti insieme e poi spostati?"): il selettore formato è `bv*+ba` (miglior video-only + miglior audio-only separati, `buildFormatSelector` in `ytdlpWrapper.js`), quindi yt-dlp scarica **due flussi grezzi separati** (più `.info.json` e thumbnail) e solo alla fine li fonde in un unico file con ffmpeg (`--merge-output-format mp4`) — i file intermedi (stream video/audio grezzi) sono un artefatto normale e temporaneo di yt-dlp, ripulito automaticamente a fusione riuscita. Non è un bug: è il prezzo della scelta "massima qualità" (i flussi migliori raramente arrivano già uniti da YouTube).
 - **Playlist iniziale**: da configurare dall'utente una volta che il CLI è pronto (M6).
-- **Documentazione continua**: `CLAUDE.md` con l'istruzione permanente che ogni milestone completata va documentata in `documentazione.md` (decisioni + logica costruttiva, non un changelog).
+- **Documentazione continua**: ogni milestone completata va documentata nello `storico.md` (decisioni + logica costruttiva, non un changelog), aggiornando `documentazione.md` quando cambia lo stato attuale (vedi A6).
 
 ## Struttura del progetto
 
@@ -230,9 +233,12 @@ YouTubeCatalog/
     testDownload.mjs             # script usa-e-getta per la Milestone 1
   tools/
     yt-dlp.exe                   # binario standalone, invocato direttamente (no wrapper npm)
-  CLAUDE.md                      # istruzioni permanenti per il lavoro futuro su questo repo
-  documentazione.md              # log delle decisioni di progetto, aggiornato milestone per milestone
-  PIANO.md                       # questo file: la specifica tecnica di riferimento
+  CLAUDE.md                      # in radice: entry point che delega a docs/progetto.md (@import)
+  docs/                          # tutta la documentazione di riferimento
+    progetto.md                    # specifiche: regole/comportamenti/profilo + contesto e architettura
+    PIANO.md                       # futuro: milestone pianificate + backlog + bug
+    documentazione.md              # stato attuale (riassunto vivo: core, decisioni, meccaniche controintuitive, scelte negative)
+    storico.md                     # log append-only di tutte le implementazioni/decisioni, milestone per milestone
 ```
 
 ## Schema del catalogo (`data/catalog.json`)
@@ -458,7 +464,7 @@ L'utente aveva notato che `media/videos/` era poco consultabile aprendola dirett
 
 I nuovi download scrivono già in questo layout (template `-o` di yt-dlp aggiornato in `ytdlpWrapper.js`). Per i video scaricati prima del cambio, `core/src/services/libraryService.js` espone `reorganizeLibrary({ dryRun })`: funzione **idempotente e riusabile** (non uno script una tantum) che individua il file attuale di ogni video `downloaded` (per `localPath` registrato o, in fallback, cercando ricorsivamente il marker `[<id>]`/il vecchio nome piatto `<id>.<ext>`), lo sposta (`renameSync`, istantaneo sullo stesso volume) al percorso canonico e aggiorna `localPath` nel catalogo. `dryRun: true` ritorna solo il piano (`planned`/`alreadyOk`/`missing`) senza toccare nulla. Esposta da CLI ("Riorganizza libreria", dry-run → conferma → esecuzione) e web (`LibraryPage`, stesso pattern) e via `POST /api/library/reorganize` sul server.
 
-**Migrazione dell'archivio reale eseguita**: tutti i video già scaricati dall'utente sono stati riorganizzati nel layout per creator (52 spostati, verificato nessun file rimasto nel vecchio formato piatto, funzionamento confermato end-to-end su CLI/server con i file reali). Dettagli e verifica in `documentazione.md`.
+**Migrazione dell'archivio reale eseguita**: tutti i video già scaricati dall'utente sono stati riorganizzati nel layout per creator (52 spostati, verificato nessun file rimasto nel vecchio formato piatto, funzionamento confermato end-to-end su CLI/server con i file reali). Dettagli e verifica in `storico.md`.
 
 ### Reset della schermata CLI
 

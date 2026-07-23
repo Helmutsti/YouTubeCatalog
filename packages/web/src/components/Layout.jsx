@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from
 import { Home, Rss, Search, Archive, Settings, X } from 'lucide-react';
 import { listChannels } from '../api/client.js';
 import { MobileNav } from './MobileNav.jsx';
+import { MiniPlayer } from './MiniPlayer.jsx';
 import { ToastHost } from './ToastHost.jsx';
 import { DialogHost } from './DialogHost.jsx';
 import { registerNavigate } from '../lib/navigation.js';
@@ -88,6 +89,9 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+      {/* Mini-player persistente (M54): montato FUORI dall'<Outlet/>, così il suo
+          <video> sopravvive al cambio di route e la riproduzione non si taglia. */}
+      <MiniPlayer />
       <MobileNav />
     </div>
   );

@@ -596,6 +596,72 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background: var(--accent); border-color: var(--accent); transform: scale(1.08);
 }
 
+/* ===== Mini-player persistente (M54) ===== */
+/* Slot di aggancio nella pagina di dettaglio: riempie il .player-frame. Il vero
+   <video> (nodo .global-player, montato da MiniPlayer sopra il router) viene
+   spostato qui dentro quando si è su questa pagina. */
+.player-dock-slot { position: absolute; inset: 0; }
+/* Nodo di montaggio stabile del player globale: sempre a riempire il proprio
+   contenitore (lo slot quando agganciato, il riquadro flottante altrimenti). */
+.global-player { position: relative; width: 100%; height: 100%; background: #000; }
+.global-player .gp-video { width: 100%; height: 100%; display: block; }
+
+/* Riquadro flottante "alla YouTube": fisso in basso a destra, sopra ogni cosa. */
+.mini-float-home {
+  position: fixed; right: 20px; bottom: 20px;
+  width: 384px; max-width: calc(100vw - 40px);
+  aspect-ratio: 16 / 9;
+  z-index: 300;
+  border-radius: 12px; overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .6);
+  display: none;
+}
+.mini-float-home.visible { display: block; }
+/* Chrome del riquadro flottante: barra col titolo (torna al video) + X. Compare
+   al passaggio del mouse, come i controlli nativi del <video>. */
+.gp-chrome {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 6px 16px;
+  background: linear-gradient(rgba(0, 0, 0, .72), transparent);
+  opacity: 0; transition: opacity .15s ease;
+}
+.mini-float-home:hover .gp-chrome, .gp-chrome:focus-within { opacity: 1; }
+.gp-bar {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  background: none; border: none; color: #fff; cursor: pointer;
+  font-size: 12px; padding: 2px 4px; text-align: left;
+}
+.gp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-close {
+  flex: none; display: flex; padding: 4px; border-radius: 6px; cursor: pointer;
+  background: rgba(0, 0, 0, .5); border: none; color: #fff;
+}
+.gp-close:hover { background: rgba(0, 0, 0, .85); }
+/* Desktop-only (scope M54): sotto il breakpoint mobile il riquadro non compare
+   mai — a doppia mandata col gate JS (isDesktopViewport), che già evita di
+   staccare il player su schermo piccolo, così non resta audio in sottofondo. */
+@media (max-width: 640px) { .mini-float-home { display: none !important; } }
+
+/* Interruttore (Impostazioni → Riproduzione) */
+.setting-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 4px; }
+.setting-text { flex: 1; min-width: 0; }
+.setting-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.setting-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.switch {
+  position: relative; flex: none; width: 44px; height: 24px; margin-top: 2px;
+  border: none; border-radius: 999px; cursor: pointer;
+  background: var(--border); transition: background .15s ease;
+}
+.switch.on { background: var(--accent); }
+.switch-knob {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; transition: left .15s ease;
+}
+.switch.on .switch-knob { left: 23px; }
+
 /* Traccia vuota leggermente più chiara di --panel2 (quasi identico allo
    sfondo dei pannelli in cui vive: senza contrasto la barra risultava
    invisibile finché non si riempiva). */
@@ -810,6 +876,32 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .modal h3 { margin: 0 0 10px; font-size: 17px; color: #fff; }
 .modal p { margin: 0 0 18px; font-size: 13.5px; color: var(--ink2); line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* Scelta multipla nel modale (M55): opzioni impilate, ciascuna con etichetta in
+   evidenza e descrizione secondaria sotto — leggibili anche quando prolisse. */
+.modal-choices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.choice-btn {
+  display: flex; flex-direction: column; gap: 3px; text-align: left;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--panel-2, var(--panel)); border: 1px solid var(--border);
+  color: var(--ink); cursor: pointer; transition: border-color .12s, background .12s;
+}
+.choice-btn:hover { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 8%, var(--panel)); }
+.choice-label { font-size: 14px; font-weight: 600; color: #fff; }
+.choice-desc { font-size: 12.5px; color: var(--ink2); line-height: 1.4; }
+
+/* Radio dialog (M56, scelta risoluzione) */
+.modal-radios { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.radio-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--panel-2, var(--panel)); border: 1px solid var(--border);
+  color: var(--ink); cursor: pointer; transition: border-color .12s, background .12s;
+}
+.radio-row:hover { border-color: var(--accent); }
+.radio-row.selected { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 10%, var(--panel)); }
+.radio-row input { accent-color: var(--accent); cursor: pointer; }
+.radio-label { font-size: 14px; font-weight: 600; color: #fff; }
 
 /* Sync contestuale alla sorgente (barra + esito sulla riga) */
 .spin { animation: spin 1s linear infinite; }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Play, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X } from 'lucide-react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Minimize2, Maximize2, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X } from 'lucide-react';
 import { getVideo, listVideos, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { VideoCard } from '../components/VideoCard.jsx';
@@ -11,14 +11,14 @@ import { startDownload } from '../lib/downloadActions.js';
 import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatBytes, formatBitrate } from '../lib/format.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast, updateToast } from '../lib/toast.js';
-import { useQueue, removeFromQueue, clearQueue, popNextInQueue } from '../lib/queueStore.js';
+import { useQueue, removeFromQueue, clearQueue } from '../lib/queueStore.js';
+import { usePlayer, setCurrent, getVideoEl, useMiniPlayerEnabled, setMinimized } from '../lib/playerStore.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
 
 export function VideoDetailPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const location = useLocation();
   const [video, setVideo] = useState(null);
   const [related, setRelated] = useState([]);
@@ -26,16 +26,20 @@ export function VideoDetailPage() {
   const [relatedCollapsed, setRelatedCollapsed] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [hasStarted, setHasStarted] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [pipError, setPipError] = useState(null);
   const [speedIndex, setSpeedIndex] = useState(0);
   const [descExpanded, setDescExpanded] = useState(false);
   const [descClamped, setDescClamped] = useState(false);
-  const videoRef = useRef(null);
   const descRef = useRef(null);
   const queue = useQueue();
-  // Autoplay in coda (M52): evita di richiamare play() più di una volta per
+  // Player globale (M54): il <video> non vive più qui ma in MiniPlayer, sopra il
+  // router. `player.current` dice quale video il player globale sta mostrando
+  // (usato come dipendenza degli effetti che agiscono sull'elemento reale, che
+  // esiste solo dopo che il player si è agganciato allo slot di questa pagina).
+  const player = usePlayer();
+  const miniEnabled = useMiniPlayerEnabled();
+  // Autoplay in coda (M52): evita di richiedere il play più di una volta per
   // ogni navigazione — l'effetto qui sotto ha video?.videoUrl tra le
   // dipendenze e ri-scatterebbe altrimenti a ogni suo re-render.
   const autoplayedRef = useRef(false);
@@ -46,7 +50,6 @@ export function VideoDetailPage() {
   }
 
   useEffect(reload, [id]);
-  useEffect(() => setHasStarted(false), [id]);
   useEffect(() => setPipError(null), [id]);
   // Il browser azzera playbackRate a 1x a ogni nuovo <video src>: si resetta lo
   // stato in coppia, così l'etichetta del pulsante non mente sulla velocità
@@ -69,36 +72,42 @@ export function VideoDetailPage() {
     setDescClamped(!!el && el.scrollHeight > el.clientHeight + 1);
   }, [video?.description, video?.id]);
 
-  // Autoplay a fine video (M52): quando si arriva qui da handleEnded (navigate
-  // con state.autoplay), avvia subito la riproduzione appena il tag <video> ha
-  // una sorgente pronta. Best-effort: alcuni browser possono comunque
-  // bloccare l'autoplay con audio non collegato a un gesto utente diretto su
-  // QUESTA pagina — in quel caso resta comunque il pulsante "Riproduci" sulla
-  // copertina, nessun errore mostrato all'utente per questo.
+  // Aggancio al player globale (M54): quando questo video è scaricabile,
+  // diventa il "corrente" del player globale, che si aggancia allo slot qui
+  // sotto (#player-dock-slot). `play: true` quando si arriva da un autoplay di
+  // coda (navigate con state.autoplay a fine video, M52) — il player globale
+  // avvia la riproduzione appena l'elemento è pronto. Best-effort: alcuni
+  // browser possono bloccare l'autoplay con audio; in quel caso resta la
+  // copertina "Riproduci".
   useEffect(() => {
-    if (!location.state?.autoplay || !video?.videoUrl || autoplayedRef.current) return;
-    autoplayedRef.current = true;
-    videoRef.current?.play().catch(() => {});
-  }, [location.state, video?.videoUrl]);
-
-  // A fine video, se la coda ha un elemento successivo si passa lì da soli;
-  // se è vuota, nessun autoplay (niente fallback sui suggeriti casuali —
-  // scelta esplicita del piano M52).
-  function handleEnded() {
-    const next = popNextInQueue();
-    if (next) navigate(`/videos/${next.id}`, { state: { autoplay: true } });
-  }
+    if (video?.download !== 'downloaded' || !video.videoUrl) return;
+    const wantPlay = !!location.state?.autoplay && !autoplayedRef.current;
+    if (wantPlay) autoplayedRef.current = true;
+    setCurrent(video, { play: wantPlay });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video?.id, video?.videoUrl, location.state]);
 
   function cycleSpeed() {
     const next = (speedIndex + 1) % SPEEDS.length;
     setSpeedIndex(next);
-    if (videoRef.current) videoRef.current.playbackRate = SPEEDS[next];
+    const el = getVideoEl();
+    if (el) el.playbackRate = SPEEDS[next];
+  }
+
+  // "Minimizza" (M54): contrae il video nel riquadro flottante **restando su
+  // questa pagina** (nessuna navigazione — rifinitura richiesta dall'utente).
+  // Il flag `minimized` del player globale scavalca l'aggancio e forza il
+  // flottante; la cornice qui mostra un placeholder con "Riporta qui".
+  function handleMinimize() {
+    setMinimized(true);
   }
 
   // Il pulsante PiP resta sincronizzato anche se l'utente chiude la finestra
   // PiP nativa del sistema operativo invece di usare di nuovo il pulsante.
+  // Ascolta l'elemento <video> GLOBALE (M54): si ri-aggancia quando il player
+  // globale espone l'elemento per questo video (player.current?.id).
   useEffect(() => {
-    const v = videoRef.current;
+    const v = getVideoEl();
     if (!v) return;
     const onEnter = () => setIsPiP(true);
     const onLeave = () => setIsPiP(false);
@@ -108,11 +117,17 @@ export function VideoDetailPage() {
       v.removeEventListener('enterpictureinpicture', onEnter);
       v.removeEventListener('leavepictureinpicture', onLeave);
     };
-  }, [video?.id]);
+  }, [video?.id, player.current?.id]);
+
+  // Nota M54: il vecchio cleanup di unmount (pausa + exitPictureInPicture) è
+  // stato rimosso da qui. Ora è il player globale (MiniPlayer) a decidere al
+  // cambio pagina: se il mini-player è attivo e il video è in riproduzione,
+  // continua nel riquadro flottante; altrimenti ferma e chiude (ripristina il
+  // comportamento pre-M54, l'audio non resta in sottofondo).
 
   async function togglePiP() {
     setPipError(null);
-    const v = videoRef.current;
+    const v = getVideoEl();
     if (!v) return;
     try {
       if (document.pictureInPictureElement) {
@@ -301,23 +316,23 @@ export function VideoDetailPage() {
         <div className="player-col">
           <div className="player-frame">
             {isDownloaded && video.videoUrl ? (
-              <>
-                <video
-                  ref={videoRef}
-                  controls
-                  preload="metadata"
-                  poster={video.thumbnailUrl || undefined}
-                  src={video.videoUrl}
-                  onPlay={() => setHasStarted(true)}
-                  onEnded={handleEnded}
-                />
-                {!hasStarted && (
-                  <button className="player-cover" onClick={() => videoRef.current?.play()} aria-label="Riproduci">
-                    {video.thumbnailUrl && <img src={video.thumbnailUrl} alt="" />}
-                    <span className="player-cover-play"><Play size={28} fill="currentColor" /></span>
+              (player.minimized && player.current?.id === video.id) ? (
+                /* "Minimizza" attivo su questo video: il player è nel riquadro
+                   flottante, la cornice resta qui con un invito a riportarlo. */
+                <div className="player-placeholder">
+                  <span>In riproduzione nel mini-player.</span>
+                  <button className="btn" onClick={() => setMinimized(false)}>
+                    <Maximize2 size={14} />Riporta qui
                   </button>
-                )}
-              </>
+                </div>
+              ) : (
+                /* Slot di aggancio del player globale (M54): il vero <video> vive
+                   in MiniPlayer (sopra il router) e viene spostato qui dentro
+                   quando si è su questa pagina, così cambiando route non si taglia
+                   la riproduzione. La copertina "clicca per riprodurre" è resa dal
+                   player globale stesso quando agganciato e non ancora avviato. */
+                <div id="player-dock-slot" className="player-dock-slot" />
+              )
             ) : video.download === 'downloading' ? (
               <div className="player-placeholder">
                 <span className="spinner"></span>
@@ -363,6 +378,12 @@ export function VideoDetailPage() {
               >
                 <Star size={18} fill={video.favorite ? 'currentColor' : 'none'} />
               </button>
+              {isDownloaded && miniEnabled && !(player.minimized && player.current?.id === video.id) && (
+                <button className="btn" onClick={handleMinimize} title="Minimizza nel riquadro flottante">
+                  <Minimize2 size={14} />
+                  Minimizza
+                </button>
+              )}
               {isDownloaded && document.pictureInPictureEnabled && (
                 <button className="btn" onClick={togglePiP}>
                   <PictureInPicture2 size={14} />
@@ -387,9 +408,23 @@ export function VideoDetailPage() {
           {notice && <div className="notice success" style={{ marginTop: 16 }}>{notice}</div>}
           {pipError && <div className="notice error" style={{ marginTop: 16 }}>{pipError}</div>}
 
+          {/* Nota "qualità ridotta" (M55): compare quando il video è stato
+              scaricato a una risoluzione più bassa di quella disponibile (es.
+              perché al momento del download mancava un formato migliore). Avviso
+              non invadente che invita a ri-scaricare per riprovare l'alta qualità. */}
+          {video.video?.qualityNote && (
+            <div className="notice" style={{ marginTop: 16 }}>
+              Qualità ridotta: scaricato a {video.video.qualityNote.downloadedHeight}p
+              {video.video.qualityNote.maxAvailableHeight
+                ? ` (disponibili fino a ${video.video.qualityNote.maxAvailableHeight}p).`
+                : '. YouTube potrebbe limitare temporaneamente la qualità.'}
+              {' '}Usa "Riscarica" per riprovare l'alta qualità più tardi.
+            </div>
+          )}
+
           {video.download === 'failed' && video.error && (
             <div className="notice error" style={{ marginTop: 16 }}>
-              Download fallito ({video.attempts} tentativ{video.attempts === 1 ? 'o' : 'i'}): {video.error}
+              Download fallito ({video.attempts} tentativ{video.attempts === 1 ? 'o' : 'i'}): {typeof video.error === 'string' ? video.error : video.error?.message ?? 'errore sconosciuto'}
             </div>
           )}
 
@@ -447,9 +482,11 @@ export function VideoDetailPage() {
               <div>
                 <span className="tech-key">Presenza</span>
                 <span className="tech-val">
+                  {/* Etichetta site-agnostica (backlog #2): un video può venire
+                      da YouTube, Rumble, ecc. — "Originale" invece di "YouTube". */}
                   {video.presence === 'removed'
-                    ? `Rimosso da YouTube${video.removedAt ? ` · ${new Date(video.removedAt).toLocaleDateString('it-IT')}` : ''}`
-                    : <a href={video.webpageUrl} target="_blank" rel="noopener noreferrer">Presente su YouTube</a>}
+                    ? `Originale rimosso${video.removedAt ? ` · ${new Date(video.removedAt).toLocaleDateString('it-IT')}` : ''}`
+                    : <a href={video.webpageUrl} target="_blank" rel="noopener noreferrer">Originale presente</a>}
                 </span>
               </div>
               <div>
@@ -474,6 +511,15 @@ export function VideoDetailPage() {
               </div>
             </div>
             <div className="sync-actions">
+              {/* "Riscarica" (M55): unico punto per rilanciare il download di un
+                  video GIÀ scaricato (utile per riprovare una qualità più alta).
+                  Passa da startDownload → confirm "Elimina e ri-scarica". Visibile
+                  solo se scaricato: per gli altri stati c'è già il tasto Scarica/Riprova. */}
+              {isDownloaded && (
+                <button className="btn" onClick={() => handleAction('download')}>
+                  <RefreshCw size={14} />Riscarica
+                </button>
+              )}
               <button className="btn" onClick={() => handleAction('metadata')}>
                 <FileDown size={14} />Scarica metadati
               </button>

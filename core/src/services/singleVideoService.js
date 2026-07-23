@@ -2,6 +2,19 @@ import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
 import { createNewVideoStub, DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
 import { resolveVideoInfo } from '../ytdlp/ytdlpWrapper.js';
 
+// M55 — Riepilogo dei formati (da resolveVideoInfo.formatsSummary) nella forma
+// che gli adapter usano per decidere se mostrare il prompt della scelta audio.
+function analysisFromInfo(info) {
+  const s = info.formatsSummary ?? {};
+  return {
+    needsAudioChoice: s.needsAudioChoice ?? false,
+    maxVideoHeight: s.maxVideoHeight ?? null,
+    maxCombinedHeight: s.maxCombinedHeight ?? null,
+    // M56: risoluzioni disponibili per la scelta a radio button.
+    availableHeights: s.availableHeights ?? []
+  };
+}
+
 const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
 // Un id YouTube nudo (senza URL) resta comodo da incollare ed è l'unico caso
@@ -46,18 +59,21 @@ export async function prepareSingleVideoDownload(input, { download = true } = {}
 
   const catalog = await readCatalog();
   const existing = catalog.videos[info.id];
+  // M55: i campi di analisi (scelta audio) viaggiano con ogni esito, così
+  // l'adapter può decidere se mostrare il prompt A/B senza una seconda chiamata.
+  const analysis = analysisFromInfo(info);
 
   if (existing) {
     if (existing.download === DOWNLOAD_STATE.DOWNLOADED) {
-      return { videoId: info.id, action: 'already-downloaded', title: existing.title };
+      return { videoId: info.id, action: 'already-downloaded', title: existing.title, alreadyDownloaded: true, ...analysis };
     }
     if (existing.download === DOWNLOAD_STATE.DOWNLOADING) {
-      return { videoId: info.id, action: 'already-downloading', title: existing.title };
+      return { videoId: info.id, action: 'already-downloading', title: existing.title, alreadyDownloaded: false, ...analysis };
     }
     // Già in libreria ma non scaricato: se richiesto, si scarica direttamente
     // (niente più "vai a Rivedi novità" — quel ciclo non esiste più); altrimenti
     // è già presente e non c'è nulla da aggiungere.
-    return { videoId: info.id, action: download ? 'download' : 'already-present', title: existing.title };
+    return { videoId: info.id, action: download ? 'download' : 'already-present', title: existing.title, alreadyDownloaded: false, ...analysis };
   }
 
   await updateCatalog((cat) => {
@@ -76,5 +92,24 @@ export async function prepareSingleVideoDownload(input, { download = true } = {}
     cat.videos[info.id] = stub;
   });
 
-  return { videoId: info.id, action: download ? 'download' : 'added', title: info.title };
+  return { videoId: info.id, action: download ? 'download' : 'added', title: info.title, alreadyDownloaded: false, ...analysis };
+}
+
+// M55 — Analizza il ri-download di un video GIÀ in catalogo (per il pulsante
+// "Scarica/Riprova" o un ri-download esplicito): risolve i formati attuali dal
+// suo webpageUrl e riporta stato + eventuale necessità di scelta audio. Non crea
+// stub né tocca il catalogo (il video esiste già).
+export async function analyzeVideoDownload(videoId) {
+  const catalog = await readCatalog();
+  const video = catalog.videos[videoId];
+  if (!video) throw new Error(`Video non trovato nel catalogo: ${videoId}`);
+
+  const info = await resolveVideoInfo(video.webpageUrl);
+  return {
+    videoId,
+    title: video.title ?? null,
+    download: video.download,
+    alreadyDownloaded: video.download === DOWNLOAD_STATE.DOWNLOADED,
+    ...analysisFromInfo(info)
+  };
 }

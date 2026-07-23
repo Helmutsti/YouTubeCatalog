@@ -45,6 +45,26 @@ export const refreshMetadata = (id) =>
 // (checkbox "Download immediato" non spuntato, M29). Default: scarica subito.
 export const downloadSingle = (url, download = true) =>
   request('/api/videos/download-single', { method: 'POST', body: JSON.stringify({ url, download }) });
+// M55: analizza un download prima di avviarlo (per il confirm "elimina e
+// ri-scarica" e la scelta audio A/B). Passa { videoId } per un video già in
+// catalogo, oppure { url } per un link nuovo (crea lo stub, NON avvia il job).
+// Ritorna { videoId, title, alreadyDownloaded, needsAudioChoice, maxVideoHeight, maxCombinedHeight, ... }.
+export const analyzeDownload = ({ url, videoId }) =>
+  request('/api/videos/analyze-download', {
+    method: 'POST',
+    body: JSON.stringify(videoId ? { videoId } : { url })
+  });
+// M55: avvia il download di un video in catalogo con la strategia audio scelta
+// ('combined' | 'merged' | undefined) e, opzionalmente, eliminando prima la
+// copia esistente (deleteFirst). Sostituisce triggerJob('downloadSingle') diretto
+// quando serve passare per il confirm/scelta.
+// maxHeight (M56): tetto di risoluzione scelto dall'utente — un numero (px di
+// altezza), oppure null per "massima disponibile". Omesso = default di config.
+export const downloadVideoById = (id, { audioStrategy, deleteFirst, maxHeight } = {}) =>
+  request(`/api/videos/${encodeURIComponent(id)}/download`, {
+    method: 'POST',
+    body: JSON.stringify({ audioStrategy, deleteFirst, maxHeight })
+  });
 
 export const searchVideos = (q, limit) => request(`/api/search${qs({ q, limit })}`);
 

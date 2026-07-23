@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
-import { createReadStream, existsSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline';
 import { getPaths, loadConfig } from '../config.js';
 import { setMetadata } from '../catalog/metadataStore.js';
+import { removeFromDownloadArchive } from '../services/libraryService.js';
 
 // YouTube richiede un runtime JavaScript per decifrare le firme dei formati
 // video: senza, alcuni download falliscono con HTTP 403 a metà (verificato).
@@ -19,7 +20,15 @@ const JS_RUNTIME_ARGS = ['--js-runtimes', 'node'];
 // supplementare (non sostitutivo: "default" resta incluso) così i video non
 // interessati dall'esperimento continuano a usare i client abituali, e quelli
 // che lo sono trovano comunque formati funzionanti senza bisogno di un PO Token.
-const PLAYER_CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=default,android_vr'];
+//
+// AGGIUNTA `web_embedded` (verificato su TDeUgkAGVXU, 2026-07-23): per certi
+// video `default`/`android_vr` (e mweb/android/tv_embedded) esponevano SOLO fino
+// a 360p, mentre `web/tv/ios/web_safari` fallivano del tutto — l'utente vedeva
+// solo 360p pur essendo il video a 1080p su YouTube. Il client `web_embedded`
+// espone i formati DASH pieni (1080p video-only + audio-only) senza PO Token:
+// con esso incluso, il selettore torna a prendere 248+140 = 1080p. Anch'esso
+// supplementare: aggiunge opzioni, non sostituisce nulla.
+const PLAYER_CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=default,android_vr,web_embedded'];
 
 // yt-dlp segnala così un video reso privato dall'autore o comunque sparito per
 // sempre da YouTube — verificato dal vivo su 3 varianti reali: "Private video.
@@ -74,6 +83,10 @@ export async function getPlaylistEntries(playlistUrl) {
   const entries = data.entries ?? [];
   return {
     title: data.title ?? null,
+    // Totale dichiarato da YouTube per la playlist (backlog #4): se differisce
+    // dagli entries realmente enumerati, qualche video non è visibile in questa
+    // estrazione (privato/rimosso/glitch). Può essere null se yt-dlp non lo espone.
+    declaredCount: data.playlist_count ?? null,
     entries: entries.map((entry, index) => ({
       id: entry.id,
       title: entry.title ?? null,
@@ -120,7 +133,48 @@ export async function resolveVideoInfo(url) {
     extractor: info.extractor ?? null,
     webpageUrl: info.webpage_url ?? url,
     channelName: info.channel ?? info.uploader ?? null,
-    durationSeconds: info.duration ?? null
+    durationSeconds: info.duration ?? null,
+    // M55: riepilogo dei formati disponibili in questa estrazione, per decidere
+    // se serve chiedere all'utente la strategia audio (vedi summarizeFormats).
+    formatsSummary: summarizeFormats(info)
+  };
+}
+
+// M55 — Analizza i formati esposti da un'estrazione yt-dlp (`-J`) per capire se
+// la "qualità piena" è ottenibile out-of-the-box o se serve una scelta.
+// Contesto: YouTube a volte (gating PO-token, estrazione degradata) espone il
+// video-only ad alta risoluzione ma NON una traccia audio-only da accoppiare;
+// in quel caso `bv*+ba` non trova l'audio e si ripiega sul miglior formato
+// COMBINATO (spesso 360p, format 18) — download silenziosamente basso.
+export function summarizeFormats(info) {
+  const formats = Array.isArray(info.formats) ? info.formats : [];
+  const hasV = (f) => f.vcodec && f.vcodec !== 'none';
+  const hasA = (f) => f.acodec && f.acodec !== 'none';
+  const maxHeight = (arr) => arr.reduce((m, f) => Math.max(m, f.height || 0), 0);
+
+  const videoBearing = formats.filter(hasV);
+  const audioOnly = formats.filter((f) => hasA(f) && !hasV(f));
+  const combined = formats.filter((f) => hasV(f) && hasA(f));
+
+  const maxVideoHeight = maxHeight(videoBearing);
+  const maxCombinedHeight = maxHeight(combined);
+  const hasAudioOnly = audioOnly.length > 0;
+
+  // Risoluzioni scaricabili distinte (M56): altezze uniche dei formati con video,
+  // dalla più alta alla più bassa — è la lista di scelta mostrata all'utente.
+  const availableHeights = [...new Set(videoBearing.map((f) => f.height).filter(Boolean))]
+    .sort((a, b) => b - a);
+
+  return {
+    maxVideoHeight,
+    maxCombinedHeight,
+    hasAudioOnly,
+    availableHeights,
+    // La miglior risoluzione (video-only) supera il miglior combinato E non c'è
+    // audio-only da fondere: yt-dlp ripiegherebbe sul combinato basso. Serve
+    // chiedere all'utente (Opzione A: combinato basso; Opzione B: video max +
+    // audio del combinato, fuso via ffmpeg — yt-dlp non lo fa da sé).
+    needsAudioChoice: !hasAudioOnly && maxVideoHeight > maxCombinedHeight
   };
 }
 
@@ -229,6 +283,22 @@ function buildFormatSelector(format, maxHeight) {
   // sopra); su altri siti (es. Rumble) può escludere l'unico formato disponibile,
   // quindi l'ultimo fallback ("b[height<=N]") non la applica.
   return `bv*[height<=${maxHeight}][vcodec!*=av01]+ba/b[height<=${maxHeight}][vcodec!*=av01]/b[height<=${maxHeight}]`;
+}
+
+// M55 — Selettori per le strategie audio alternative (vedi summarizeFormats).
+// M56: `maxHeight` è il tetto di risoluzione (scelto dall'utente per-download o
+// da config), null = nessun cap.
+// 'combined' (Opzione A): solo il miglior formato COMBINATO (audio+video già
+// insieme), coerente ma a risoluzione più bassa.
+function combinedSelector(maxHeight) {
+  const h = maxHeight ? `[height<=${maxHeight}]` : '';
+  return `b${h}[vcodec!*=av01]/b${h}/b`;
+}
+// 'merged' (Opzione B): il miglior flusso VIDEO-only, da fondere poi con l'audio
+// via ffmpeg (yt-dlp non sa prendere l'audio da un combinato in un merge -f).
+function videoOnlySelector(maxHeight) {
+  const h = maxHeight ? `[height<=${maxHeight}]` : '';
+  return `bv*${h}[vcodec!*=av01]/bv*${h}/bv*`;
 }
 
 function parseProgressPercent(line) {
@@ -441,10 +511,35 @@ function runYtdlp(paths, args, { onLog, onProgress, signal }) {
 // dopo il download (-o "%(id)s.%(ext)s" produce sempre lo stesso id). url è il
 // link da cui scaricare per davvero — qualunque sito supportato da yt-dlp, non
 // solo YouTube.
-export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress = () => {}, signal } = {}) {
+export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress = () => {}, signal, audioStrategy, maxHeight } = {}) {
   const paths = getPaths();
   const config = loadConfig();
-  const formatSelector = buildFormatSelector(config.ytdlp.format, config.ytdlp.maxHeight);
+  // M56: tetto di risoluzione effettivo = scelta per-download (se passata),
+  // altrimenti il default globale di config. undefined ⇒ usa config; null da UI
+  // ("massima") azzera il cap. Coalescing solo su undefined per rispettare null.
+  const effectiveMaxHeight = maxHeight === undefined ? config.ytdlp.maxHeight : maxHeight;
+
+  // M55 root-fix (bug "restart distruttivo"): una riga residua in
+  // --download-archive faceva SALTARE il download a yt-dlp (esce ok, non scrive
+  // l'.info.json) → "file mancanti" → il video finiva 'failed' pur avendo un
+  // file su disco. Ogni download di un singolo video è una richiesta esplicita
+  // di scaricare QUEL video: si toglie la sua riga d'archivio prima, così
+  // yt-dlp ri-scarica davvero (l'archivio resta come ledger ridondante di
+  // dedup per le sync di playlist, ma non blocca mai un download esplicito).
+  removeFromDownloadArchive(paths, videoId);
+
+  // M55 — Opzione B: video max + audio fuso via ffmpeg (yt-dlp da solo non sa
+  // prendere l'audio da un formato combinato in un merge -f, verificato).
+  if (audioStrategy === 'merged') {
+    return downloadMergedVideoAudio(videoId, url, { onLog, onProgress, signal, paths, config, maxHeight: effectiveMaxHeight });
+  }
+
+  // 'combined' (Opzione A) → solo il miglior combinato; altrimenti il selettore
+  // di default (video-only + audio-only, poi combinato). Entrambi cappati a
+  // effectiveMaxHeight (scelta risoluzione M56).
+  const formatSelector = audioStrategy === 'combined'
+    ? combinedSelector(effectiveMaxHeight)
+    : buildFormatSelector(config.ytdlp.format, effectiveMaxHeight);
 
   try {
     // Prima senza cookie: per contenuti pubblici (il caso comune) è più
@@ -468,20 +563,7 @@ export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress
       await runYtdlp(paths, buildDownloadArgs(paths, config, formatSelector, url, { useCookies: true }), { onLog, onProgress, signal });
     }
 
-    const { videoFile, infoFile, thumbnailFile } = findDownloadedFiles(paths, videoId);
-    if (!videoFile || !infoFile) {
-      throw new Error(`Download completato ma file mancanti per ${videoId} (video: ${videoFile}, info.json: ${infoFile})`);
-    }
-
-    const infoPath = path.join(paths.videosDir, infoFile);
-    const info = JSON.parse(readFileSync(infoPath, 'utf-8'));
-    const sizeBytes = statSync(path.join(paths.videosDir, videoFile)).size;
-    const sha256 = await hashFileSha256(path.join(paths.videosDir, videoFile));
-    const ytdlpVersion = await getYtdlpVersion();
-
-    await consolidateMetadata(videoId, info, infoPath);
-
-    return mapInfoJsonToVideoFields(info, { videoFile, thumbnailFile, sizeBytes, sha256, ytdlpVersion });
+    return await finalizeDownload(paths, videoId);
   } catch (err) {
     cleanupFailedDownloadArtifacts(paths, videoId);
     // Messaggio leggibile invece del generico AbortError di Node — il resto
@@ -490,4 +572,148 @@ export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress
     if (signal?.aborted) throw new Error('Download interrotto dall\'utente.');
     throw err;
   }
+}
+
+// Passi comuni post-download (normale e fuso): individua i file scritti da
+// yt-dlp, legge l'.info.json, calcola size/sha, consolida i metadati grezzi e
+// mappa i campi curati. Aggiunge la nota di qualità (M55, "segnala soltanto").
+async function finalizeDownload(paths, videoId) {
+  const { videoFile, infoFile, thumbnailFile } = findDownloadedFiles(paths, videoId);
+  if (!videoFile || !infoFile) {
+    throw new Error(`Download completato ma file mancanti per ${videoId} (video: ${videoFile}, info.json: ${infoFile})`);
+  }
+
+  const infoPath = path.join(paths.videosDir, infoFile);
+  const info = JSON.parse(readFileSync(infoPath, 'utf-8'));
+  const sizeBytes = statSync(path.join(paths.videosDir, videoFile)).size;
+  const sha256 = await hashFileSha256(path.join(paths.videosDir, videoFile));
+  const ytdlpVersion = await getYtdlpVersion();
+
+  await consolidateMetadata(videoId, info, infoPath);
+
+  const fields = mapInfoJsonToVideoFields(info, { videoFile, thumbnailFile, sizeBytes, sha256, ytdlpVersion });
+  fields.video.qualityNote = detectQualityNote(info);
+  return fields;
+}
+
+// M55 "segnala soltanto": segnala un download a bassa risoluzione (≤360p).
+// Su un servizio moderno come YouTube il 360p (tipicamente il format 18
+// combinato) è quasi sempre un RIPIEGO — estrazione degradata / gating PO-token
+// — non la qualità reale del video. Va segnalato SEMPRE, anche quando l'intera
+// estrazione era degradata a 360p (caso reale: `maxVideoHeight` della stessa
+// estrazione risultava 360, quindi il vecchio confronto "max > scaricato" non
+// scattava mai e l'utente non veniva avvisato). `maxAvailableHeight` è noto solo
+// se QUESTA estrazione esponeva formati più alti; altrimenti null = "non noto"
+// (YouTube potrebbe averla limitata temporaneamente: riprovare più tardi).
+function detectQualityNote(info) {
+  const downloadedHeight = info.height || 0;
+  if (!downloadedHeight || downloadedHeight > 360) return null;
+  const { maxVideoHeight } = summarizeFormats(info);
+  return {
+    downloadedHeight,
+    maxAvailableHeight: maxVideoHeight > downloadedHeight ? maxVideoHeight : null,
+    at: new Date().toISOString()
+  };
+}
+
+// M55 — Opzione B: scarica il miglior video-only e la miglior traccia audio in
+// due passaggi, poi li fonde con ffmpeg. Serve perché in un'estrazione degradata
+// (nessun audio-only, video-only alto + solo un combinato basso) yt-dlp da solo
+// scarterebbe il combinato in un merge `-f`, lasciando video senza audio.
+async function downloadMergedVideoAudio(videoId, url, { onLog, onProgress, signal, paths, config, maxHeight }) {
+  const runWithCookieFallback = async (buildArgs) => {
+    try {
+      await runYtdlp(paths, buildArgs({ useCookies: false }), { onLog, onProgress, signal });
+    } catch (firstErr) {
+      if (signal?.aborted) throw firstErr;
+      if (!paths.cookiesPath) throw firstErr;
+      onLog('Primo tentativo (senza cookie) fallito, riprovo con i cookie...');
+      cleanupFailedDownloadArtifacts(paths, videoId);
+      await runYtdlp(paths, buildArgs({ useCookies: true }), { onLog, onProgress, signal });
+    }
+  };
+
+  try {
+    onLog('Strategia "fusione": scarico il flusso video alla massima risoluzione...');
+    await runWithCookieFallback(({ useCookies }) =>
+      buildDownloadArgs(paths, config, videoOnlySelector(maxHeight), url, { useCookies }));
+
+    onLog('Scarico la migliore traccia audio disponibile...');
+    const audioTemplate = path.join(paths.thumbnailsDir, `__mux_${videoId}_audio.%(ext)s`);
+    await runWithCookieFallback(({ useCookies }) =>
+      buildAudioOnlyArgs(paths, audioTemplate, url, { useCookies }));
+
+    const { videoFile } = findDownloadedFiles(paths, videoId);
+    if (!videoFile) throw new Error(`Flusso video non trovato dopo il download per ${videoId}`);
+    const videoAbs = path.join(paths.videosDir, videoFile);
+    const audioAbs = findTempAudioFile(paths, videoId);
+    if (!audioAbs) throw new Error(`Traccia audio non trovata dopo il download per ${videoId}`);
+
+    onLog('Fondo video e audio (ffmpeg)...');
+    const mergedAbs = await muxVideoAudio(paths, videoAbs, audioAbs);
+    // Rimuove il video-only originale se il fuso ha nome/estensione diversi
+    // (es. sorgente .webm → fuso .mp4) e la traccia audio temporanea.
+    if (path.resolve(mergedAbs) !== path.resolve(videoAbs) && existsSync(videoAbs)) unlinkSync(videoAbs);
+    if (existsSync(audioAbs)) unlinkSync(audioAbs);
+
+    return await finalizeDownload(paths, videoId);
+  } catch (err) {
+    cleanupFailedDownloadArtifacts(paths, videoId);
+    const leftover = findTempAudioFile(paths, videoId);
+    if (leftover && existsSync(leftover)) unlinkSync(leftover);
+    if (signal?.aborted) throw new Error('Download interrotto dall\'utente.');
+    throw err;
+  }
+}
+
+// Args per scaricare la sola miglior traccia audio (audio-only se c'è, altrimenti
+// da un combinato) in un file temporaneo separato: niente info.json/thumbnail/
+// archivio, che restano di competenza del download video-only principale.
+function buildAudioOnlyArgs(paths, outTemplate, url, { useCookies }) {
+  const args = [
+    ...JS_RUNTIME_ARGS,
+    ...PLAYER_CLIENT_ARGS,
+    '-f', 'ba*/b',
+    '--newline',
+    '-o', outTemplate
+  ];
+  if (paths.ffmpegLocation) args.push('--ffmpeg-location', paths.ffmpegLocation);
+  if (useCookies && paths.cookiesPath) args.push('--cookies', paths.cookiesPath);
+  args.push(url);
+  return args;
+}
+
+function findTempAudioFile(paths, videoId) {
+  const prefix = `__mux_${videoId}_audio.`;
+  if (!existsSync(paths.thumbnailsDir)) return null;
+  const f = readdirSync(paths.thumbnailsDir).find((x) => x.startsWith(prefix));
+  return f ? path.join(paths.thumbnailsDir, f) : null;
+}
+
+// Fonde video + audio in un mp4 (stream copy, nessuna ricodifica) mappando il
+// video dal primo input e l'audio dal secondo. Ritorna il path assoluto del
+// file fuso ("<base>.mp4" accanto al video-only).
+function muxVideoAudio(paths, videoAbs, audioAbs) {
+  return new Promise((resolve, reject) => {
+    const dir = path.dirname(videoAbs);
+    const base = path.basename(videoAbs, path.extname(videoAbs));
+    const finalAbs = path.join(dir, `${base}.mp4`);
+    const tmpAbs = path.join(dir, `${base}.__muxtmp.mp4`);
+    const bin = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    const ffmpeg = paths.ffmpegLocation ? path.join(paths.ffmpegLocation, bin) : bin;
+    const args = ['-y', '-i', videoAbs, '-i', audioAbs, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-movflags', '+faststart', tmpAbs];
+    const proc = spawn(ffmpeg, args);
+    let errTail = '';
+    proc.stderr.on('data', (d) => { errTail = `${errTail}${d.toString()}`.slice(-1000); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        if (existsSync(tmpAbs)) unlinkSync(tmpAbs);
+        return reject(new Error(`ffmpeg (fusione video+audio) terminato con codice ${code}: ${errTail.trim()}`));
+      }
+      if (existsSync(finalAbs) && path.resolve(finalAbs) !== path.resolve(videoAbs)) unlinkSync(finalAbs);
+      renameSync(tmpAbs, finalAbs);
+      resolve(finalAbs);
+    });
+  });
 }

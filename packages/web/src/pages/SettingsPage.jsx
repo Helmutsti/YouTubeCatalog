@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, FolderCog, Clapperboard, Cookie, Trash2 } from 'lucide-react';
+import { Download, Upload, FolderCog, Clapperboard, Cookie, Trash2, PictureInPicture2 } from 'lucide-react';
 import { BACKUP_URL, restoreBackup, getConfig, setMediaRoot, setVideosRoot, uploadCookies, deleteCookies } from '../api/client.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast } from '../lib/toast.js';
+import { useMiniPlayerEnabled, setMiniPlayerEnabled } from '../lib/playerStore.js';
 
 export function SettingsPage() {
   useTitle('Impostazioni');
+
+  // --- Riproduzione (mini-player, M54) — preferenza solo client (localStorage) ---
+  const miniPlayerEnabled = useMiniPlayerEnabled();
 
   // --- Backup / ripristino ---
   const [busy, setBusy] = useState(false);
@@ -129,6 +133,28 @@ export function SettingsPage() {
   return (
     <>
       <div className="page-head"><h1>Impostazioni</h1></div>
+
+      <div className="d-desc">
+        <span className="label">Riproduzione</span>
+        <div className="setting-row">
+          <div className="setting-text">
+            <div className="setting-title"><PictureInPicture2 size={15} /> Mini-player flottante</div>
+            <div className="setting-sub">
+              Lasciando la pagina di un video in riproduzione, continua in un piccolo riquadro in basso a destra mentre navighi altrove (come su YouTube). Disattivandolo, il video si ferma al cambio pagina. Solo desktop. La preferenza è salvata in questo browser.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={miniPlayerEnabled}
+            className={`switch${miniPlayerEnabled ? ' on' : ''}`}
+            onClick={() => setMiniPlayerEnabled(!miniPlayerEnabled)}
+            aria-label="Attiva/disattiva mini-player flottante"
+          >
+            <span className="switch-knob" />
+          </button>
+        </div>
+      </div>
 
       <div className="d-desc">
         <span className="label">Cartella video</span>
