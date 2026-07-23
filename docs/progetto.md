@@ -207,27 +207,41 @@ YouTubeCatalog/
     web/                          # SPA React, client HTTP di packages/server (M11)
       vite.config.js                # proxy dev su /api e /media verso il server
       src/
-        App.jsx
+        App.jsx                      # route SPA: /, /videos/:id, /search, /channels/:key, /sources, /archived, /settings
         main.jsx
         api/client.js
         hooks/useJobStream.js        # sottoscrizione SSE condivisa, chiude la EventSource a success/failed
+        hooks/useHideWithPrompt.jsx  # modale "Vuoi tenere il video?" (archivia/cancella) riusabile
+        hooks/useTitle.js            # titolo della scheda
+        hooks/useQueueAdvance.js     # avanzamento coda condiviso MiniPlayer/pulsanti "Successivo" (M57)
         lib/format.js
         lib/reviewActions.js         # REVIEW_ACTIONS_BY_STATUS, stessa tabella del CLI
         lib/status.js
+        lib/sort.js
+        lib/navigation.js
+        lib/toast.js                 # toast globali (stato su globalThis)
+        lib/dialog.js                # dialog imperativi: confirm + scelta a radio button (M56)
+        lib/downloadActions.js       # avvio download con scelta della risoluzione (M56)
+        lib/downloadTracker.js       # traccia i job di download attivi per id
+        lib/apiBase.js               # VITE_API_BASE_URL, indipendenza posizionale web↔API (M47)
+        lib/queueStore.js            # coda di riproduzione effimera "alla Spotify/YouTube" (M52)
+        lib/playerStore.js           # stato del player globale / mini-player (M54)
         pages/CatalogPage.jsx        # Home: chip di stato, banner "Scarica in coda"
-        pages/VideoDetailPage.jsx    # player + azioni contestuali allo stato
+        pages/VideoDetailPage.jsx    # slot del player globale + azioni contestuali allo stato
         pages/SearchPage.jsx         # ricerca fuzzy (searchVideos), debounce 300ms
         pages/ChannelPage.jsx        # equivalente di "Guarda"
         pages/SourcesPage.jsx        # "Gestisci fonti" + "Sincronizza" fusi
-        pages/SingleDownloadPage.jsx # "Scarica video singolo": form + barra avanzamento + storico sempre visibile (M24)
-        pages/JobsPage.jsx           # log/progresso live via SSE + storico condiviso
-        pages/LibraryPage.jsx        # "Libreria": placeholder vuoto (M23; "Riorganizza libreria" ritirata dal web)
+        pages/ArchivedPage.jsx       # video archiviati (hidden)
+        pages/SettingsPage.jsx       # cartelle media, cookie, sezione "Riproduzione"/mini-player (M54)
         components/VideoCard.jsx
         components/StatusBadge.jsx
         components/StatusChips.jsx
-        components/Layout.jsx
+        components/Layout.jsx        # monta MiniPlayer (sopra l'<Outlet/>), nav
         components/MobileNav.jsx
         components/JobHistory.jsx    # storico job condiviso (M24): copertina+titolo, cancella singolo/svuota
+        components/ToastHost.jsx     # render dei toast globali
+        components/DialogHost.jsx    # render dei dialog imperativi (M56)
+        components/MiniPlayer.jsx    # UNICO <video> sopra il router, reparenting dock/flottante (M54)
         styles/global.css            # design token direzione "Cinema" (scuro), nessun framework CSS
   scripts/
     testDownload.mjs             # script usa-e-getta per la Milestone 1
@@ -483,15 +497,17 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano il 
    - in catalogo `new`/`pending`/`downloading`/`failed` → lascia invariato.
 2. **Aggiunta fonte**: "Aggiungi fonte" nel CLI (`addSource(url)`) registra una nuova playlist in `catalog.sources` e ingerisce subito le sue entry come sopra (stessa logica, fattorizzata in `ingestPlaylistEntries()`).
 3. **Decisione**: "Scarica"/"Archivia"/"Rimetti tra le novità" nella vista "Rivedi novità" del CLI spostano liberamente un'entry tra `new`/`pending`/`excluded`.
-4. **Download**: per ogni entry `pending` (o `failed` con `attempts < maxAttempts`, default 3): imposta `downloading`, spawna `yt-dlp --js-runtimes node --extractor-args "youtube:player_client=default,android_vr" -f "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b" --merge-output-format mp4 --write-thumbnail --convert-thumbnails jpg --write-info-json -o "media/videos/%(channel,uploader|Sconosciuto)s/%(title)s [%(id)s].%(ext)s" -o "thumbnail:media/thumbnails/%(id)s.%(ext)s" --download-archive media/.ytdlp-archive.txt <url>` (`<url>` = `video.webpageUrl` reale, non ricostruito dall'id — vedi correzione multi-sito in "Download singolo one-off") — **senza `--cookies` al primo tentativo**; se fallisce e sono configurati dei cookie (`core/cookies.txt`), si ripulisce l'eventuale residuo e si ritenta un'unica volta con `--cookies` incluso. Al termine, `ytdlpWrapper.js` legge il sidecar `.info.json` (trovato per marker `[<id>]` nella sottocartella creator), ne mappa i campi curati nello schema, salva il grezzo in `data/metadata.json` e cancella il sidecar. A successo: calcola sha256 + size, `status: downloaded`. A fallimento: `status: failed`, `attempts++`, salva errore.
+4. **Download**: per ogni entry `pending` (o `failed` con `attempts < maxAttempts`, default 3): imposta `downloading`, spawna `yt-dlp --js-runtimes node --extractor-args "youtube:player_client=default,android_vr,web_embedded" -f "bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b" --merge-output-format mp4 --write-thumbnail --convert-thumbnails jpg --write-info-json -o "media/videos/%(channel,uploader|Sconosciuto)s/%(title)s [%(id)s].%(ext)s" -o "thumbnail:media/thumbnails/%(id)s.%(ext)s" --download-archive media/.ytdlp-archive.txt <url>` (`<url>` = `video.webpageUrl` reale, non ricostruito dall'id — vedi correzione multi-sito in "Download singolo one-off") — **senza `--cookies` al primo tentativo**; se fallisce e sono configurati dei cookie (`core/cookies.txt`), si ripulisce l'eventuale residuo e si ritenta un'unica volta con `--cookies` incluso. Al termine, `ytdlpWrapper.js` legge il sidecar `.info.json` (trovato per marker `[<id>]` nella sottocartella creator), ne mappa i campi curati nello schema, salva il grezzo in `data/metadata.json` e cancella il sidecar. A successo: calcola sha256 + size, `status: downloaded`. A fallimento: `status: failed`, `attempts++`, salva errore.
    - **`--js-runtimes node`**: senza un runtime JavaScript, yt-dlp non riesce a decifrare le firme dei formati più recenti e i download falliscono a metà con `HTTP 403`. Node è già una dipendenza del progetto, quindi lo si usa come runtime (nessuna installazione aggiuntiva, es. Deno).
    - **Esclusione codec AV1** (`vcodec!*=av01`): scoperto verificando con la playlist reale dell'utente che il formato di default (`bv*+ba/b`, che sceglie AV1 alla risoluzione più alta) falliva sistematicamente con 403 anche con il runtime JS attivo, mentre lo stesso video alla stessa risoluzione in **VP9** scaricava senza problemi. **Nessun compromesso sulla qualità**: si ottiene comunque la risoluzione più alta disponibile, semplicemente non in AV1, coerente con "massima qualità, nessun cap". Il fallback finale `/b` (senza filtro AV1) è stato aggiunto in M8 per i siti non-YouTube dove l'esclusione AV1 può escludere l'unico formato disponibile.
    - **Template `-o` per-creator**: `%(channel,uploader|Sconosciuto)s/%(title)s [%(id)s].%(ext)s` — yt-dlp sanifica da sé i caratteri non validi per Windows e crea le sottocartelle; vedi "Archivio canonico per creator" sopra. Il template della thumbnail resta piatto.
-   - **`player_client=default,android_vr`**: alcuni video vengono assegnati da YouTube a un esperimento che richiede un "PO Token" per i client normali (web/ios/tv) — senza, quei client falliscono con 403 in modo sistematico e ripetibile (diagnosticato con `yt-dlp -v --simulate`: "Detected experiment to bind GVS PO Token to video ID"). Il client `android_vr` non è soggetto all'esperimento; aggiunto come client **supplementare** (non sostitutivo di `default`) così i video non coinvolti nell'esperimento continuano a usare i client abituali.
+   - **`player_client=default,android_vr,web_embedded`**: alcuni video vengono assegnati da YouTube a un esperimento che richiede un "PO Token" per i client normali (web/ios/tv) — senza, quei client falliscono con 403 in modo sistematico e ripetibile (diagnosticato con `yt-dlp -v --simulate`: "Detected experiment to bind GVS PO Token to video ID"). Il client `android_vr` non è soggetto all'esperimento; aggiunto come client **supplementare** (non sostitutivo di `default`) così i video non coinvolti nell'esperimento continuano a usare i client abituali.
    - **Niente `--cookies` al primo tentativo**: inviare i cookie del browser insieme all'identità client mobile `android_vr` è una combinazione che la CDN video di YouTube tratta come sospetta e blocca con 403, anche se le fasi di estrazione precedenti (con quegli stessi cookie) riescono. Dato che tutti i video di un catalogo personale sono tipicamente pubblici, il primo tentativo è senza cookie; il fallback con cookie resta per l'unico caso in cui servono davvero: video privati/non listati del proprio account.
 5. **Interruzioni**: yt-dlp riprende download parziali via range request nativamente (il file `.part` viene deliberatamente preservato quando un download fallisce, per permettere la ripresa). Se il processo muore mid-download, all'avvio `catalogStore` resetta ogni entry bloccata su `downloading` a `pending`.
 6. **Pulizia dei residui**: se un download fallisce dopo che yt-dlp ha già scritto `.info.json`/thumbnail (cosa che fa presto nel suo processo), quei file vengono cancellati automaticamente — solo il video/`.part` viene preservato per il resume.
 7. **Doppia protezione dedup**: `--download-archive` di yt-dlp come ledger ridondante, ma il catalogo resta la fonte primaria.
+
+> **Nota (evoluzione M55/M56):** questo blocco descrive la meccanica base originale. Da **M55** il selettore di formato ha una rete di sicurezza (evita ripieghi silenziosi a bassa risoluzione) e registra `video.qualityNote` quando scarica sotto il massimo disponibile; da **M56** la risoluzione è **scelta per-download** (`maxHeight`, radio button web / `select` CLI) invece che sempre al massimo, ed è stato aggiunto il client `web_embedded` come ulteriore ripiego. Il comportamento corrente di dettaglio vive in `documentazione.md` (stato attuale) e in `storico.md` (M55/M56).
 
 ## Serving video e player (`packages/server`, M10)
 
@@ -501,7 +517,7 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano il 
   app.use('/media/thumbnails', express.static(paths.thumbnailsDir));
   ```
 - `lib/publicVideo.js` costruisce `videoUrl`/`thumbnailUrl` codificando ogni segmento del path (necessario perché `localPath` ora contiene sottocartelle per creator con spazi/caratteri accentati/emoji nel nome).
-- Frontend: `<video controls src={videoUrl}>` nativo, sufficiente per mp4/webm/mkv con seek.
+- Frontend: da **M54** esiste un **unico** elemento `<video>` per tutta la GUI, in `components/MiniPlayer.jsx` (montato sopra il router), spostato via reparenting tra lo slot della pagina di dettaglio e il riquadro flottante; resta un `<video controls>` nativo, sufficiente per mp4/webm/mkv con seek.
 - Merge sempre in **MP4** (H.264/AAC) — ffmpeg già presente sulla macchina.
 
 ## Pagine frontend (`packages/web`, M11 — direzione visiva "Cinema")
@@ -509,13 +525,12 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano il 
 React 19 + Vite + `react-router-dom` (SPA multi-pagina) + `lucide-react` per le icone; nessuna libreria di stato globale (`fetch` + `useState`/`useEffect` per pagina); CSS scritto a mano con i design token della direzione scura scelta dall'utente (vedi mockup `Webapp video catalogo design.zip`, direzione "1b Cinema"). Ogni pagina corrisponde 1:1 a un flusso già esistente nel CLI, stessa logica applicativa (nessuna nuova regola, solo chiamate HTTP a `packages/server`):
 
 - **CatalogPage** (`/`): griglia `VideoCard`, chip di stato (Tutti/Nuovi/In coda/Scaricati/Falliti/Archiviati) invece di categorie editoriali, banner "Scarica in coda (N)".
-- **VideoDetailPage** (`/videos/:id`): player nativo per `downloaded`, azioni contestuali allo stato (`decideVideo`) per gli altri, video correlati dello stesso canale.
+- **VideoDetailPage** (`/videos/:id`): espone lo **slot** del player globale (MiniPlayer, M54) per i `downloaded`, azioni contestuali allo stato (`decideVideo`) per gli altri, **video suggeriti casuali** su tutta la libreria (M49) e box "In coda" (M52) col pulsante "Successivo" (M57).
 - **SearchPage** (`/search`): `searchVideos` (M7) con debounce, azioni contestuali sui risultati.
 - **ChannelPage** (`/channels/:key`): equivalente di "Guarda" nel CLI.
-- **SourcesPage** (`/sources`): "Gestisci fonti" + "Sincronizza" fusi in una vista.
-- **SingleDownloadPage** (`/download`): "Scarica video singolo" (M8). Ridisegnata in M24: input sempre presente (nessun redirect, si accodano più download restando sulla pagina), sola barra di avanzamento durante il download (niente box di log), storico sempre visibile sotto (componente condiviso `JobHistory`).
-- **JobsPage** (`/jobs`): job in corso con log/progresso live via SSE (bridge sugli eventi di `jobManager`), più storico persistito (`JobHistory`, con cancellazione — M24).
-- **LibraryPage** (`/library`): "Libreria" — placeholder vuoto (M23). La vecchia "Riorganizza libreria" è stata ritirata dal web perché strutturalmente non aveva più nulla da spostare; `reorganizeLibrary()` resta come utility core/CLI/API.
+- **SourcesPage** (`/sources`): "Gestisci fonti" + "Sincronizza" fusi in una vista; qui sono confluiti anche il download di un singolo video e il pannello job, un tempo pagine dedicate `/download` e `/jobs`, poi ritirate (M40).
+- **ArchivedPage** (`/archived`): elenco dei video archiviati (`hidden`), con ripristino.
+- **SettingsPage** (`/settings`): impostazioni (cartelle media, cookie) e sezione "Riproduzione" con l'interruttore del mini-player (M54, preferenza in `localStorage`).
 
 ## Config (`data/config.json`)
 
