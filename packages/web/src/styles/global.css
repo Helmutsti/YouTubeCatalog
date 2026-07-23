@@ -515,7 +515,11 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   border-radius: 10px; padding: 0 16px; color: var(--ink); font-size: 14px;
 }
 .add-row input:focus { outline: none; border-color: var(--accent); }
-.add-row .btn-primary { flex: none; height: 46px; padding: 0 20px; font-size: 13.5px; }
+/* Bug 3 (effetto ottico): altezze input/bottone identiche a 46px, ma il bottone
+   pieno d'accento senza bordo visibile "pesa" più dell'input incorniciato dal
+   suo bordo 1px. Un bordo sottile (accento più scuro) lo incornicia come
+   l'input, attenuando l'illusione — nessun cambio di dimensioni. */
+.add-row .btn-primary { flex: none; height: 46px; padding: 0 20px; font-size: 13.5px; border-color: color-mix(in oklch, var(--accent) 62%, black); }
 .add-hint { font-size: 11.5px; color: var(--faint); margin-top: 10px; }
 
 /* ===== Pagina Sorgenti: elenco fonti collassabile (accordion) ===== */
@@ -562,57 +566,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   position: relative;
 }
 .player-frame video { width: 100%; height: 100%; }
-.player-frame.audio-only video { opacity: 0; position: absolute; }
-.player-frame.audio-only .audio-face {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; color: var(--muted); background: var(--panel);
-  overflow: hidden;
-}
-.player-frame:not(.audio-only) .audio-face { display: none; }
-/* Modalità "Solo audio": la copertina del video come sfondo (invece del grigio
-   piatto), resa irriconoscibile-al-primo-sguardo con B/N + blur + scurimento,
-   così la scritta resta il fuoco visivo. Filtro SOLO su questo layer di sfondo
-   dedicato (mai su .audio-face stessa): altrimenti sfoca/sbianca anche icona e
-   testo, che vivono in .audio-face-content sopra, senza alcun filtro. */
-.audio-face-bg {
-  position: absolute; inset: 0;
-  background-size: cover; background-position: center;
-  filter: grayscale(1) blur(10px) brightness(.45);
-}
-.audio-face-content {
-  position: relative; z-index: 1;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  color: var(--ink);
-}
-/* Barra comandi custom della modalità "Solo audio": sopra il layer di sfondo
-   (z-index:1), ancorata in basso; sostituisce i comandi nativi del <video>
-   nascosto in questa modalità. */
-.audio-controls {
-  position: absolute; left: 0; right: 0; bottom: 16px; z-index: 1;
-  display: flex; align-items: center; gap: 12px;
-  padding: 0 18px;
-}
-.ac-play {
-  flex: none;
-  width: 40px; height: 40px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; cursor: pointer;
-  background: var(--accent); color: var(--accent-contrast);
-}
-.ac-play:hover { filter: brightness(1.08); }
-.ac-seek {
-  flex: 1; min-width: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.ac-seek:disabled { cursor: default; opacity: .5; }
-.ac-time {
-  flex: none;
-  color: var(--ink);
-  font-size: 13px; font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 .player-placeholder {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -869,6 +822,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .kebab:hover { background: var(--panel2); color: var(--ink); }
 .menu-backdrop { position: fixed; inset: 0; z-index: 40; }
 .menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 41; min-width: 190px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 2px; }
+.menu-list.up { top: auto; bottom: calc(100% + 4px); }
 .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 7px; background: transparent; border: none; color: var(--ink2); font-size: 13px; cursor: pointer; text-align: left; }
 .menu-item:hover { background: var(--panel2); color: var(--ink); }
 .menu-item svg { flex: none; color: var(--faint); }

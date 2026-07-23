@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Archive, ArchiveRestore, Volume2, Video as VideoIcon, Play, Pause, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Download, Archive, ArchiveRestore, Play, PictureInPicture2, Gauge, FileDown, Star, ChevronRight, ChevronLeft, ListMusic, RefreshCw, X } from 'lucide-react';
 import { getVideo, listVideos, setHidden, setFavorite, deleteVideo, triggerJob, refreshMetadata } from '../api/client.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { VideoCard } from '../components/VideoCard.jsx';
@@ -16,18 +16,6 @@ import { useQueue, removeFromQueue, clearQueue, popNextInQueue } from '../lib/qu
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
 const DOWNLOAD_LABEL = { none: 'Non scaricato', downloading: 'In download', downloaded: 'Scaricato', failed: 'Errore download' };
 
-// Orologio mm:ss (o h:mm:ss oltre l'ora) per la barra comandi "Solo audio".
-// Locale invece di formatDuration: qui serve un formato fisso e a prova di
-// NaN/valori negativi mentre currentTime/duration si aggiornano dal vivo.
-function fmtClock(sec) {
-  if (!Number.isFinite(sec)) return '0:00';
-  const s = Math.max(0, Math.floor(sec));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = String(s % 60).padStart(2, '0');
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
-}
-
 export function VideoDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -38,20 +26,12 @@ export function VideoDetailPage() {
   const [relatedCollapsed, setRelatedCollapsed] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [audioOnly, setAudioOnly] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [pipError, setPipError] = useState(null);
   const [speedIndex, setSpeedIndex] = useState(0);
   const [descExpanded, setDescExpanded] = useState(false);
   const [descClamped, setDescClamped] = useState(false);
-  // Stato per la barra comandi custom della modalità "Solo audio": lì il tag
-  // <video> è nascosto (opacity:0), quindi i suoi comandi nativi non sono
-  // raggiungibili — questi valori, sincronizzati dagli eventi del <video>,
-  // alimentano play/pausa, seek e tempo mostrati sopra la copertina.
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const videoRef = useRef(null);
   const descRef = useRef(null);
   const queue = useQueue();
@@ -66,7 +46,6 @@ export function VideoDetailPage() {
   }
 
   useEffect(reload, [id]);
-  useEffect(() => setAudioOnly(false), [id]);
   useEffect(() => setHasStarted(false), [id]);
   useEffect(() => setPipError(null), [id]);
   // Il browser azzera playbackRate a 1x a ogni nuovo <video src>: si resetta lo
@@ -75,7 +54,6 @@ export function VideoDetailPage() {
   useEffect(() => setSpeedIndex(0), [id]);
   useEffect(() => { autoplayedRef.current = false; }, [id]);
   useEffect(() => setDescExpanded(false), [id]);
-  useEffect(() => { setIsPlaying(false); setCurrentTime(0); setDuration(0); }, [id]);
 
   // Descrizione collassabile in stile YouTube: il toggle "Mostra altro" deve
   // comparire solo se il testo eccede davvero le righe clampate — una soglia
@@ -107,7 +85,6 @@ export function VideoDetailPage() {
   // se è vuota, nessun autoplay (niente fallback sui suggeriti casuali —
   // scelta esplicita del piano M52).
   function handleEnded() {
-    setIsPlaying(false);
     const next = popNextInQueue();
     if (next) navigate(`/videos/${next.id}`, { state: { autoplay: true } });
   }
@@ -116,24 +93,6 @@ export function VideoDetailPage() {
     const next = (speedIndex + 1) % SPEEDS.length;
     setSpeedIndex(next);
     if (videoRef.current) videoRef.current.playbackRate = SPEEDS[next];
-  }
-
-  // Comandi custom "Solo audio" (il <video> nativo è nascosto in quella
-  // modalità): agiscono direttamente sul videoRef; lo stato isPlaying/currentTime
-  // resta comunque allineato dagli eventi del <video> (onPlay/onPause/onTimeUpdate),
-  // così la barra è corretta anche se la riproduzione parte/finisce altrimenti.
-  function togglePlay() {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) v.play().catch(() => {});
-    else v.pause();
-  }
-
-  function onSeek(e) {
-    const v = videoRef.current;
-    const t = Number(e.target.value);
-    if (v) v.currentTime = t;
-    setCurrentTime(t);
   }
 
   // Il pulsante PiP resta sincronizzato anche se l'utente chiude la finestra
@@ -340,7 +299,7 @@ export function VideoDetailPage() {
       <Link to="/" className="back-link"><ArrowLeft size={14} />Home</Link>
       <div className="detail-body" style={{ marginTop: 16 }}>
         <div className="player-col">
-          <div className={`player-frame${audioOnly ? ' audio-only' : ''}`}>
+          <div className="player-frame">
             {isDownloaded && video.videoUrl ? (
               <>
                 <video
@@ -349,43 +308,9 @@ export function VideoDetailPage() {
                   preload="metadata"
                   poster={video.thumbnailUrl || undefined}
                   src={video.videoUrl}
-                  onPlay={() => { setHasStarted(true); setIsPlaying(true); }}
-                  onPause={() => setIsPlaying(false)}
-                  onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
-                  onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
+                  onPlay={() => setHasStarted(true)}
                   onEnded={handleEnded}
                 />
-                <div className="audio-face">
-                  {video.thumbnailUrl && (
-                    <div className="audio-face-bg" style={{ backgroundImage: `url("${video.thumbnailUrl}")` }} />
-                  )}
-                  <div className="audio-face-content"><Volume2 size={32} /><span>Solo audio</span></div>
-                  {/* Comandi custom: la modalità solo-audio nasconde il <video>
-                      (opacity:0) e con esso i comandi nativi — qui una barra
-                      minimale sempre visibile sopra la copertina. */}
-                  <div className="audio-controls">
-                    <button
-                      className="ac-play"
-                      onClick={togglePlay}
-                      aria-label={isPlaying ? 'Pausa' : 'Riproduci'}
-                      title={isPlaying ? 'Pausa' : 'Riproduci'}
-                    >
-                      {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-                    </button>
-                    <input
-                      className="ac-seek"
-                      type="range"
-                      min={0}
-                      max={duration || 0}
-                      step="any"
-                      value={Math.min(currentTime, duration || 0)}
-                      onChange={onSeek}
-                      disabled={!duration}
-                      aria-label="Avanzamento"
-                    />
-                    <span className="ac-time">{fmtClock(currentTime)} / {fmtClock(duration)}</span>
-                  </div>
-                </div>
                 {!hasStarted && (
                   <button className="player-cover" onClick={() => videoRef.current?.play()} aria-label="Riproduci">
                     {video.thumbnailUrl && <img src={video.thumbnailUrl} alt="" />}
@@ -438,12 +363,6 @@ export function VideoDetailPage() {
               >
                 <Star size={18} fill={video.favorite ? 'currentColor' : 'none'} />
               </button>
-              {isDownloaded && (
-                <button className="btn" onClick={() => setAudioOnly((v) => !v)}>
-                  {audioOnly ? <VideoIcon size={14} /> : <Volume2 size={14} />}
-                  {audioOnly ? 'Video' : 'Solo audio'}
-                </button>
-              )}
               {isDownloaded && document.pictureInPictureEnabled && (
                 <button className="btn" onClick={togglePiP}>
                   <PictureInPicture2 size={14} />

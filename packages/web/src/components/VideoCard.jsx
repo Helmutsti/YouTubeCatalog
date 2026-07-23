@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Star, StarOff, Trash2, ListPlus, ListMinus } from 'lucide-react';
 import { StatusBadge } from './StatusBadge.jsx';
@@ -25,6 +25,9 @@ const MENU = {
 // il bug delle card profilo).
 export function VideoCard({ video, onDecide, selected, onToggleSelect, layout = 'grid' }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
+  const kebabRef = useRef(null);
+  const menuListRef = useRef(null);
   const dur = formatDuration(video.durationSeconds);
   const date = videoDisplayDate(video);
   const actions = actionsFor(video);
@@ -50,6 +53,21 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect, layout = 
   const isDownloaded = video.download === 'downloaded';
   const queueItems = useQueue();
   const queued = queueItems.some((q) => q.id === video.id);
+
+  // Bug: su una card in fondo al viewport il menu ⋮ (aperto sempre verso il
+  // basso) usciva fuori schermo e le voci restavano irraggiungibili. All'apertura
+  // misuriamo lo spazio sotto il kebab: se non basta per il menu e sopra c'è
+  // posto, lo apriamo verso l'alto. useLayoutEffect così il flip avviene prima
+  // del paint (nessun lampeggio verso il basso).
+  useLayoutEffect(() => {
+    if (!menuOpen) { setDropUp(false); return; }
+    const btn = kebabRef.current;
+    const list = menuListRef.current;
+    if (!btn || !list) return;
+    const r = btn.getBoundingClientRect();
+    const h = list.offsetHeight;
+    setDropUp(window.innerHeight - r.bottom < h + 8 && r.top > h + 8);
+  }, [menuOpen]);
 
   async function act(kind) {
     setMenuOpen(false);
@@ -121,6 +139,7 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect, layout = 
   const menu = (
     <div className="card-menu">
       <button
+        ref={kebabRef}
         className="kebab"
         aria-label="Azioni"
         title="Azioni"
@@ -131,7 +150,7 @@ export function VideoCard({ video, onDecide, selected, onToggleSelect, layout = 
       {menuOpen && (
         <>
           <div className="menu-backdrop" onClick={(e) => { e.preventDefault(); setMenuOpen(false); }}></div>
-          <div className="menu-list" onClick={(e) => e.stopPropagation()}>
+          <div ref={menuListRef} className={`menu-list${dropUp ? ' up' : ''}`} onClick={(e) => e.stopPropagation()}>
             {otherActions.map((a) => {
               const m = MENU[a.kind] ?? MENU.download;
               const Icon = m.Icon;
