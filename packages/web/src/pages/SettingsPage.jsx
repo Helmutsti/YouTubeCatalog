@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, FolderCog, Clapperboard, Cookie, Trash2, PictureInPicture2 } from 'lucide-react';
+import { Download, Upload, FolderCog, Clapperboard, Cookie, Trash2, PictureInPicture2, Play } from 'lucide-react';
 import { BACKUP_URL, restoreBackup, getConfig, setMediaRoot, setVideosRoot, uploadCookies, deleteCookies } from '../api/client.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast } from '../lib/toast.js';
-import { useMiniPlayerEnabled, setMiniPlayerEnabled } from '../lib/playerStore.js';
+import { useMiniPlayerEnabled, setMiniPlayerEnabled, useAutoplayOnOpen, setAutoplayOnOpen } from '../lib/playerStore.js';
 
 export function SettingsPage() {
   useTitle('Impostazioni');
 
-  // --- Riproduzione (mini-player, M54) — preferenza solo client (localStorage) ---
+  // --- Riproduzione (mini-player, M54; autoplay all'apertura, M60) — preferenze solo client (localStorage) ---
   const miniPlayerEnabled = useMiniPlayerEnabled();
+  const autoplayOnOpen = useAutoplayOnOpen();
 
   // --- Backup / ripristino ---
   const [busy, setBusy] = useState(false);
@@ -150,6 +151,24 @@ export function SettingsPage() {
             className={`switch${miniPlayerEnabled ? ' on' : ''}`}
             onClick={() => setMiniPlayerEnabled(!miniPlayerEnabled)}
             aria-label="Attiva/disattiva mini-player flottante"
+          >
+            <span className="switch-knob" />
+          </button>
+        </div>
+        <div className="setting-row">
+          <div className="setting-text">
+            <div className="setting-title"><Play size={15} /> Riproduzione automatica</div>
+            <div className="setting-sub">
+              Se attivo, aprendo un video già scaricato la riproduzione parte da sola. I browser possono bloccare l'avvio automatico con audio finché non interagisci con la pagina: in quel caso resta la copertina "Riproduci" da cliccare. L'avanzamento automatico della coda/playlist funziona comunque, a prescindere da questa impostazione. La preferenza è salvata in questo browser.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoplayOnOpen}
+            className={`switch${autoplayOnOpen ? ' on' : ''}`}
+            onClick={() => setAutoplayOnOpen(!autoplayOnOpen)}
+            aria-label="Attiva/disattiva riproduzione automatica all'apertura di un video"
           >
             <span className="switch-knob" />
           </button>

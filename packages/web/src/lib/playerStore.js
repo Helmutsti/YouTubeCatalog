@@ -20,11 +20,25 @@ import { useEffect, useState } from 'react';
 // - `current`/`playing`/`started` → solo in memoria: lo stato di riproduzione
 //   non ha senso persistito (un refresh ricarica comunque la pagina daccapo).
 const ENABLED_KEY = 'ondo:miniPlayerEnabled';
+// Preferenza client gemella di `enabled` (M60): avvio automatico della
+// riproduzione all'apertura manuale di un video scaricato. Solo localStorage,
+// default ON. Non tocca l'avanzamento della coda (che resta indipendente).
+const AUTOPLAY_ON_OPEN_KEY = 'ondo:autoplayOnOpen';
 
 function loadEnabled() {
   try {
     const raw = localStorage.getItem(ENABLED_KEY);
     // Default ON: assente = attivo (scelta di scope M54).
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function loadAutoplayOnOpen() {
+  try {
+    const raw = localStorage.getItem(AUTOPLAY_ON_OPEN_KEY);
+    // Default ON: assente = attivo (scelta di scope M60).
     return raw === null ? true : raw === 'true';
   } catch {
     return true;
@@ -38,6 +52,7 @@ const STATE = (globalThis.__ondoPlayerState ??= {
   detached: false,     // il player è "staccato" nel riquadro flottante (persiste anche in pausa)
   minimized: false,    // "minimizza" manuale: forza il flottante ANCHE sulla pagina del video (senza cambiare route)
   enabled: loadEnabled(),
+  autoplayOnOpen: loadAutoplayOnOpen(),
   videoEl: null,       // il vero <video>, registrato da MiniPlayer (non reattivo)
   pendingPlay: null,   // id di cui MiniPlayer deve avviare il play appena l'elemento è pronto
   listeners: new Set()
@@ -137,6 +152,15 @@ export function consumePendingPlay(id) {
   return true;
 }
 
+// Intento di autoplay ancora pendente per `id`? (sola lettura, non consuma).
+// Usato da MiniPlayer per (ri)tentare il play quando l'elemento <video> è
+// pronto — l'intento resta finché la riproduzione non parte davvero (onPlay lo
+// consuma), così sopravvive al remount dell'elemento durante l'avanzamento di
+// coda (M60-fix).
+export function getPendingPlay() {
+  return STATE.pendingPlay;
+}
+
 export function getPlayerState() {
   return STATE;
 }
@@ -149,6 +173,23 @@ export function setMiniPlayerEnabled(v) {
   STATE.enabled = !!v;
   try {
     localStorage.setItem(ENABLED_KEY, String(STATE.enabled));
+  } catch {
+    // localStorage non disponibile (es. modalità privata): la preferenza resta
+    // valida per la durata della scheda.
+  }
+  notify();
+}
+
+// Preferenza client "autoplay all'apertura" (M60), gemella di quella del
+// mini-player: stessa forma (STATE + localStorage), stesso pattern di hook.
+export function isAutoplayOnOpenEnabled() {
+  return STATE.autoplayOnOpen;
+}
+
+export function setAutoplayOnOpen(v) {
+  STATE.autoplayOnOpen = !!v;
+  try {
+    localStorage.setItem(AUTOPLAY_ON_OPEN_KEY, String(STATE.autoplayOnOpen));
   } catch {
     // localStorage non disponibile (es. modalità privata): la preferenza resta
     // valida per la durata della scheda.
@@ -173,6 +214,17 @@ export function useMiniPlayerEnabled() {
   const [enabled, setEnabled] = useState(STATE.enabled);
   useEffect(() => {
     const listener = () => setEnabled(STATE.enabled);
+    STATE.listeners.add(listener);
+    listener();
+    return () => STATE.listeners.delete(listener);
+  }, []);
+  return enabled;
+}
+
+export function useAutoplayOnOpen() {
+  const [enabled, setEnabled] = useState(STATE.autoplayOnOpen);
+  useEffect(() => {
+    const listener = () => setEnabled(STATE.autoplayOnOpen);
     STATE.listeners.add(listener);
     listener();
     return () => STATE.listeners.delete(listener);
