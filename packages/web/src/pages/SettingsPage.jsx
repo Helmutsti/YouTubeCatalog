@@ -272,19 +272,12 @@ export function SettingsPage() {
       </div>
 
       <div className="d-desc">
-        <span className="label">Backup</span>
-        Scarica un archivio .zip con il catalogo, i metadati e lo storico dei job. I file video non sono inclusi.
-        <div style={{ marginTop: 14 }}>
+        <span className="label">Backup e ripristino</span>
+        Scarica un archivio .zip con il catalogo, i metadati e lo storico dei job (i file video non sono inclusi), oppure ripristina da un backup .zip: i file attuali vengono prima copiati in una cartella di sicurezza, poi sostituiti. Dopo un ripristino occorre riavviare il server.
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
           <a className="btn btn-primary" href={BACKUP_URL}>
             <Download size={15} /> Scarica backup .zip
           </a>
-        </div>
-      </div>
-
-      <div className="d-desc">
-        <span className="label">Ripristino</span>
-        Carica un backup .zip. I file attuali vengono prima copiati in una cartella di sicurezza, poi sostituiti. Dopo il ripristino occorre riavviare il server.
-        <div style={{ marginTop: 14 }}>
           <label className="btn" style={{ cursor: busy ? 'default' : 'pointer' }}>
             <Upload size={15} /> {busy ? 'Ripristino…' : 'Ripristina da file…'}
             <input type="file" accept=".zip" hidden onChange={handleRestore} disabled={busy} />

@@ -18,7 +18,6 @@ Classificati dall'utente in tre gruppi per priorità/probabilità di essere ripr
 ### Da realizzare/definire
 
 1. **Salvare le impostazioni tramite cookie/persistenza** (annotato da "miglioramento:", scope da definire). Idea dell'utente: usare i cookie per salvare le impostazioni. Da chiarire prima di dettagliarla: *quali* impostazioni (oggi le preferenze puramente client — mini-player M54, e a breve l'autoplay M60 — vivono già in `localStorage`; le impostazioni "vere" come cartelle media/cookie YouTube vivono lato server in `config.json`), e se l'intento sia migrare/uniformare la persistenza client (cookie vs `localStorage`, che è già in uso e sopravvive a refresh/chiusura) o sincronizzare qualcosa lato server. Da riprendere con l'utente per definirne il perimetro reale prima di farne una milestone.
-2. **Backup e Ripristino in un unico box grafico** (annotato da "miglioramento:"). In `SettingsPage.jsx` oggi "Backup" (scarica .zip) e "Ripristino" (carica .zip) sono due `d-desc` separati: unirli in un solo box grafico. Cambio principalmente estetico/di layout; da definire solo il dettaglio della disposizione interna (le due azioni affiancate o impilate nello stesso riquadro).
 
 ### Forse
 
