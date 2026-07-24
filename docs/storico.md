@@ -1428,3 +1428,7 @@ Cambio minimo deciso con l'utente (la riflessione più ampia sul **player custom
 2. **`MiniPlayer` + `playerStore`**: l'intento di autoplay resta vivo finché la riproduzione non parte davvero (consumato su `onPlay`) e il `play()` è (ri)tentato quando l'elemento è **pronto** — eventi `onLoadedMetadata`/`onCanPlay` del `<video>`, non più al solo cambio di id. Aggiunto `getPendingPlay()` (lettura non distruttiva).
 
 **Verifica.** Build di produzione pulita. Autoplay a fine video confermato funzionante dall'utente via HMR (`play() OK`); confermati anche lo switch (ON parte / OFF no, coda sempre in autoplay) e il ⏭ solo nel box coda. Log di debug temporanei (`[QDBG]`) rimossi a fine diagnosi.
+
+## Ritocco — Backup e ripristino in un unico box (Impostazioni)
+
+Promosso dal backlog ("miglioramento:"). In `SettingsPage.jsx` le due sezioni separate "Backup" e "Ripristino" (due `d-desc`) sono state fuse in un unico box "Backup e ripristino" con i due pulsanti **affiancati** (flex-row con `flex-wrap`); testo descrittivo accorpato; le notice di esito/errore del ripristino restano nel box. Solo layout/presentazione, nessuna modifica di logica (stessi `BACKUP_URL`/`handleRestore`/stato `busy`/`error`/`result`). Build di produzione pulita; verifica visiva a carico dell'utente via HMR (limite noto dell'automazione su `localhost`).
