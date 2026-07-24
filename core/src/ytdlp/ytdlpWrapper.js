@@ -650,7 +650,7 @@ async function downloadMergedVideoAudio(videoId, url, { onLog, onProgress, signa
     if (!audioAbs) throw new Error(`Traccia audio non trovata dopo il download per ${videoId}`);
 
     onLog('Fondo video e audio (ffmpeg)...');
-    const mergedAbs = await muxVideoAudio(paths, videoAbs, audioAbs);
+    const mergedAbs = await muxVideoAudio(paths, videoAbs, audioAbs, signal);
     // Rimuove il video-only originale se il fuso ha nome/estensione diversi
     // (es. sorgente .webm → fuso .mp4) e la traccia audio temporanea.
     if (path.resolve(mergedAbs) !== path.resolve(videoAbs) && existsSync(videoAbs)) unlinkSync(videoAbs);
@@ -693,7 +693,15 @@ function findTempAudioFile(paths, videoId) {
 // Fonde video + audio in un mp4 (stream copy, nessuna ricodifica) mappando il
 // video dal primo input e l'audio dal secondo. Ritorna il path assoluto del
 // file fuso ("<base>.mp4" accanto al video-only).
-function muxVideoAudio(paths, videoAbs, audioAbs) {
+//
+// `signal` (M58): come runYtdlp, lo spawn riceve nativamente l'AbortSignal —
+// senza, l'interruzione manuale (la "X") veniva IGNORATA durante questa fase di
+// merge (unico spawn del pipeline di download che non lo propagava): ffmpeg
+// finiva comunque e il job poteva chiudersi come "scaricato" nonostante l'abort.
+// All'abort Node uccide ffmpeg ed emette 'error' (AbortError) → si rifiuta la
+// promise, che risale al catch di downloadMergedVideoAudio (già gestisce
+// signal?.aborted). Il file temporaneo di merge va ripulito anche in questo caso.
+function muxVideoAudio(paths, videoAbs, audioAbs, signal) {
   return new Promise((resolve, reject) => {
     const dir = path.dirname(videoAbs);
     const base = path.basename(videoAbs, path.extname(videoAbs));
@@ -702,10 +710,14 @@ function muxVideoAudio(paths, videoAbs, audioAbs) {
     const bin = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
     const ffmpeg = paths.ffmpegLocation ? path.join(paths.ffmpegLocation, bin) : bin;
     const args = ['-y', '-i', videoAbs, '-i', audioAbs, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-movflags', '+faststart', tmpAbs];
-    const proc = spawn(ffmpeg, args);
+    const proc = spawn(ffmpeg, args, { signal });
     let errTail = '';
     proc.stderr.on('data', (d) => { errTail = `${errTail}${d.toString()}`.slice(-1000); });
-    proc.on('error', reject);
+    proc.on('error', (err) => {
+      // Sia l'abort (AbortError) sia un errore di avvio lasciano il tmp a metà.
+      if (existsSync(tmpAbs)) { try { unlinkSync(tmpAbs); } catch { /* best-effort */ } }
+      reject(err);
+    });
     proc.on('close', (code) => {
       if (code !== 0) {
         if (existsSync(tmpAbs)) unlinkSync(tmpAbs);

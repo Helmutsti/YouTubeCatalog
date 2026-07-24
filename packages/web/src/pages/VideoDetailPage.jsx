@@ -12,7 +12,7 @@ import { formatDuration, videoDisplayDate, channelKey, channelInitial, formatByt
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast, updateToast } from '../lib/toast.js';
 import { useQueue, removeFromQueue, clearQueue } from '../lib/queueStore.js';
-import { usePlayer, setCurrent, getVideoEl, useMiniPlayerEnabled, setMinimized } from '../lib/playerStore.js';
+import { usePlayer, setCurrent, getVideoEl, useMiniPlayerEnabled, setMinimized, useAutoplayOnOpen } from '../lib/playerStore.js';
 import { useQueueAdvance } from '../hooks/useQueueAdvance.js';
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 0.25, 0.5, 0.75];
@@ -40,6 +40,7 @@ export function VideoDetailPage() {
   // esiste solo dopo che il player si è agganciato allo slot di questa pagina).
   const player = usePlayer();
   const miniEnabled = useMiniPlayerEnabled();
+  const autoplayOnOpen = useAutoplayOnOpen();
   // Avanzamento coda condiviso con MiniPlayer (M57): stesso percorso della fine
   // video, così i pulsanti "Successivo" e l'autoplay non divergono.
   const goToNext = useQueueAdvance();
@@ -80,12 +81,14 @@ export function VideoDetailPage() {
   // diventa il "corrente" del player globale, che si aggancia allo slot qui
   // sotto (#player-dock-slot). `play: true` quando si arriva da un autoplay di
   // coda (navigate con state.autoplay a fine video, M52) — il player globale
-  // avvia la riproduzione appena l'elemento è pronto. Best-effort: alcuni
-  // browser possono bloccare l'autoplay con audio; in quel caso resta la
-  // copertina "Riproduci".
+  // avvia la riproduzione appena l'elemento è pronto. Da M60 l'autoplay parte
+  // anche alla semplice apertura manuale della pagina, se la preferenza client
+  // `autoplayOnOpen` è attiva (default ON); l'avanzamento della coda resta
+  // indipendente da questa preferenza. Best-effort: alcuni browser possono
+  // bloccare l'autoplay con audio; in quel caso resta la copertina "Riproduci".
   useEffect(() => {
     if (video?.download !== 'downloaded' || !video.videoUrl) return;
-    const wantPlay = !!location.state?.autoplay && !autoplayedRef.current;
+    const wantPlay = (autoplayOnOpen || !!location.state?.autoplay) && !autoplayedRef.current;
     if (wantPlay) autoplayedRef.current = true;
     setCurrent(video, { play: wantPlay });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -403,14 +406,6 @@ export function VideoDetailPage() {
                 <button className="btn" onClick={cycleSpeed} title="Cambia velocità di riproduzione">
                   <Gauge size={14} />
                   {SPEEDS[speedIndex]}x
-                </button>
-              )}
-              {/* "Successivo" (M57): salto manuale al prossimo video in coda, come
-                  controllo di riproduzione in stile YouTube. Visibile solo se c'è
-                  un successivo reale; indipendente da isDownloaded. */}
-              {hasNext && (
-                <button className="btn" onClick={() => goToNext({ currentId: id })} title="Vai al prossimo video in coda">
-                  <SkipForward size={14} />Successivo
                 </button>
               )}
               {downloadAction && (

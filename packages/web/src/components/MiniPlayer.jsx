@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { X, Maximize2, Play } from 'lucide-react';
 import {
   usePlayer, useMiniPlayerEnabled,
-  setPlaying, setStarted, setVideoEl, setDetached, setMinimized, clear, consumePendingPlay, getPlayerState
+  setPlaying, setStarted, setVideoEl, setDetached, setMinimized, clear, consumePendingPlay, getPendingPlay, getPlayerState
 } from '../lib/playerStore.js';
 import { useQueueAdvance } from '../hooks/useQueueAdvance.js';
 
@@ -126,11 +126,19 @@ export function MiniPlayer() {
   // Autoplay richiesto (setCurrent con play:true): parte quando l'elemento con
   // il nuovo src è montato. L'effetto scatta al cambio di id, cioè dopo che il
   // portale ha (ri)montato il <video> e videoRef è aggiornato.
-  useEffect(() => {
-    if (current && consumePendingPlay(current.id)) {
+  // Autoplay robusto al remount (M60-fix): l'intento (pendingPlay nello store)
+  // resta finché la riproduzione non parte davvero (onPlay lo consuma). Il play
+  // va TENTATO quando l'elemento è pronto — non al solo cambio di id, perché
+  // durante l'avanzamento di coda l'elemento <video> viene rimontato DOPO il
+  // cambio di id (a quel punto videoRef.current è ancora null e il play andava
+  // perso). Perciò si (ri)tenta qui (cambio id, se l'elemento c'è già) e sugli
+  // eventi loadedmetadata/canplay dell'elemento (vedi il <video> sotto).
+  const attemptAutoplay = () => {
+    if (current && getPendingPlay() === current.id) {
       videoRef.current?.play().catch(() => {});
     }
-  }, [current?.id]);
+  };
+  useEffect(() => { attemptAutoplay(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fine video: prosegue la coda M52 tramite il percorso condiviso con i pulsanti
   // "Successivo" manuali (M57) — vedi hooks/useQueueAdvance.js. Se agganciati
@@ -166,7 +174,9 @@ export function MiniPlayer() {
         preload="metadata"
         src={current.videoUrl || undefined}
         poster={current.thumbnailUrl || undefined}
-        onPlay={() => { setStarted(true); setPlaying(true); }}
+        onLoadedMetadata={attemptAutoplay}
+        onCanPlay={attemptAutoplay}
+        onPlay={() => { consumePendingPlay(current.id); setStarted(true); setPlaying(true); }}
         onPause={() => setPlaying(false)}
         onEnded={handleEnded}
       />
