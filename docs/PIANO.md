@@ -5,7 +5,7 @@
 
 ## Milestone pianificate
 
-_(Nessuna milestone pianificata al momento. Le ultime completate — **M58** interruzione "X" verificata + fix `signal` al merge ffmpeg, **M59** ⏭ solo nel box coda, **M60** switch autoplay all'apertura + fix dell'autoplay a fine video — vivono in `storico.md`. Le prossime candidate stanno nei "Punti aperti" qui sotto.)_
+_(Nessuna milestone pianificata al momento. Le ultime completate — **M61** backup completo, **M62** i video già visti restano nella coda, **M63** server unico che serve API + Web GUI (build servita same-origin) + pacchetto Docker per QNAP — vivono in `storico.md`. Le prossime candidate stanno nei "Punti aperti" qui sotto.)_
 
 ## Punti aperti da definire e schedulare
 
@@ -18,6 +18,8 @@ Classificati dall'utente in tre gruppi per priorità/probabilità di essere ripr
 ### Da realizzare/definire
 
 1. **Salvare le impostazioni tramite cookie/persistenza** (annotato da "miglioramento:", scope da definire). Idea dell'utente: usare i cookie per salvare le impostazioni. Da chiarire prima di dettagliarla: *quali* impostazioni (oggi le preferenze puramente client — mini-player M54, e a breve l'autoplay M60 — vivono già in `localStorage`; le impostazioni "vere" come cartelle media/cookie YouTube vivono lato server in `config.json`), e se l'intento sia migrare/uniformare la persistenza client (cookie vs `localStorage`, che è già in uso e sopravvive a refresh/chiusura) o sincronizzare qualcosa lato server. Da riprendere con l'utente per definirne il perimetro reale prima di farne una milestone.
+2. **"Metti in coda" fuori dalla pagina di riproduzione dovrebbe aprire il mini-player** (annotato dall'utente). Comportamento voluto: quando **non** si è sulla pagina di un video (`VideoDetailPage`), aggiungere qualcosa alla coda dovrebbe **aprire il mini-player** riproducendo il **primo video appena aggiunto**. Problema osservato: se la preferenza del mini-player è **disattivata** (interruttore in Impostazioni → Riproduzione, M54), l'azione "metti in coda" **non ha alcun effetto visibile** (nessun player si apre). Sotto-questione sollevata dall'utente: **forse va rivalutata la scelta di lasciare il mini-player sempre attivo** (togliere l'interruttore o cambiarne la semantica) invece di poterlo disattivare. Da definire: cosa fa esattamente "metti in coda" da una pagina non-player, e se il mini-player debba essere sempre disponibile. Coinvolge `queueStore` (M52), `useQueueAdvance` (M57), `playerStore`/`MiniPlayer` (M54).
+3. **Verificare: i video di siti esterni (non-YouTube) funzionano senza proxy?** (domanda dell'utente). Da chiarire cosa si intende con "esterni" e "proxy": (a) la **riproduzione** di un video di un sito esterno (es. Rumble, M8) **già scaricato** avviene comunque su file locale servito da `/media/videos` (nessun proxy verso il sito originale — dovrebbe funzionare come per YouTube); (b) se invece si intende **streaming/anteprima diretta dal sito** senza download, quello sì richiederebbe un proxy/logica dedicata. Punto da riformulare con l'utente per capire lo scenario reale prima di trarne una milestone.
 
 ### Forse
 
@@ -47,4 +49,4 @@ Classificati dall'utente in tre gruppi per priorità/probabilità di essere ripr
 
 ## Bug noti da correggere
 
-_(Nessun bug noto al momento. I due bug dell'incidente `TDeUgkAGVXU` — restart distruttivo e ripiego silenzioso a 360p — sono stati risolti con **M55**; esito in `documentazione.md`.)_
+1. **La lista dei "Suggeriti" si rimescola quando si mette/toglie un preferito** — non deve. I video suggeriti (M49) sono casuali su tutta la libreria; i preferiti sono un asse a sé (`favorite`, M43). Mettere/togliere un preferito su `VideoDetailPage` provoca un aggiornamento che **rimescola** la lista dei suggeriti. Comportamento corretto: la lista dei suggeriti deve restare **stabile** durante le azioni sul video corrente (si aggiorna solo col pulsante "Rimescola" o cambiando video). Da individuare cosa la fa ricaricare (probabilmente un `loadRelated`/`useEffect` legato allo stato del video che cambia dopo `setFavorite`).

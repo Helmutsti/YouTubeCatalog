@@ -1432,3 +1432,67 @@ Cambio minimo deciso con l'utente (la riflessione più ampia sul **player custom
 ## Ritocco — Backup e ripristino in un unico box (Impostazioni)
 
 Promosso dal backlog ("miglioramento:"). In `SettingsPage.jsx` le due sezioni separate "Backup" e "Ripristino" (due `d-desc`) sono state fuse in un unico box "Backup e ripristino" con i due pulsanti **affiancati** (flex-row con `flex-wrap`); testo descrittivo accorpato; le notice di esito/errore del ripristino restano nel box. Solo layout/presentazione, nessuna modifica di logica (stessi `BACKUP_URL`/`handleRestore`/stato `busy`/`error`/`result`). Build di produzione pulita; verifica visiva a carico dell'utente via HMR (limite noto dell'automazione su `localhost`).
+
+## M61 — Backup completo (tutto lo stato tranne i video grezzi)
+
+**Motivazione.** Il backup `.zip` (M36) conteneva solo `catalog.json` + `metadata.json` + `jobs.json`. Richiesta dell'utente: deve includere **TUTTO tranne i video grezzi**, **incluse le impostazioni**. Obiettivo: un backup che basti a ricostruire l'archivio a parte i video (ri-scaricabili), e che preservi le copertine dei video ormai rimossi da YouTube.
+
+**Scope deciso con l'utente** (tre domande di scope, B2):
+- `config.json` → **incluso per intero**. Caveat noto e accettato: un ripristino su un'altra macchina sovrascrive anche i percorsi macchina-specifici (`mediaRoot`/`videosRoot`/`vlcPath`/`binaryPath`/`ffmpegLocation`). Era proprio il motivo per cui M36 lo escludeva; l'utente ha scelto la fedeltà completa.
+- `media/thumbnails/` + `media/avatars/` → **inclusi** (immagini, non video).
+- `core/cookies.txt` → **escluso** (credenziali di sessione, lo zip non è cifrato; si ri-esporta dal browser).
+- `media/videos/` (+ `videosRoot`) → **esclusi** (i video grezzi).
+- `media/.ytdlp-archive.txt` → **escluso** (ledger dedup ridondante, il catalogo è la fonte primaria, si rigenera).
+
+**Implementazione.** Cuore in `core/src/services/backupService.js` (adapter sottili invariati come regola):
+- `createBackup()`: whitelist JSON estesa a `['catalog.json','metadata.json','jobs.json','config.json']`; in più enumera i file (piatti) di `thumbnailsDir`/`avatarsDir` (da `getPaths()`) e li aggiunge allo zip col nome `thumbnails/<file>` / `avatars/<file>`.
+- `restoreBackup()`: separa entry JSON (whitelist) da entry immagine. Validazione invariata (`catalog.json` obbligatorio + ogni JSON dev'essere JSON valido). **Copia di sicurezza dei soli JSON** in `data/pre-restore-<ts>/` (le immagini vengono sovrascritte/aggiunte, mai cancellate → non serve copiarle). Ripristino atomico (tmp+rename) dei JSON e delle immagini. Sicurezza: le immagini passano solo se il nome matcha `^(thumbnails|avatars)/<basename>$` senza `/`, `\`, `.`, `..` (`parseImageEntryName`) — qualunque altro nome (path traversal, prefisso ignoto, fuori whitelist) è **ignorato**, nessuna scrittura arbitraria dallo zip. Ritorno esteso con `restoredImages` (conteggio), invariati `restored`/`backedUp`/`safetyDir`/`requiresRestart`.
+- `packages/server/src/routes/backup.routes.js`: limite `express.raw` alzato da 200mb a **1gb** (gli zip ora includono le immagini).
+- `packages/cli/cli.js` e `packages/web/src/pages/SettingsPage.jsx`: testi aggiornati (cosa contiene/sostituisce) + conteggio immagini ripristinate nel riepilogo.
+
+**Verifica end-to-end reale** (script isolato sui dati veri, poi ripulito):
+- `createBackup` → zip ~38MB, 4 JSON (incluso `config.json`) + 351 thumbnails + 60 avatars; **niente cookie, niente video** (nessun `.mp4/.webm/.mkv`).
+- Ripristino idempotente over-self → 4 JSON + 411 immagini riscritti con byte identici (dati reali non alterati); cartella `pre-restore-*` di test rimossa.
+- Rifiuto nomi malevoli → zip con `../../EVIL_BACKUP_TEST.txt`, `thumbnails/../x.txt`, `config.json.evil`: ripristinato **solo** `catalog.json`, `restoredImages: 0`, nessun file scritto fuori posto. Residui di test ripuliti.
+
+## M62 — I video già visti restano nella coda (avanzamento non distruttivo)
+
+**Motivazione.** La coda effimera (M52) **consumava** gli elementi: `popNextInQueue()` rimuoveva la testa a ogni avanzamento (fine video o ⏭), così il video che partiva spariva dal box "In coda". Richiesta dell'utente: i video **già visti devono restare** in coda (per rivederli / scorrere a ritroso). Rovescia deliberatamente la meccanica M52 ("il video appena finito non vi ricompare").
+
+**Fattibilità (lettura del codice reale, B1).** La coda vive tutta client-side (`packages/web/src/lib/queueStore.js`, `sessionStorage`, mai in `core`/catalog — invariante M52). L'unico consumatore di `popNextInQueue` era `hooks/useQueueAdvance.js` (percorso unico M57, condiviso da `MiniPlayer.onEnded` e dai ⏭ manuali). Nessuna modifica a `core`/server: cambio interamente nello strato web.
+
+**Implementazione.**
+- `queueStore.js`: `popNextInQueue()` (distruttiva) → **`getNextAfter(id)`** non distruttiva. Ritorna l'elemento successivo a `id` nella lista senza mutare lo stato: coda vuota → `null`; `id` in coda → l'elemento dopo (o `null` se ultimo); `id` non in coda/`null` → il primo. Non ritorna mai lo stesso `id` (nessun replay).
+- `useQueueAdvance.js`: `goToNext` calcola `refId = currentId ?? getPlayerState().current?.id` e usa `getNextAfter(refId)`. Rimossa la vecchia guardia `while` anti-replay (superflua: `getNextAfter` non ritorna mai il corrente). Il resto del percorso (reparenting su elemento vivo + `navigate` nello stesso tick, M60-fix) invariato.
+- `VideoDetailPage.jsx`: `hasNext` non è più `queue.some(q => q.id !== id)` ma deriva dalla **posizione** del corrente (`currentQueueIdx`): se il corrente è in coda ed è l'ultimo non c'è successivo; se non è in coda il successivo è il primo. Aggiunta la classe `queue-item-current` all'elemento in riproduzione.
+- `global.css`: stile `.queue-item-current` (tinta d'accento + barra a sinistra) per distinguere il corrente dai già visti.
+
+**Verifica.** Build di produzione web pulita (1816 moduli, nessun errore). Nessun riferimento residuo a `popNextInQueue` nel codice. Verifica visiva del flusso (accodo A,B,C → i già visti restano, corrente evidenziato, ⏭/fine-video avanzano senza cancellare, nessun replay) a carico dell'utente via HMR (limite noto: l'automazione non raggiunge `localhost`).
+
+## M63 — Server unico (Web GUI servita attraverso l'API) + pacchetto Docker per QNAP
+
+**Motivazione.** L'utente vuole far girare il progetto in un container Docker sul suo NAS QNAP, con i video su una cartella del NAS. Deciso con l'utente (domande di scope): **un solo container** serve sia l'API sia la Web GUI compilata (usabile dal browser di qualsiasi dispositivo in LAN); **yt-dlp in un volume montato** (aggiornabile senza rebuild); target x86_64 (architettura del NAS non nota all'utente → preparato per il caso comune, ARM documentato come caveat).
+
+**Fattibilità (lettura del codice reale, B1).** Il progetto era già ben predisposto: il binario yt-dlp si sceglie per `process.platform` (`yt-dlp_linux` su Linux, M50), ffmpeg si risolve da `tools/` o dal PATH, `videosRoot` separa già i video dal resto. Scoperte chiave nell'analisi:
+- **VLC del tutto irrilevante nel container**: `playbackService` è CLI-only e **non è esposto da nessuna route del server** (verificato con grep: nessun `/play` in `packages/server`). La Web GUI riproduce via `<video>` sullo streaming `/media`, quindi headless va benissimo.
+- **Base Debian/glibc obbligatoria**: il binario ufficiale `yt-dlp_linux` è PyInstaller/glibc → **non gira su Alpine/musl**. Scelto `node:22-bookworm-slim`.
+- **`apiBase` vuoto di default** (M47): la web usa già path relativi per `/api` e `/media` → servita same-origin dal server funziona **senza configurazione**.
+- Unica dipendenza runtime del server: `express` (core è zero-dipendenze) → immagine leggera possibile.
+
+**Implementazione.**
+- **`packages/server/src/index.js`**: dopo i router `/api` e i media, se esiste `packages/web/dist` (risolto via `import.meta.url` → `../../web/dist`) la si serve con `express.static` + **fallback SPA** (`GET *` che non inizia per `/api`/`/media` → `index.html`, per react-router). Guardia `existsSync`: build assente (sviluppo) → comportamento invariato, il dev continua col proxy di Vite. **Non-breaking**.
+- **`Dockerfile`** multi-stage: builder `node:22-bookworm-slim` (`npm ci` con cache dei manifest + `vite build` della web + `npm prune --omit=dev` per eliminare vite/rollup); runtime stessa base + `ffmpeg`/`ca-certificates` da apt, copia l'albero già installato/buildato dallo stage builder (mantiene i symlink dei workspace, così `@catalog/core` resta risolvibile). **Non** copia `tools/` (yt-dlp arriva dal volume). `EXPOSE 3001`, `HEALTHCHECK` su `/`, `CMD node packages/server/src/index.js`.
+- **`docker-compose.yml`**: bind mount `data`, `media`, la cartella grande del NAS → `/app/media/videos` (mount annidato), `tools` → `/app/tools`. Port `3001:3001`. Riga cookie facoltativa commentata.
+- **`.dockerignore`**: esclude `node_modules`, `/media`, dati personali di `data/`, binari di `tools/`, `.git`, `core/cookies.txt` → contesto di build leggero, nessun dato personale nell'immagine.
+- **`docs/DOCKER.md`**: guida deploy QNAP/Container Station (scoperta architettura con `uname -m`, nota ARM, download/aggiornamento yt-dlp nel volume, struttura cartelle, porte, cookie).
+
+**Verifica (end-to-end reale, Docker presente sulla macchina).**
+1. Codice: `vite build` ok (1816 moduli). Server avviato in locale (con `config.json` temporaneamente ripuntato — `videosRoot` reale `D:/YouTube/Video` non presente ora — e **ripristinato identico** dopo, B4): `GET /` → 200 HTML (SPA), `GET /videos/abc` → 200 HTML (fallback SPA), `GET /api/videos` → 200 JSON, `GET /api/inesistente` → **404** (la guardia lascia passare `/api` al 404 di Express, non serve la SPA). Tutto corretto.
+2. Immagine: `docker build` completato (ffmpeg installato, web buildata, dev-deps prunati; ~1.05GB). Container avviato senza volumi (config di default → video in `/app/media/videos`): server in ascolto, `GET /` → 200 HTML, `GET /api/videos` → 200 JSON, **healthcheck `healthy`**, `ffmpeg -version` ok dentro il container. Container di prova rimosso.
+
+**Note/limiti.** Verificato su x86_64 (build/run locali). Su **ARM** il binario ufficiale yt-dlp non gira: da gestire con pip/binario dedicato (documentato in `DOCKER.md`, non implementato). **Nessuna autenticazione** (invariante single-user): ok su LAN fidata. La verifica reale di avvio **sul QNAP** (permessi cartelle, deposito di `yt-dlp_linux`, mount dei video del NAS) resta a carico dell'utente.
+
+**Estensione a runtime canonico (stessa milestone, direttiva dell'utente in corso d'opera).** L'utente ha chiesto di rendere questo **la struttura del progetto**, non solo la confezione Docker: «da adesso non esisterà più una API e un server web separati, la web app va fruita attraverso l'API», precisando però che **le cartelle del repo restano separate** (`core`/`server`/`web`/`cli`, architettura a strati invariata — cambia solo il runtime). Conseguenze applicate, oltre al meccanismo già descritto sopra (che coincide con la richiesta):
+- **`package.json` (root)**: nuovi script `build` (`vite build` della web), `start` (avvia il server), `serve` (`build && start`). La produzione è ora un solo comando/processo; gli script `server`/`web`/`web:lan` restano per lo sviluppo hot-reload a due processi.
+- **`README.md`** (esisteva già, ricco e accurato — aggiornato, non riscritto): preambolo con il modello «un solo server, cartelle separate»; §5 riorganizzata in **produzione (server unico, `npm run serve` → `:3001`)** vs **sviluppo (due processi Vite+API)**; sezione LAN che parte dal caso produzione (apri `http://<ip>:3001`), con le vecchie modalità A/B di sviluppo racchiuse in un `<details>`; sottosezione Docker che rimanda a `DOCKER.md`. Il commento in `index.js` che citava «(vedi README)» ora ha un README reale a cui puntare.
+- **Nessuna modifica al codice oltre `index.js`**: `VITE_API_BASE_URL`/`web:lan` **conservati** di proposito (opzione per client remoti / futuro Electron, che dipende da quell'indipendenza posizionale — vedi Punti aperti "Client desktop Electron"). Il principio d'architettura «web = client HTTP del server» resta vero: ora è semplicemente **same-origin**.

@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "npm run build --workspace=@catalog/web",
+    "start": "node packages/server/src/index.js",
+    "serve": "npm run build && npm start",
     "cli": "node packages/cli/cli.js",
     "server": "node packages/server/src/index.js",
     "server:local": "node packages/server/src/index.js --local",

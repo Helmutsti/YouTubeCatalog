@@ -1,4 +1,7 @@
 import express from 'express';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from '@catalog/core';
 import { videosRouter } from './routes/videos.routes.js';
 import { sourcesRouter } from './routes/sources.routes.js';
@@ -32,6 +35,26 @@ app.use('/api', libraryRouter);
 app.use('/api', backupRouter);
 app.use('/api', configRouter);
 mountMediaRoutes(app);
+
+// Web GUI compilata (M63): quando la build di Vite è presente
+// (packages/web/dist), la si serve dallo STESSO host/porta dell'API — è così
+// che il container Docker espone un unico servizio usabile dal browser. La web
+// usa già path relativi per /api e /media (apiBase vuoto di default), quindi
+// same-origin funziona senza configurazione. Guardia existsSync: se la build
+// non c'è (sviluppo con Vite), niente cambia — il dev continua a usare il proxy
+// di Vite. Non-breaking.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webDist = path.resolve(__dirname, '../../web/dist');
+if (existsSync(webDist)) {
+  app.use(express.static(webDist));
+  // Fallback SPA: qualunque GET che non sia /api o /media (già gestiti sopra)
+  // restituisce index.html, così le rotte lato client di react-router
+  // (/videos/:id, /search, ecc.) funzionano anche su refresh/accesso diretto.
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/media')) return next();
+    res.sendFile(path.join(webDist, 'index.html'));
+  });
+}
 
 // --local (script "server:local"): lega l'ascolto a 127.0.0.1 invece che a
 // tutte le interfacce — l'API non risulta raggiungibile da altri dispositivi
