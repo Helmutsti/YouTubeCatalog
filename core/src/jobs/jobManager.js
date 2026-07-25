@@ -39,6 +39,14 @@ function ensureLoaded() {
     const data = JSON.parse(readFileSync(file, 'utf-8'));
     for (const [id, job] of Object.entries(data.jobs ?? {})) jobs.set(id, job);
     loaded = true;
+    // Riconciliazione all'avvio (come catalogStore fa con downloading→none): un
+    // job rimasto `running`/`queued` quando il processo è morto è ORFANO — il suo
+    // worker e il suo AbortController vivevano solo in memoria e non esistono più.
+    // Senza questo, resterebbe "in corso" per sempre nella UI: non interrompibile
+    // (nessun controller da recuperare) né cancellabile (deleteJob rifiuta i
+    // running/queued). Lo si chiude come `failed`, coerente con l'esito di
+    // un'interruzione qualunque.
+    if (reconcileOrphanJobs()) persistStore();
     return;
   }
 
@@ -60,10 +68,29 @@ function ensureLoaded() {
     }
   }
   loaded = true;
+  reconcileOrphanJobs();
   persistStore();
   for (const f of migratedFiles) {
     try { rmSync(f); } catch { /* best-effort: il consolidato è già scritto */ }
   }
+}
+
+// Chiude come `failed` ogni job rimasto `running`/`queued` da un processo
+// precedente (orfano: worker e AbortController vivevano solo in memoria). Va
+// chiamata subito dopo aver popolato la Map da disco, prima che il jobManager
+// serva richieste. Ritorna true se ha modificato qualcosa (per decidere il persist).
+function reconcileOrphanJobs() {
+  let changed = false;
+  const now = new Date().toISOString();
+  for (const job of jobs.values()) {
+    if (job.status === 'running' || job.status === 'queued') {
+      job.status = 'failed';
+      job.error = { message: 'Interrotto dal riavvio dell\'applicazione (job orfano).' };
+      job.finishedAt = now;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 // Scrittura atomica dell'intero storico (tmp + rename, atomico su NTFS). Le
