@@ -685,10 +685,11 @@ async function reorganizeFlow() {
   setMessage(`\n✔ Riorganizzati ${res.moved} file per creator.${extra}\n`);
 }
 
-// --- Backup / Ripristino (M36) ---------------------------------------------
-// Salva/legge un archivio .zip con catalogo + metadati + storico job (niente
-// media, niente config/cookie). Il ripristino sostituisce i file dopo una copia
-// di sicurezza e richiede il riavvio del processo (stato in memoria).
+// --- Backup / Ripristino (M36, esteso M61) ---------------------------------
+// Salva/legge un archivio .zip con catalogo + metadati + storico job +
+// impostazioni + copertine/avatar (tutto tranne i video grezzi e i cookie). Il
+// ripristino sostituisce i file dopo una copia di sicurezza dei soli JSON e
+// richiede il riavvio del processo (stato in memoria, config.json compreso).
 async function saveBackupFlow() {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   const dest = await input({
@@ -708,14 +709,15 @@ async function restoreBackupFlow() {
   }
   const confirmed = await confirm({
     message:
-      'Il ripristino sostituisce catalogo, metadati e storico job attuali (viene salvata una copia di sicurezza). Continuare?',
+      'Il ripristino sostituisce catalogo, metadati, storico job, impostazioni e copertine/avatar attuali (viene salvata una copia di sicurezza dei file dati). Continuare?',
     default: false
   });
   if (!confirmed) return;
   const result = core.restoreBackup(readFileSync(src));
   setMessage(
-    `\n✔ Ripristinati: ${result.restored.join(', ')}.\n` +
-      `  Copia di sicurezza: ${result.safetyDir}\n` +
+    `\n✔ Ripristinati: ${result.restored.join(', ')}` +
+      (result.restoredImages ? ` + ${result.restoredImages} immagini` : '') +
+      `.\n  Copia di sicurezza: ${result.safetyDir}\n` +
       `  ⚠ Riavvia il server/CLI per applicare le modifiche.\n`
   );
 }

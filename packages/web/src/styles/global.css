@@ -740,8 +740,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border));
 }
 .queue-list { display: flex; flex-direction: column; gap: 10px; }
-.queue-item { align-items: center; }
+.queue-item { align-items: center; padding: 4px; border-radius: 8px; }
 .queue-item .rel-thumb { width: 84px; }
+/* Video attualmente in riproduzione (M62): la coda non si svuota più, i già
+   visti restano — questo evidenzia dov'è il corrente nella lista. */
+.queue-item-current {
+  background: color-mix(in oklch, var(--accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 
 .rel-thumb {
   width: 120px; flex: none; aspect-ratio: 16/9; border-radius: 8px; position: relative; overflow: hidden;

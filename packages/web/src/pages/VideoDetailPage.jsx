@@ -294,11 +294,14 @@ export function VideoDetailPage() {
   const key = channelKey(video);
   const actions = actionsFor(video);
   const isDownloaded = video.download === 'downloaded';
-  // Esiste un "successivo" reale in coda? (M57) Tiene conto della guardia di
-  // goToNext: se l'unico elemento in coda è il video già in visione non c'è un
-  // successivo, quindi i pulsanti ⏭ non compaiono. Indipendente da isDownloaded:
-  // far avanzare la coda non dipende dal file locale del video corrente.
-  const hasNext = queue.some((q) => q.id !== id);
+  // Esiste un "successivo" reale in coda? (M57, ridefinito in M62 con
+  // l'avanzamento non distruttivo). Con getNextAfter il successivo è l'elemento
+  // DOPO il video corrente nella coda: se il corrente è in coda ed è l'ultimo
+  // non c'è successivo; se non è in coda, il successivo è il primo elemento.
+  // Indipendente da isDownloaded: far avanzare la coda non dipende dal file
+  // locale del video corrente.
+  const currentQueueIdx = queue.findIndex((q) => q.id === id);
+  const hasNext = currentQueueIdx === -1 ? queue.length > 0 : currentQueueIdx < queue.length - 1;
   const downloadAction = actions.find((a) => a.kind === 'download');
   const hideAction = actions.find((a) => a.kind === 'hide' || a.kind === 'unhide');
   const dur = formatDuration(video.durationSeconds);
@@ -586,7 +589,7 @@ export function VideoDetailPage() {
                     </div>
                     <div className="queue-list">
                       {queue.map((q) => (
-                        <div key={q.id} className="rel-item queue-item">
+                        <div key={q.id} className={`rel-item queue-item${q.id === id ? ' queue-item-current' : ''}`}>
                           <Link to={`/videos/${q.id}`} className="rel-thumb">
                             {q.thumbnailUrl && <img src={q.thumbnailUrl} alt="" loading="lazy" />}
                             {formatDuration(q.durationSeconds) && <div className="dur">{formatDuration(q.durationSeconds)}</div>}

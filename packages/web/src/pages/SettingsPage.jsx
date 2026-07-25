@@ -273,7 +273,7 @@ export function SettingsPage() {
 
       <div className="d-desc">
         <span className="label">Backup e ripristino</span>
-        Scarica un archivio .zip con il catalogo, i metadati e lo storico dei job (i file video non sono inclusi), oppure ripristina da un backup .zip: i file attuali vengono prima copiati in una cartella di sicurezza, poi sostituiti. Dopo un ripristino occorre riavviare il server.
+        Scarica un archivio .zip con il catalogo, i metadati, lo storico dei job, le impostazioni e le copertine/avatar (i file video e i cookie non sono inclusi), oppure ripristina da un backup .zip: i file dati attuali vengono prima copiati in una cartella di sicurezza, poi sostituiti. Dopo un ripristino occorre riavviare il server.
         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
           <a className="btn btn-primary" href={BACKUP_URL}>
             <Download size={15} /> Scarica backup .zip
@@ -286,7 +286,7 @@ export function SettingsPage() {
         {error && <div className="notice error" style={{ marginTop: 14 }}>{error}</div>}
         {result && (
           <div className="notice success" style={{ marginTop: 14 }}>
-            Ripristinati: {result.restored.join(', ')}. Copia di sicurezza in <code>{result.safetyDir}</code>.
+            Ripristinati: {result.restored.join(', ')}{result.restoredImages ? ` + ${result.restoredImages} immagini` : ''}. Copia di sicurezza in <code>{result.safetyDir}</code>.
             {' '}<strong>Riavvia il server</strong> per applicare le modifiche.
           </div>
         )}

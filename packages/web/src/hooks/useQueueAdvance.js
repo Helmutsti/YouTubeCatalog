@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { popNextInQueue } from '../lib/queueStore.js';
+import { getNextAfter } from '../lib/queueStore.js';
 import { getPlayerState, setCurrent, setPlaying } from '../lib/playerStore.js';
 import { getVideo } from '../api/client.js';
 
@@ -24,15 +24,17 @@ export function useQueueAdvance() {
   const location = useLocation();
   return async function goToNext({ currentId = null } = {}) {
     setPlaying(false);
-    let next = popNextInQueue();
-    // Guardia edge-case (M57): scarta la testa finché coincide col video già in
-    // visione (l'utente ha accodato il video che sta guardando), per non
-    // "avanzare" allo stesso video. Inattiva a fine video (currentId null: il
-    // video finito è già stato tolto dalla coda dall'autoplay).
-    while (next && currentId && next.id === currentId) next = popNextInQueue();
+    const st = getPlayerState();
+    // Avanzamento NON distruttivo (M62): il "successivo" è l'elemento dopo il
+    // video corrente nella coda, che NON viene rimossa (i già visti restano).
+    // Il riferimento è l'id passato dal chiamante (⏭ manuale) o, a fine video
+    // (currentId null), il video attualmente nel player. getNextAfter non
+    // ritorna mai lo stesso id, quindi non serve più la vecchia guardia di
+    // scarto anti-replay.
+    const refId = currentId ?? st.current?.id ?? null;
+    const next = getNextAfter(refId);
     if (!next) return;
 
-    const st = getPlayerState();
     const dockedNow = st.current && !st.minimized && location.pathname === `/videos/${st.current.id}`;
 
     // Se esiste già un elemento <video> vivo — nel riquadro flottante O

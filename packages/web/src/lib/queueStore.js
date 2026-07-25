@@ -74,16 +74,19 @@ export function clearQueue() {
   notify();
 }
 
-// Consuma il primo elemento (autoplay a fine video, M52): lo rimuove e lo
-// ritorna, così la coda resta FIFO e il video appena finito non vi ricompare.
-// Ritorna null se la coda è vuota (nessun autoplay, niente fallback).
-export function popNextInQueue() {
-  if (STATE.items.length === 0) return null;
-  const [next, ...rest] = STATE.items;
-  STATE.items = rest;
-  persist();
-  notify();
-  return next;
+// Avanzamento NON distruttivo (M62): ritorna il video successivo a `id` nella
+// coda SENZA rimuovere nulla, così i video già visti vi restano (rovescia la
+// meccanica "consuma-e-scarta" di M52). Regole:
+//  - coda vuota → null;
+//  - `id` è nella coda → l'elemento dopo di esso (o null se è l'ultimo);
+//  - `id` non è in coda (o è null) → il primo elemento.
+// Non ritorna mai un elemento con lo stesso `id` di partenza (nessun replay).
+export function getNextAfter(id) {
+  const items = STATE.items;
+  if (items.length === 0) return null;
+  const idx = id ? items.findIndex((v) => v.id === id) : -1;
+  if (idx === -1) return items[0];
+  return items[idx + 1] ?? null;
 }
 
 export function isQueued(id) {
