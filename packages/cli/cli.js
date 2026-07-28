@@ -843,6 +843,18 @@ async function mainMenu() {
   }
 }
 
+// Prerequisiti esterni (M64). Passa da setMessage e non da console.warn: il
+// primo clearScreen() di mainMenu cancellerebbe qualunque stampa diretta fatta
+// qui, mentre un messaggio in sospeso sopravvive esattamente a una schermata.
+const tools = core.checkTools();
+if (!tools.ok) {
+  setMessage(
+    '\n⚠  Installazione incompleta — i download NON funzioneranno.\n\n' +
+    tools.messages.map((m) => `  • ${m}`).join('\n\n') +
+    '\n\n  Rimedio: esegui  npm run setup\n'
+  );
+}
+
 mainMenu()
   .then(() => {
     console.log('Ciao!');

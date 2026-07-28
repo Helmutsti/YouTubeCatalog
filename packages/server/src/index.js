@@ -2,7 +2,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from '@catalog/core';
+import { loadConfig, reportToolsOnStartup } from '@catalog/core';
 import { videosRouter } from './routes/videos.routes.js';
 import { sourcesRouter } from './routes/sources.routes.js';
 import { jobsRouter } from './routes/jobs.routes.js';
@@ -67,6 +67,12 @@ if (existsSync(webDist)) {
 // l'API via VITE_API_BASE_URL (vedi README).
 const local = process.argv.includes('--local');
 const host = local ? '127.0.0.1' : undefined;
+
+// Prerequisiti esterni (M64): avvisa subito se yt-dlp/ffmpeg mancano, invece di
+// far scoprire il problema come `spawn ENOENT` a metà del primo download. Non
+// blocca l'avvio: sfogliare il catalogo e riprodurre i video già scaricati
+// funziona comunque.
+reportToolsOnStartup();
 
 const config = loadConfig();
 app.listen(config.port, host, () => {

@@ -15,7 +15,8 @@ import { searchVideos } from './services/searchService.js';
 import { reorganizeLibrary, deleteVideoFile, deleteVideoCompletely } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { createBackup, restoreBackup } from './services/backupService.js';
-import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile } from './config.js';
+import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
+import { checkTools, reportToolsOnStartup } from './preflight.js';
 
 // interruptible (M51): solo i due job di download vero e proprio (lunghi,
 // pesanti su disco) — enrichSource/addSource scaricano solo metadati, pochi
@@ -90,6 +91,11 @@ export {
   // config/introspezione
   loadConfig,
   getPaths,
+  // prerequisiti esterni (yt-dlp/ffmpeg): controllo all'avvio di CLI e server,
+  // con rimando a `npm run setup` invece di uno spawn ENOENT a metà download (M64)
+  checkTools,
+  reportToolsOnStartup,
+  expectedToolNames,
   // impostazioni a runtime: scrittura config + posizione cartella media (M37)
   // e cartella video dedicata separata da copertine/avatar (M38)
   updateConfig,

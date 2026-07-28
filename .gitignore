@@ -7,13 +7,11 @@ data/metadata.json
 data/config.json
 data/jobs/*.json
 data/jobs.json
-tools/yt-dlp.exe
-tools/yt-dlp_linux
-tools/yt-dlp_macos
-tools/ffmpeg.exe
-tools/ffprobe.exe
-tools/ffmpeg
-tools/ffprobe
+# Binari esterni: procurati da `npm run setup`, mai versionati (peserebbero
+# ~100-190MB per aggiornamento nella history). Si ignora l'intera cartella
+# invece dei singoli nomi, così coprono anche i .tmp della scrittura atomica
+# e i nomi di nuove piattaforme senza dover aggiornare questo file.
+/tools/
 core/cookies.txt
 .env
 .env.local

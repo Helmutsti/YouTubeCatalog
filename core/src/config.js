@@ -166,6 +166,24 @@ export function deleteCookiesFile() {
   return getCookiesStatus();
 }
 
+// Nomi attesi dei binari in tools/, per sistema operativo. FONTE UNICA: la usano
+// sia getPaths() (per risolverli) sia scripts/setup.mjs (per scaricarli col nome
+// giusto) sia preflight.js (per il messaggio d'errore) — se la convenzione
+// cambiasse in un solo posto, i tre pezzi divergerebbero silenziosamente.
+// I nomi di yt-dlp sono quelli delle release ufficiali; su Linux ARM l'asset si
+// chiama `yt-dlp_linux_aarch64` ma va SALVATO come `yt-dlp_linux` (qui sotto),
+// perché è quello che il codice cerca a runtime, a prescindere dall'architettura.
+export function expectedToolNames(platform = process.platform) {
+  return {
+    ytdlp:
+      platform === 'win32' ? 'yt-dlp.exe' :
+      platform === 'darwin' ? 'yt-dlp_macos' :
+      'yt-dlp_linux',
+    ffmpeg: platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
+    ffprobe: platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+  };
+}
+
 export function getPaths() {
   const config = loadConfig();
   const mediaRoot = path.resolve(PROJECT_ROOT, config.mediaRoot);
@@ -202,10 +220,8 @@ export function getPaths() {
   // corrente — così lo stesso codice/config gira su Windows/Linux/macOS mettendo
   // in tools/ solo il binario di quella piattaforma, col nome che yt-dlp usa nelle
   // sue release ufficiali. Su Windows il default coincide con quello storico.
-  const ytdlpDefaultName =
-    process.platform === 'win32' ? 'yt-dlp.exe' :
-    process.platform === 'darwin' ? 'yt-dlp_macos' :
-    'yt-dlp_linux';
+  const toolNames = expectedToolNames();
+  const ytdlpDefaultName = toolNames.ytdlp;
   const ytdlpBinaryPath = config.ytdlp.binaryPath
     ? path.resolve(PROJECT_ROOT, config.ytdlp.binaryPath)
     : path.resolve(PROJECT_ROOT, 'tools', ytdlpDefaultName);
@@ -217,7 +233,7 @@ export function getPaths() {
   // sistema. Il nome cercato dipende dal sistema operativo (ffmpeg.exe su Windows,
   // ffmpeg altrove). Se nulla di tutto ciò, resta null e yt-dlp cerca ffmpeg nel PATH.
   const toolsDir = path.dirname(ytdlpBinaryPath);
-  const ffmpegName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const ffmpegName = toolNames.ffmpeg;
   let ffmpegLocation = null;
   if (config.ytdlp.ffmpegLocation) {
     ffmpegLocation = path.resolve(PROJECT_ROOT, config.ytdlp.ffmpegLocation);
@@ -236,6 +252,7 @@ export function getPaths() {
     catalogPath: path.join(dataDir, 'catalog.json'),
     metadataPath: path.join(dataDir, 'metadata.json'),
     jobsDir,
+    toolsDir,
     ytdlpBinaryPath,
     downloadArchivePath: path.join(mediaRoot, '.ytdlp-archive.txt'),
     cookiesPath,

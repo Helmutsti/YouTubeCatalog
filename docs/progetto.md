@@ -155,9 +155,8 @@ Monorepo con npm workspaces. **`/core`** è la libreria condivisa (le "mini API"
 
 ```
 YouTubeCatalog/
-  package.json                 # root workspaces: ["core", "packages/*"]
-  .gitignore
-  .env.example
+  package.json                 # root workspaces: ["core", "packages/*"]; script "setup" (M64)
+  .gitignore                   # /tools/ ignorata per intero: i binari non si versionano mai (M64)
   data/
     catalog.json                 # core: fonte di verità (dati curati)
     metadata.json                # metadati grezzi yt-dlp per id, consolidati (senza automatic_captions)
@@ -171,6 +170,7 @@ YouTubeCatalog/
     cookies.txt                     # FACOLTATIVO, non versionato: vedi "Cookie per video privati/non listati"
     src/
       index.js                      # superficie pubblica: re-esporta tutti i servizi sotto
+      preflight.js                  # checkTools() (M64): verifica yt-dlp/ffmpeg all'avvio di CLI e server
       config.js                     # load/validate data/config.json + .env
       catalog/catalogStore.js        # load/save atomico + mutex + reconciliation all'avvio
       catalog/catalogSchema.js
@@ -244,15 +244,20 @@ YouTubeCatalog/
         components/MiniPlayer.jsx    # UNICO <video> sopra il router, reparenting dock/flottante (M54)
         styles/global.css            # design token direzione "Cinema" (scuro), nessun framework CSS
   scripts/
-    testDownload.mjs             # script usa-e-getta per la Milestone 1
-  tools/
+    setup.mjs                    # `npm run setup` (M64): scarica yt-dlp/ffmpeg/ffprobe in tools/ per l'OS corrente
+  tools/                         # NON versionata (/tools/ in .gitignore): la popola scripts/setup.mjs
     yt-dlp.exe                   # binario standalone, invocato direttamente (no wrapper npm)
+    ffmpeg.exe · ffprobe.exe     # build statiche; se assenti si ricade su ffmpeg nel PATH
   CLAUDE.md                      # in radice: entry point che delega a docs/progetto.md (@import)
+  README.md                      # essenziale (M65): cos'è + 3 comandi + uso; l'avanzato è in docs/
   docs/                          # tutta la documentazione di riferimento
     progetto.md                    # specifiche: regole/comportamenti/profilo + contesto e architettura
     PIANO.md                       # futuro: milestone pianificate + backlog + bug
     documentazione.md              # stato attuale (riassunto vivo: core, decisioni, meccaniche controintuitive, scelte negative)
     storico.md                     # log append-only di tutte le implementazioni/decisioni, milestone per milestone
+    avvio-avanzato.md              # LAN, sviluppo a due processi, problemi di rete (spostato dal README, M65)
+    DOCKER.md                      # deploy su NAS/QNAP
+    rust-core.md                   # progetto su carta di ondo-core in Rust (ABI C) — milestone M67-M73
 ```
 
 ## Schema del catalogo (`data/catalog.json`)

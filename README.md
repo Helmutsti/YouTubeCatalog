@@ -1,228 +1,96 @@
 # YouTube Catalog (Ondo)
 
-Archivio personale e locale dei video YouTube dei tuoi creator preferiti: scarica i video per non perderli, li cataloga in un file JSON e li rende sfogliabili/riproducibili tramite una web app o un CLI a menu.
+Archivio personale e locale dei video YouTube dei tuoi creator preferiti: li scarica per non perderli, li cataloga e li rende sfogliabili e riproducibili da una web app o da un menu a terminale.
 
-Strumento **locale, single-user**. Un unico linguaggio (Node.js), nessun Python.
-
-> **Un solo server.** La web app è **servita attraverso l'API**: un unico processo (`packages/server`) espone l'API (`/api`), i media (`/media`) **e** la web app compilata, sullo stesso host e porta. Non si avviano più due server separati. Le cartelle del repo (`core/`, `packages/server/`, `packages/web/`, `packages/cli/`) restano **distinte** — cambia solo il modo di eseguire, non l'architettura a strati. In produzione: `npm run serve`, poi apri `http://localhost:3001`. Per lo sviluppo con hot-reload della web resta la modalità a due processi (vedi §5). Per il deploy su NAS/QNAP c'è l'immagine Docker: [`docs/DOCKER.md`](docs/DOCKER.md).
-
-> **Piattaforme.** Nato e usato su **Windows**. Il codice sceglie automaticamente il binario giusto (yt-dlp/ffmpeg) anche su **Linux** e **macOS** in base al sistema operativo — vedi [Prerequisiti](#1-prerequisiti). Il supporto a Linux/macOS è implementato ma **non ancora verificato end-to-end**: se lo avvii lì, confermaci pure che i download funzionano davvero.
+Strumento **locale, single-user**. Un solo linguaggio (Node.js), nessun Python.
 
 ---
 
-## 1. Prerequisiti
+## Installazione
 
-Prima di installare, procurati:
+Serve **Node.js 20 o superiore** (<https://nodejs.org>, include `npm`). Nient'altro: yt-dlp e ffmpeg se li procura il progetto.
 
-1. **Node.js 20 o superiore** — <https://nodejs.org> (include `npm`). Verifica: `node --version`.
-2. **yt-dlp** — il motore di download. Scaricalo dalle release ufficiali di yt-dlp e mettilo in `tools/`, **con il nome che yt-dlp usa per il tuo sistema** (l'app sceglie da sola quale cercare in base al sistema operativo):
-   - Windows → `tools/yt-dlp.exe`
-   - Linux → `tools/yt-dlp_linux`
-   - macOS → `tools/yt-dlp_macos`
+Dalla cartella del progetto, tre comandi:
 
-   Metti **solo** il binario del tuo sistema, non tutti (vedi passo 2).
-3. **ffmpeg** — richiesto da yt-dlp per unire video+audio alla massima qualità (e per convertire le copertine). Due modi, a scelta:
-   - **Senza toccare il sistema** *(consigliato)*: metti `ffmpeg` e `ffprobe` in `tools/` (accanto al binario di yt-dlp), **con il nome del tuo sistema**: su Windows `ffmpeg.exe` + `ffprobe.exe`, su Linux/macOS `ffmpeg` + `ffprobe` (senza estensione). L'app rileva `ffmpeg` da sé e passa la cartella a yt-dlp (`--ffmpeg-location`) — niente da installare.
-   - **Oppure** installa ffmpeg e mettilo nel **PATH** di sistema (verifica: `ffmpeg -version`). Comune su macOS con Homebrew (`brew install ffmpeg`).
-4. **VLC** *(facoltativo)* — serve solo per la riproduzione tramite VLC (menu "Guarda" del CLI). La web GUI usa il player del browser e non ne ha bisogno.
+```bash
+npm install      # dipendenze di tutti i pacchetti
+npm run setup    # scarica yt-dlp + ffmpeg in tools/ (per il tuo sistema)
+npm run serve    # compila la web app e avvia il server
+```
+
+Poi apri **<http://localhost:3001>**.
+
+Le cartelle `media/` e i file in `data/` vengono creati da soli al primo avvio: non devi preparare nulla a mano.
+
+> **Aggiornare yt-dlp.** YouTube cambia spesso e un yt-dlp vecchio smette di scaricare. Se i download iniziano a fallire, esegui `npm run setup -- --force`: riscarica l'ultima versione.
+
+> **Se hai già ffmpeg installato** nel sistema, `npm run setup` se ne accorge e non lo riscarica.
 
 ---
 
-## 2. Installazione (passo per passo)
+## Uso
 
-**Passo 1 — Ottieni il progetto e installa le dipendenze**
+### Web app (consigliata)
 
-Dalla cartella del progetto:
+`npm run serve`, poi <http://localhost:3001>. Da lì: aggiungi playlist come fonti, sincronizza, scarica, cerca, guarda, gestisci impostazioni e backup.
 
-```bash
-npm install
-```
+Per aprirla da un telefono o un altro PC di casa, usa `http://<IP-di-questa-macchina>:3001` (**l'indirizzo IP**, non il nome del PC). Dettagli e casi problematici: [`docs/avvio-avanzato.md`](docs/avvio-avanzato.md).
 
-Installa in un colpo solo le dipendenze di tutti i pacchetti (core, server, CLI, web) grazie agli npm workspaces.
-
-**Passo 2 — Metti il binario di yt-dlp al suo posto**
-
-Crea la cartella `tools/` (se non c'è) e copiaci dentro **il binario del tuo sistema** (vedi Prerequisiti per i nomi):
-
-```
-tools/yt-dlp.exe      # Windows
-tools/yt-dlp_linux    # Linux
-tools/yt-dlp_macos    # macOS
-```
-
-Metti solo quello che ti serve. Su **Linux/macOS** rendi eseguibili i binari appena scaricati (non hanno il bit di esecuzione di default):
-
-```bash
-chmod +x tools/yt-dlp_* tools/ffmpeg tools/ffprobe
-```
-
-**Passo 3 — Crea il file di configurazione**
-
-Copia il file di esempio e rinominalo:
-
-```
-data/config.example.json   ->   data/config.json
-```
-
-> Se salti questo passo, `data/config.json` viene comunque creato in automatico con i valori di default al primo avvio. Copiare l'esempio serve solo se vuoi personalizzarlo subito.
-
-Apri `data/config.json` e regola se necessario:
-
-| Campo | A cosa serve |
-|-------|--------------|
-| `mediaRoot` | Cartella di copertine e avatar (default `./media`, dentro il progetto). |
-| `videosRoot` | Cartella dei **file video** (default `null` = `mediaRoot/videos`). Impostalo a un percorso assoluto per tenere i video su un altro disco, es. `"D:\\YouTube\\Video"`. |
-| `port` | Porta del server API (default `3001`). |
-| `playback.vlcPath` | Percorso di `vlc.exe` (solo per la riproduzione via VLC). |
-| `ytdlp.binaryPath` | Lascia `null` (default): l'app sceglie da sola il binario giusto per il sistema operativo (`yt-dlp.exe`/`yt-dlp_linux`/`yt-dlp_macos` in `tools/`). Impostalo solo per forzare un percorso specifico. |
-| `ytdlp.cookiesFile` | Lascia `null` per usare `core/cookies.txt` se presente (vedi sotto). |
-
-> Attenzione: nei percorsi Windows dentro il JSON usa la doppia backslash, es. `"D:\\YouTube\\Video"`.
-
-Le cartelle di `media/` e i file dati in `data/` vengono creati automaticamente al primo avvio: non devi crearli a mano.
-
-**File che scrivi tu, e dove:**
-
-| File | Obbligatorio? | Dove |
-|------|---------------|------|
-| `tools/yt-dlp.exe` · `yt-dlp_linux` · `yt-dlp_macos` | Sì | binario yt-dlp, **solo** quello del tuo sistema |
-| `tools/ffmpeg(.exe)` + `tools/ffprobe(.exe)` | Facoltativo | ffmpeg dentro il progetto invece che nel PATH; su Linux/macOS senza estensione (vedi Prerequisiti) |
-| `data/config.json` | Consigliato (altrimenti auto-creato) | copia da `data/config.example.json` |
-| `core/cookies.txt` | Facoltativo | vedi sezione Cookie |
-
----
-
-## 3. Cookie per video privati / non listati (facoltativo)
-
-Se la tua playlist "da scaricare" contiene video **privati o non listati** del tuo account, yt-dlp deve autenticarsi coi cookie della tua sessione YouTube.
-
-1. Nel browser esporta i cookie di YouTube in **formato Netscape** (es. con l'estensione "Get cookies.txt LOCALLY").
-2. Salva il file esportato come:
-
-```
-core/cookies.txt
-```
-
-Fatto: quando il file è presente viene passato automaticamente a ogni chiamata di yt-dlp. Se il file non c'è, tutto funziona lo stesso (semplicemente niente autenticazione). Il file **non** viene versionato (è in `.gitignore`).
-
-> In alternativa puoi indicare un percorso diverso in `data/config.json` → `ytdlp.cookiesFile`.
-
----
-
-## 4. Backup e ripristino del catalogo
-
-Il backup crea un **archivio `.zip`** con i file dati del catalogo — **`catalog.json` + `metadata.json` + `jobs.json`**. **NON** include i file video (che restano dove sono) né `config.json`/`cookies.txt` (specifici della macchina).
-
-**Come si fa:**
-
-- **Dalla web GUI** → pagina **Impostazioni**:
-  - **Scarica backup .zip** — scarica l'archivio.
-  - **Ripristina da file…** — carica un `.zip` di backup.
-- **Dal CLI** → menu **Backup / Ripristino** → *Salva backup su file…* / *Ripristina da file…* (indichi un percorso su disco).
-
-**Cosa succede al ripristino:** i file dati attuali vengono prima **copiati in una cartella di sicurezza** (`data/pre-restore-<data-ora>/`), poi sostituiti con quelli dell'archivio. Nulla viene cancellato.
-
-> ⚠️ Dopo un ripristino **riavvia il server** (e/o il CLI): lo stato è tenuto in memoria e caricato all'avvio, quindi le modifiche hanno effetto solo dopo il riavvio.
-
----
-
-## 5. Come avviare e usare web app + API e CLI
-
-Ci sono due interfacce, entrambe costruite sulle stesse funzioni di `core`. Usa quella che preferisci.
-
-### Web app + API — produzione (server unico, consigliato)
-
-Un **solo** processo serve tutto (API, media e web app compilata):
-
-```bash
-npm run serve       # = npm run build && npm start
-```
-
-Poi apri **<http://localhost:3001>** nel browser. `npm run build` compila la web
-in `packages/web/dist`; `npm start` avvia il server, che la serve same-origin
-insieme all'API (`/api/...`) e ai media (`/media/...`). Nessun secondo server,
-nessun proxy. L'API resta interrogabile direttamente (es.
-`curl http://localhost:3001/api/videos`). Dopo aver modificato il codice della
-web, rilancia `npm run build` (o `npm run serve`) per aggiornare la build servita.
-
-### Web app + API — sviluppo (due processi, hot-reload)
-
-Per lavorare sulla web con ricarica automatica servono **due processi** (in due terminali):
-
-```bash
-npm run server      # API su http://localhost:3001
-npm run web         # Vite dev server su http://localhost:5173 (proxy di /api e /media verso :3001)
-```
-
-Apri **<http://localhost:5173>**. La web usa path relativi, quindi lo stesso
-codice funziona sia qui (proxy di Vite) sia in produzione (same-origin) senza
-modifiche.
-
-### Uso in rete locale (LAN)
-
-**In produzione (server unico) è immediato:** avvia `npm run serve` e apri da un
-altro dispositivo `http://<IP-della-macchina>:3001` — un solo processo serve web
-app + API, l'ascolto è già su tutte le interfacce. È la modalità consigliata per
-l'uso in casa (ed è ciò che fa anche il container Docker). Con `npm start`
-(equivalente, senza rebuild) idem. Salta pure le due modalità qui sotto, che
-riguardano lo **sviluppo** a due processi.
-
-<details>
-<summary>Modalità di sviluppo a due processi (Vite dev + API)</summary>
-
-Due modalità, a seconda che tu voglia o no che l'API sia raggiungibile direttamente da altri dispositivi. `cli`, `server` (API) e `web` (GUI) restano comunque tre cartelle indipendenti che non si parlano mai tra loro a livello di codice — CLI e API importano entrambe (separatamente) solo `@catalog/core`, la GUI parla con l'API solo via HTTP.
-
-**Modalità A — "gui+proxy api" (consigliata): l'API non è mai esposta in rete**
-
-```bash
-npm run server:local   # API legata SOLO a 127.0.0.1 — irraggiungibile da altri dispositivi
-npm run web:lan         # GUI raggiungibile in LAN
-```
-
-La GUI resta pienamente funzionante: il proxy di sviluppo di Vite gira sulla stessa macchina del server e raggiunge comunque `127.0.0.1:3001` da lì. Nessun dispositivo remoto tocca mai l'API — solo la porta `5173` è esposta. Verificato dal vivo: `curl http://<ip-lan>:3001/api/videos` fallisce (connessione rifiutata), `curl http://<ip-lan>:5173/api/videos` funziona (passa dal proxy).
-
-**Modalità B — "api+gui": entrambe esposte, comunicazione diretta (niente proxy)**
-
-```bash
-npm run server          # API su tutte le interfacce, raggiungibile in LAN
-npm run web:lan
-```
-
-Serve anche impostare, in `packages/web/.env.local` (già presente nel progetto, con la riga commentata di default — decommentala e correggi l'IP):
-
-```
-VITE_API_BASE_URL=http://<ip-lan-del-pc-col-server>:3001
-```
-
-Con questa variabile impostata la GUI parla con l'API **direttamente** con l'IP indicato, senza passare dal proxy di Vite — utile, ad esempio, in vista di un futuro client separato (Electron) che deve raggiungere l'API senza un dev server in mezzo. Richiede **riavviare** `web:lan` dopo aver modificato `.env.local` (Vite legge le variabili solo all'avvio).
-
-</details>
-
-> **Usa sempre l'IP, non il nome del PC** (in entrambe le modalità, per raggiungere la GUI). Un indirizzo tipo `http://nome-pc:5173` spesso **non** si raggiunge da altri dispositivi (telefoni, smart TV, altri PC) perché la risoluzione del nome macchina Windows (NetBIOS) non è affidabile su tutta la rete — non è un problema di firewall, è proprio il nome che non si risolve in un IP. Caso reale verificato: `http://pc-sala:5173` irraggiungibile, `http://192.168.5.44:5173` (stessa macchina) funzionante da subito. Se anche l'IP diretto non si raggiunge, allora sì il sospetto si sposta sul **firewall di Windows** (verifica una regola inbound "Allow" per Node.js sul profilo di rete attivo, `Get-NetFirewallRule -Direction Inbound | Where DisplayName -match node`) o su un eventuale isolamento tra dispositivi della rete Wi-Fi (comune sulle reti "ospiti").
-
-### CLI
-
-Un solo comando, menu navigabile con le **frecce** (nessun comando da digitare):
+### Menu a terminale
 
 ```bash
 npm run cli
 ```
 
-Da qui puoi gestire le fonti (playlist), sincronizzare, rivedere le novità, scaricare, cercare, guardare (con VLC), fare backup/ripristino e impostazioni. Il CLI **non** richiede che il server sia avviato.
+Tutto navigabile con le **frecce**, nessun comando da digitare. Fa le stesse cose della web app, più la riproduzione con VLC. Non richiede che il server sia avviato.
 
-> Nota: se modifichi i dati con uno strumento mentre un altro processo (server o CLI) è già in esecuzione, **riavvia** quel processo — ognuno tiene il catalogo in memoria e lo ricarica solo all'avvio.
+---
 
-### Docker (NAS / QNAP)
+## Configurazione
 
-Il modello a server unico è impacchettato in un'immagine Docker, pensata per un
-NAS QNAP (Container Station) ma eseguibile su qualunque host Docker:
+Tutto sta in `data/config.json`, creato da solo al primo avvio con valori sensati (`data/config.example.json` è il modello). I campi che potresti voler cambiare:
 
-```bash
-docker compose up -d --build
-```
+| Campo | A cosa serve |
+|---|---|
+| `videosRoot` | Cartella dei **file video**. Default `null` = dentro `media/videos`. Impostala per tenerli su un altro disco, es. `"D:\\YouTube\\Video"`. |
+| `mediaRoot` | Cartella di copertine e avatar (default `./media`). |
+| `port` | Porta del server (default `3001`). |
+| `playback.vlcPath` | Percorso di `vlc.exe`, solo per la riproduzione via VLC dal menu a terminale. |
 
-Poi apri `http://<IP-del-NAS>:3001`. I video vivono su una cartella del NAS
-montata come volume; ffmpeg è già nell'immagine; yt-dlp sta in un volume
-(`tools/`) così lo aggiorni senza ricostruire l'immagine. Guida completa
-(architettura del NAS, volumi, aggiornamento di yt-dlp, cookie):
-**[`docs/DOCKER.md`](docs/DOCKER.md)**.
+> Nei percorsi Windows dentro il JSON serve la **doppia** backslash: `"D:\\YouTube\\Video"`.
+
+Le stesse cartelle si possono spostare anche dalla pagina **Impostazioni** della web app.
+
+---
+
+## Video privati o non listati (facoltativo)
+
+Se la tua playlist contiene video privati o non listati del tuo account, yt-dlp deve autenticarsi:
+
+1. Esporta i cookie di YouTube in **formato Netscape** (es. con l'estensione "Get cookies.txt LOCALLY").
+2. Caricali dalla pagina **Impostazioni** della web app, oppure salva il file come `core/cookies.txt`.
+
+Se il file non c'è, tutto funziona lo stesso. Non viene mai versionato.
+
+---
+
+## Backup
+
+Dalla pagina **Impostazioni** (o dal menu **Backup / Ripristino** del CLI) si scarica un `.zip` con **tutto lo stato tranne i file video**: catalogo, metadati, storico, impostazioni, copertine e avatar.
+
+Al ripristino i file attuali vengono prima copiati in `data/pre-restore-<data-ora>/`: nulla viene cancellato. **Dopo un ripristino riavvia il server**, perché lo stato è tenuto in memoria.
+
+---
+
+## Altro
+
+| | |
+|---|---|
+| Avvio in LAN, sviluppo con hot-reload, risoluzione problemi di rete | [`docs/avvio-avanzato.md`](docs/avvio-avanzato.md) |
+| Deploy su NAS / QNAP con Docker | [`docs/DOCKER.md`](docs/DOCKER.md) |
+| Come funziona e perché (stato attuale) | [`docs/documentazione.md`](docs/documentazione.md) |
+| Regole di progetto e architettura | [`docs/progetto.md`](docs/progetto.md) |
+| Cosa manca da fare | [`docs/PIANO.md`](docs/PIANO.md) |
+| Progetto del core in Rust (ABI C) — su carta | [`docs/rust-core.md`](docs/rust-core.md) |
+
+> **Piattaforme.** Nato e usato su **Windows**. `npm run setup` e il codice scelgono i binari giusti anche su **Linux** e **macOS**, ma il supporto lì non è ancora verificato end-to-end.

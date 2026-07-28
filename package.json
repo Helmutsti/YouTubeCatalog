@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "build": "npm run build --workspace=@catalog/web",
     "start": "node packages/server/src/index.js",
     "serve": "npm run build && npm start",
