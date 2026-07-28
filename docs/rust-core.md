@@ -314,47 +314,83 @@ curiosità del momento.
 
 Aggiornato al 2026-07-28. Dettaglio operativo e comandi: [`rust/README.md`](../rust/README.md).
 
-**Fatto e verificato:**
+⚠️ **Scope ridotto su decisione dell'utente**: «non mi interessa più l'API e il FE».
+Il programma non è più M67→M73 verso un ecosistema multi-client, ma **un obiettivo
+solo**: core + CLI in Rust, autonomi. Cadono quindi l'ABI C a 2 simboli (§6), i
+binding napi-rs, `ondo-server` (M72) e il ritiro graduale del core JS (M73) — non
+perché fossero sbagliati, ma perché servivano a client che non verranno scritti.
+Restano validi il banco differenziale (§7) e le tre regole di migrazione.
 
-| Modulo JS | Rust | Note |
+**~88% della logica JS coperta**: 5.808 righe di Rust (+936 di test) per ~3.050
+delle 3.481 righe di `core/src`.
+
+| JS | Rust | |
 |---|---|---|
-| `catalog/catalogSchema.js` | `schema.rs` | flag ortogonali, `videoCategory`, migrazioni M25/M41 |
-| `catalog/catalogStore.js` | `store.rs` | mutex + scrittura atomica + reconciliation |
-| `config.js` + `preflight.js` | `config.rs` | include `expectedToolNames` (M64) |
-| `services/searchService.js` | `search.rs` | porting fedele, su unità UTF-16 |
-| `services/videoService.js` + assi hidden/favorite | `query.rs` | filtri, canali, mutazioni |
-| `services/libraryService.js` | `library.rs` | **solo** nomi/percorsi + risoluzione file |
-| — | `time.rs` | ISO-8601 identico a `toISOString()`, senza `chrono` |
+| `catalogSchema` · `catalogStore` · `metadataStore` | `schema` · `store` · `metadata` | ✅ |
+| `config` + `preflight` | `config` | ✅ |
+| `searchService` · `videoService` · `decisionService` | `search` · `query` | ✅ |
+| `libraryService` | `library` | ✅ |
+| `ytdlpWrapper` (731 righe) | `ytdlp` | ✅ |
+| `syncService` | `sync` | ✅ **+ due bug corretti** |
+| `sourceService` + `singleVideoService` | `sources` | ✅ |
+| `jobManager` + i 5 handler | `tasks` | ♻️ **sostituito**, non portato |
+| `channelAvatarService` | `tasks` | 🟡 risolve l'URL, non scarica il file |
+| `metadataService` | `metadata` | 🟡 manca `refreshVideoMetadata` |
+| `backupService` + `lib/zip` | — | ❌ ~324 righe non portate |
+| — | `time` · `lock` | ✅ nuovi (ISO-8601 senza `chrono`; lock fra processi) |
 
-**Non ancora portato**: `ytdlpWrapper.js` (731 righe), `jobManager.js` + i job,
-`sync`/`source`/`single`/`metadata`/`channelAvatar`/`backup` service, `lib/zip.js`.
-Sono l'area "download e orchestrazione", cioè M71 nel piano — la più grossa.
+### Le quattro decisioni che il cambio di scope ha reso possibili
 
-**Conseguenza pratica, e come si rispetta la Regola 1** ("un solo proprietario per
-modulo"): il CLI in Rust **legge** il catalogo e muta i soli assi `hidden`/`favorite`;
-non scarica nulla e non tocca `jobs.json`. L'implementazione JS resta l'unica
-proprietaria dell'area download. I due CLI convivono sullo stesso `catalog.json`.
+Il porting non è una traduzione: in quattro punti è una versione migliore.
 
-**Verificato:**
-- 39 test unitari verdi (`npm run rust:test`);
-- **banco differenziale JS ↔ Rust verde** su una fixture di 14 video che include
+1. **La coda dei job è sparita.** `jobManager` esisteva per alimentare via SSE un
+   pannello job nel browser: coda in background, `EventEmitter`, storico persistito,
+   `AbortController`. Senza frontend il CLI è l'unico consumatore ed è bloccante per
+   progetto, quindi le operazioni girano in primo piano con una barra. Oltre alle
+   ~600 righe in meno: **nessun job può restare orfano** — `reconcileOrphanJobs()`
+   esisteva perché un processo morto lasciava job `running` per sempre, né
+   interrompibili né cancellabili, e senza coda in background quello stato non è
+   nemmeno rappresentabile. Lo storico resta, nello stesso `data/jobs.json`.
+2. **Lock di scrittura fra processi** (`lock.rs`, assente in JS). Il mutex JS
+   proteggeva solo *dentro* un processo; due processi si sovrascrivevano. È la radice
+   dell'incidente del 2026-07-25 (83 video azzerati), fin qui gestito come
+   **convenzione umana** in `documentazione.md` («riavvia il processo»). Ora è una
+   garanzia tecnica, con rilevamento dei lock abbandonati.
+3. **Due bug noti corretti** invece di riportati (`PIANO.md` → "Bug noti" #1):
+   guardia se il disco dei video è irraggiungibile (non si declassa più un'intera
+   fonte per un NAS scollegato) e **riconciliazione inversa** `none → downloaded`
+   quando il file ricompare — che è esattamente ciò che nel 2026-07-25 mancava e che
+   rese necessaria una riparazione manuale su 83 video.
+4. **Niente cache del catalogo per processo**: si rilegge sotto lock. M66 aveva
+   misurato 1,4ms di parsing; il costo di sbagliare è molto più alto.
+
+### Cosa manca
+
+- **Backup e ripristino `.zip`** (~324 righe): l'unica funzionalità del CLI JS che
+  qui non esiste. Nel frattempo si copiano a mano i `data/*.json`.
+- **Download del file avatar** dei creator: l'URL si risolve e si registra, l'immagine
+  non si salva. Serve un client HTTP (`ureq`) — non aggiunto per una funzione che un
+  CLI non mostra.
+- **`refreshVideoMetadata`** su un singolo video (l'arricchimento in blocco c'è).
+
+### Verificato
+
+- **60 test unitari** verdi (`npm run rust:test`);
+- **banco differenziale JS ↔ Rust verde** su una fixture di 14 video con
   emoji/accenti, caratteri invalidi Windows, nomi riservati, titoli da 400 caratteri,
-  assi che coesistono e due entry legacy da migrare — con verifica che `catalog.json`
-  resti **byte-identico** dopo il passaggio di entrambe le implementazioni;
-- banco validato **al negativo**: alterando `MAX_TITLE_LEN` da 150 a 149 il diff
-  segnala la differenza di un solo carattere;
-- binario release 626 KB, avvio pulito.
+  assi che coesistono e due entry legacy da migrare — con `catalog.json`
+  **byte-identico** dopo il passaggio di entrambe le implementazioni; validato **al
+  negativo** (alterando `MAX_TITLE_LEN` da 150 a 149 il diff segnala un carattere);
+- **end-to-end reale** (`examples/e2e_download.rs`): download vero di un video, due
+  flussi separati fusi da ffmpeg, sha256 confrontato con la dimensione reale del
+  file, metadati grezzi consolidati senza `automatic_captions`, nessun sidecar
+  residuo, e pulizia completa a fine prova.
 
-**Non verificato**: il menu a frecce richiede un TTY reale, che l'ambiente di
-automazione non fornisce — stessa limitazione già dichiarata per il browser in
-`progetto.md`. La prova visiva è a carico dell'utente (`npm run cli:rust`).
+### Non verificato
 
-**Scostamento dal piano, dichiarato:** §9 raccomandava per M67 uno spike *sottile*
-(solo `searchVideos`) proprio per limitare il rischio. Su richiesta esplicita
-dell'utente ("sviluppa core e cli in rust interamente") si è portata una fetta molto
-più larga in un colpo solo. Il banco differenziale — che era il vero contenuto di
-M67 — è comunque stato costruito **prima** di considerare portato qualunque modulo,
-quindi la garanzia principale è intatta.
+Il menu a frecce richiede un TTY reale, che l'ambiente di automazione non fornisce —
+stessa limitazione già dichiarata per il browser in `progetto.md`. La prova visiva è
+a carico dell'utente (`npm run cli:rust`).
 
 ---
 

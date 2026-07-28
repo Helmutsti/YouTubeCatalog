@@ -25,7 +25,11 @@
 | M72 | `ondo-server`: binario HTTP standalone, immagine Docker senza Node. **Qui si incassano gli obiettivi 2 e 4.** | Il NAS gira senza runtime Node; la web non se ne accorge. |
 | M73 | Ritiro del core JS + binding di riferimento per un secondo linguaggio (obiettivo 1). | Una sola implementazione della logica. CLI Node resta, via napi-rs. |
 
-**Avanzamento reale** (branch `rust-core`, 2026-07-28): `schema`/`store`/`config`/`search`/`query` portati e verdi al banco differenziale; `library` parziale; **`ytdlp` + `jobs` + i service di sync/backup non ancora iniziati** (è M71, la fetta più grossa). Il CLI Rust legge il catalogo e muta `hidden`/`favorite`, **non scarica**: l'area download resta di proprietà del JS, come impone la Regola (a). Stato di dettaglio in `rust-core.md` §11 e `rust/README.md`.
+⚠️ **Scope ridotto (2026-07-28, decisione dell'utente): «non mi interessa più l'API e il FE».** Obiettivo unico: **core + CLI in Rust, autonomi**. Cadono M72 (`ondo-server`), M73 (ritiro del core JS) e, con loro, l'ABI C a 2 simboli e i binding napi-rs: servivano a client che non verranno scritti. Il ramo `main` resta l'implementazione JS completa (core + API + web GUI) e non viene toccato.
+
+**Avanzamento reale** (branch `rust-core`): **~88% della logica JS coperta** — 5.808 righe di Rust (+936 di test). Portati e verificati `schema`/`store`/`metadata`/`config`/`search`/`query`/`library`/`ytdlp`/`sync`/`sources`; `jobManager` **sostituito** da esecuzione in primo piano (`tasks`). **Manca**: backup/ripristino `.zip` (~324 righe), download del file avatar, `refreshVideoMetadata`. Verificato con 60 test, banco differenziale verde e un **download end-to-end reale**. Dettaglio in `rust-core.md` §11 e `rust/README.md`.
+
+**Tre migliorie introdotte dal porting** (non traduzioni): coda job eliminata → nessun job può più restare orfano; **lock di scrittura fra processi** (prima era una convenzione umana); e i **due bug noti #1 corretti** — guardia sul disco irraggiungibile + riconciliazione inversa `none → downloaded`. Il bug #1 qui sotto resta aperto **solo per l'implementazione JS**.
 
 **Le tre regole che valgono per tutte:** (a) un solo proprietario per modulo — mai la stessa logica viva in JS *e* Rust; (b) il formato su disco non cambia durante la migrazione; (c) ogni milestone chiude in uno stato spedibile.
 

@@ -28,11 +28,17 @@
 pub mod config;
 pub mod error;
 pub mod library;
+pub mod lock;
+pub mod metadata;
 pub mod query;
 pub mod schema;
 pub mod search;
+pub mod sources;
 pub mod store;
+pub mod sync;
+pub mod tasks;
 pub mod time;
+pub mod ytdlp;
 
 pub use error::{ErrorKind, OndoError, Result};
 pub use query::{
