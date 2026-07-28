@@ -429,6 +429,37 @@ fn detail(screen: &mut Screen, id: &str) {
     }
 }
 
+/// Come `risolvi_con_spinner` per la console di Download rapido: `resolve_video_info`
+/// è una singola chiamata bloccante a yt-dlp, senza avanzamento intermedio — senza
+/// spinner lo schermo restava fermo su un messaggio statico per tutta l'attesa,
+/// indistinguibile da un blocco vero.
+fn resolve_video_info_con_spinner(url: &str) -> ondo_core::Result<ondo_core::downloader::ResolvedVideo> {
+    const SPINNER: [char; 4] = ['-', '\\', '|', '/'];
+    let owned = url.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(ondo_core::downloader::resolve_video_info(&owned));
+    });
+
+    let mut frame = 0usize;
+    let esito = loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(120)) {
+            Ok(esito) => break esito,
+            Err(_) => {
+                print!(
+                    "\r  {} {}",
+                    style(SPINNER[frame % SPINNER.len()]).cyan(),
+                    style("Analisi dei formati disponibili…").dim()
+                );
+                let _ = std::io::stdout().flush();
+                frame += 1;
+            }
+        }
+    };
+    println!();
+    esito
+}
+
 fn download_one(screen: &mut Screen, v: &Video) {
     let Some(url) = v.webpage_url().map(str::to_string) else {
         return screen.err("Nessun URL registrato.");
@@ -441,8 +472,7 @@ fn download_one(screen: &mut Screen, v: &Video) {
     }
 
     screen.clear();
-    println!("{}", style("Analisi dei formati disponibili…").dim());
-    match ondo_core::downloader::resolve_video_info(&url) {
+    match resolve_video_info_con_spinner(&url) {
         Ok(r) => match ask_quality(&r.formats) {
             Some((s, h)) => run_download(screen, &[v.id().to_string()], s, h),
             None => {}
@@ -773,6 +803,7 @@ fn job_row(s: &ondo_core::ops::JobStatus, title_len: usize) -> String {
     let titolo: String = s.title.chars().take(title_len).collect();
     match &s.state {
         JobState::Queued => format!("{}  {titolo}", style("⋯ in attesa").dim()),
+        JobState::FetchingMetadata => format!("{}  {titolo}", style("⋯ scarico metadati").cyan()),
         JobState::Running { percent } => {
             let p = percent.round().clamp(0.0, 100.0) as usize;
             let barra = "█".repeat(p * 18 / 100) + &"░".repeat(18 - p * 18 / 100);
@@ -813,6 +844,23 @@ fn download_console(screen: &mut Screen) {
         return menu_quick(screen);
     }
 
+    // `Term::read_key()` blocca per davvero: senza un thread dedicato, se l'utente
+    // non tocca la tastiera lo schermo non si ridisegna MAI da solo, anche se la
+    // risoluzione/il download stanno progredendo in sottofondo — sembra bloccato
+    // anche quando non lo è. Un thread a parte legge i tasti e li spedisce su un
+    // canale; il ciclo principale usa `recv_timeout` per avere un vero timeout.
+    let (key_tx, key_rx) = std::sync::mpsc::channel::<Key>();
+    {
+        let term_lettore = Term::stdout();
+        std::thread::spawn(move || {
+            while let Ok(k) = term_lettore.read_key() {
+                if key_tx.send(k).is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
     const SPINNER: [char; 4] = ['-', '\\', '|', '/'];
     let mut input = String::new();
     let mut spin_frame = 0usize;
@@ -830,8 +878,10 @@ fn download_console(screen: &mut Screen) {
             println!("{}", style("  (nessun download)").dim());
         } else {
             let mut i = 0usize;
-            let mut mostrate = 0usize;
-            while i < snapshot.len() && mostrate < 15 {
+            // Ogni video accodato resta visibile, uno per uno: nessun limite di righe
+            // né di sotto-voci per playlist, su richiesta esplicita dell'utente — vuole
+            // vedere l'intera coda, non un riassunto.
+            while i < snapshot.len() {
                 let s = &snapshot[i];
                 // Una playlist è stata accodata in blocco con lo stesso `group`: i suoi
                 // membri restano contigui nello snapshot, quindi basta guardare avanti
@@ -854,13 +904,7 @@ fn download_console(screen: &mut Screen) {
                     let barra = "█".repeat(p * 18 / 100) + &"░".repeat(18 - p * 18 / 100);
                     let nome: String = nome_gruppo.chars().take(40).collect();
                     println!("  {} {conclusi:>3}/{totale:<3}  {}", style(barra).cyan(), style(nome).bold());
-                    // Sottovoci: solo quelle ancora da concludere, altrimenti un elenco di
-                    // 200 righe "✔ fatto" renderebbe inutile la barra riassuntiva sopra.
-                    for m in membri
-                        .iter()
-                        .filter(|m| matches!(m.state, JobState::Running { .. } | JobState::Queued | JobState::Failed { .. }))
-                        .take(5)
-                    {
+                    for m in membri {
                         println!("        {}", job_row(m, 40));
                     }
                     i = j;
@@ -868,10 +912,6 @@ fn download_console(screen: &mut Screen) {
                     println!("  {}", job_row(s, 44));
                     i += 1;
                 }
-                mostrate += 1;
-            }
-            if i < snapshot.len() {
-                println!("  {}", style(format!("… e altri {}", snapshot.len() - i)).dim());
             }
         }
 
@@ -885,19 +925,20 @@ fn download_console(screen: &mut Screen) {
             .dim()
         );
 
-        // Risoluzione dei link in corso in sottofondo: non blocca la digitazione, per
-        // questo vive su un thread proprio dentro la coda (`enqueue_links`) invece che
-        // qui — si può continuare a incollare altri link mentre uno risolve.
+        // Risoluzione dei link in corso in sottofondo, su tanti thread quanti i
+        // download paralleli: non blocca la digitazione (vive dentro la coda, via
+        // `enqueue_links`) e più link si risolvono davvero insieme, non in fila
+        // dietro a uno solo. Ogni voce ha la stessa forma, risolvenda o in attesa.
         let rs = queue.resolve_status();
-        if let Some(link) = &rs.resolving {
-            let coda = if rs.in_coda > 0 { format!("  (+{} in coda)", rs.in_coda) } else { String::new() };
+        for link in &rs.risolvendo {
             println!(
-                "  {}  risolvo: {}{coda}",
+                "  {}  risolvo: {}",
                 style(SPINNER[spin_frame % SPINNER.len()]).cyan(),
                 link.chars().take(50).collect::<String>()
             );
-        } else if rs.in_coda > 0 {
-            println!("  {}", style(format!("{} link in coda da risolvere", rs.in_coda)).dim());
+        }
+        for link in &rs.in_coda {
+            println!("  {}  {}", style("⋯ in attesa").dim(), link.chars().take(50).collect::<String>());
         }
         if rs.accodati + rs.gia_in_archivio + rs.non_risolti > 0 {
             let mut riepilogo = format!("{} accodati", rs.accodati);
@@ -922,68 +963,68 @@ fn download_console(screen: &mut Screen) {
 
         // ── input, con ridisegno periodico mentre non si digita ──────────────
         //
-        // `read_key` blocca, quindi mentre si aspetta un tasto non si può aggiornare
-        // l'avanzamento. Si aspetta perciò a piccoli passi: se non arriva nulla entro
-        // mezzo secondo si ridisegna e si torna in attesa.
-        let mut tasto = None;
-        let attesa = std::time::Instant::now();
-        while tasto.is_none() {
-            if let Ok(k) = term.read_key() {
-                tasto = Some(k);
-                break;
-            }
-            if attesa.elapsed() > std::time::Duration::from_millis(500) {
-                break;
-            }
+        // Il tasto arriva dal thread di lettura dedicato sopra; `recv_timeout` è un
+        // timeout VERO (a differenza di un `read_key()` diretto, che blocca finché
+        // non arriva un tasto) — è quello che tiene viva l'animazione.
+        //
+        // Un link incollato arriva come una raffica di caratteri tutti insieme:
+        // ridisegnare l'intera schermata a ognuno (come prima) li fa assorbire uno
+        // alla volta a passo di redraw, che sembra un blocco. Si drena qui tutto
+        // ciò che è già arrivato e si ridisegna una volta sola al giro successivo.
+        let primo = key_rx.recv_timeout(std::time::Duration::from_millis(300)).ok();
+        let mut tasti: std::collections::VecDeque<Key> = primo.into_iter().collect();
+        while let Ok(k) = key_rx.try_recv() {
+            tasti.push_back(k);
         }
 
-        match tasto {
-            Some(Key::Escape) => {
-                if rimasti > 0 {
-                    let _ = term.clear_screen();
-                    println!(
-                        "\n{}",
-                        style(format!("{rimasti} download ancora in corso.")).yellow()
-                    );
-                    println!(
-                        "{}",
-                        style("Uscendo da qui continuano finché Ondo resta aperto; chiudendo Ondo si fermano.").dim()
-                    );
-                    if !confirm("Uscire comunque?", false) {
-                        continue;
+        for tasto in tasti {
+            match tasto {
+                Key::Escape => {
+                    if rimasti > 0 {
+                        let _ = term.clear_screen();
+                        println!(
+                            "\n{}",
+                            style(format!("{rimasti} download ancora in corso.")).yellow()
+                        );
+                        println!(
+                            "{}",
+                            style("Uscendo da qui continuano finché Ondo resta aperto; chiudendo Ondo si fermano.").dim()
+                        );
+                        if !confirm("Uscire comunque?", false) {
+                            continue;
+                        }
+                    }
+                    queue.stop();
+                    if rimasti > 0 {
+                        screen.warn(format!("{rimasti} download interrotti all'uscita."));
+                    }
+                    return;
+                }
+                Key::Enter => {
+                    let testo = std::mem::take(&mut input);
+                    let links = ops::sources::split_links(&testo);
+                    if !links.is_empty() {
+                        // Nella console non si può chiedere la risoluzione per ogni video
+                        // senza rompere il flusso: senza una qualità predefinita si va al
+                        // massimo (si vede il promemoria sotto lo stato).
+                        let (strategy, max_height) =
+                            quality_without_asking().unwrap_or((AudioStrategy::Auto, Some(None)));
+                        queue.enqueue_links(&links, strategy, max_height);
                     }
                 }
-                queue.stop();
-                if rimasti > 0 {
-                    screen.warn(format!("{rimasti} download interrotti all'uscita."));
+                Key::Backspace => {
+                    input.pop();
                 }
-                return;
-            }
-            Some(Key::Enter) => {
-                let testo = std::mem::take(&mut input);
-                let links = ops::sources::split_links(&testo);
-                if links.is_empty() {
-                    continue;
+                Key::Char(c) => {
+                    // ^L: ripulisce i conclusi dall'elenco.
+                    if c == '\u{c}' {
+                        queue.clear_finished();
+                    } else if !c.is_control() {
+                        input.push(c);
+                    }
                 }
-                // Nella console non si può chiedere la risoluzione per ogni video senza
-                // rompere il flusso: senza una qualità predefinita si va al massimo (si
-                // vede il promemoria sotto lo stato).
-                let (strategy, max_height) =
-                    quality_without_asking().unwrap_or((AudioStrategy::Auto, Some(None)));
-                queue.enqueue_links(&links, strategy, max_height);
+                _ => {}
             }
-            Some(Key::Backspace) => {
-                input.pop();
-            }
-            Some(Key::Char(c)) => {
-                // ^L: ripulisce i conclusi dall'elenco.
-                if c == '\u{c}' {
-                    queue.clear_finished();
-                } else if !c.is_control() {
-                    input.push(c);
-                }
-            }
-            _ => {}
         }
     }
 }

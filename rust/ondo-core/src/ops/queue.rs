@@ -40,6 +40,10 @@ use crate::ops::sources::{quick_download_target, QuickTarget};
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobState {
     Queued,
+    /// Il worker ha rivendicato il video e ha lanciato yt-dlp, ma non è ancora
+    /// arrivato il primo evento di avanzamento reale sui byte — yt-dlp in questa
+    /// finestra sta ancora estraendo/negoziando i formati, non trasferendo dati.
+    FetchingMetadata,
     Running { percent: f64 },
     Done,
     Failed { message: String },
@@ -75,15 +79,32 @@ struct PendingLink {
     max_height: Option<Option<u64>>,
 }
 
+/// A che punto è un link nella coda di risoluzione — stesso spirito di [`JobState`],
+/// ma per la fase "non ancora un video" (prima che yt-dlp gli dia un id).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkState {
+    Queued,
+    Resolving,
+}
+
+#[derive(Debug, Clone)]
+pub struct LinkStatus {
+    pub link: String,
+    pub state: LinkState,
+}
+
 #[derive(Default)]
 struct Shared {
     pending: VecDeque<Job>,
     statuses: Vec<JobStatus>,
     /// Quanti lavori sono stati presi da un worker e non ancora conclusi.
     in_flight: usize,
+    /// Coda FIFO da cui i thread di risoluzione rivendicano il prossimo link.
     link_queue: VecDeque<PendingLink>,
-    /// Il link che il thread di risoluzione sta interrogando in questo momento.
-    resolving: Option<String>,
+    /// Stato di ogni link accodato, per l'interfaccia — stessa idea di `statuses`
+    /// sopra: un elenco uniforme (tutti i link hanno la stessa forma), non un
+    /// singolo "in corso" speciale più un conteggio degli altri.
+    link_statuses: Vec<LinkStatus>,
     accodati: usize,
     gia_in_archivio: usize,
     non_risolti: usize,
@@ -93,8 +114,11 @@ struct Shared {
 /// Fotografia dello stato di risoluzione dei link, per l'interfaccia.
 #[derive(Debug, Clone, Default)]
 pub struct ResolveStatus {
-    pub resolving: Option<String>,
-    pub in_coda: usize,
+    /// Link risolti **in parallelo** in questo momento (uno per thread di
+    /// risoluzione libero — vedi `DownloadQueue::start`).
+    pub risolvendo: Vec<String>,
+    /// I link ancora in attesa di un thread libero, nell'ordine di arrivo.
+    pub in_coda: Vec<String>,
     pub accodati: usize,
     pub gia_in_archivio: usize,
     pub non_risolti: usize,
@@ -160,16 +184,19 @@ impl DownloadQueue {
             }
         });
 
-        // Il risolutore: un thread dedicato che trasforma i link grezzi in `Job` via
-        // `enqueue`, uno alla volta. Separato dai worker di download perché lavora su
-        // una coda diversa (`link_queue`, non `pending`) e non tocca mai il file system.
-        let q = Arc::clone(&queue);
-        std::thread::spawn(move || q.resolve_loop());
+        // I risolutori: tanti thread quanti i download paralleli configurati (stesso
+        // numero, stesso senso: se scarichi 3 alla volta, ha senso risolvere 3 link
+        // alla volta invece di farli fare la fila dietro a uno solo). Lavorano su una
+        // coda diversa (`link_queue`, non `pending`) e non toccano mai il file system.
+        for _ in 0..queue.workers {
+            let q = Arc::clone(&queue);
+            std::thread::spawn(move || q.resolve_worker());
+        }
 
         queue
     }
 
-    fn resolve_loop(self: Arc<Self>) {
+    fn resolve_worker(self: Arc<Self>) {
         loop {
             let item = {
                 let mut shared = self.shared.lock().unwrap();
@@ -178,7 +205,11 @@ impl DownloadQueue {
                         return;
                     }
                     if let Some(item) = shared.link_queue.pop_front() {
-                        shared.resolving = Some(item.link.clone());
+                        if let Some(s) =
+                            shared.link_statuses.iter_mut().find(|s| s.link == item.link && s.state == LinkState::Queued)
+                        {
+                            s.state = LinkState::Resolving;
+                        }
                         break item;
                     }
                     shared = self.wake.wait(shared).unwrap();
@@ -188,7 +219,13 @@ impl DownloadQueue {
             let esito = quick_download_target(&item.link);
             {
                 let mut shared = self.shared.lock().unwrap();
-                shared.resolving = None;
+                if let Some(pos) = shared
+                    .link_statuses
+                    .iter()
+                    .position(|s| s.link == item.link && s.state == LinkState::Resolving)
+                {
+                    shared.link_statuses.remove(pos);
+                }
             }
 
             match esito {
@@ -213,13 +250,14 @@ impl DownloadQueue {
     }
 
     /// Accoda link grezzi da risolvere **in background**: ritorna subito, non blocca
-    /// chi chiama. Un thread dedicato li risolve uno alla volta interrogando yt-dlp e
-    /// li accoda mano a mano — è quello che permette di incollare altri link mentre
-    /// uno precedente sta ancora aspettando risposta dalla rete.
+    /// chi chiama. I thread di risoluzione li prendono in carico in parallelo (uno
+    /// ciascuno) e li accodano mano a mano — è quello che permette di incollare altri
+    /// link mentre altri stanno ancora aspettando risposta dalla rete.
     pub fn enqueue_links(&self, links: &[String], strategy: AudioStrategy, max_height: Option<Option<u64>>) {
         let mut shared = self.shared.lock().unwrap();
         for link in links {
             shared.link_queue.push_back(PendingLink { link: link.clone(), strategy, max_height });
+            shared.link_statuses.push(LinkStatus { link: link.clone(), state: LinkState::Queued });
         }
         drop(shared);
         self.wake.notify_all();
@@ -228,9 +266,13 @@ impl DownloadQueue {
     /// Fotografia dello stato di risoluzione, per disegnare lo spinner e il riepilogo.
     pub fn resolve_status(&self) -> ResolveStatus {
         let shared = self.shared.lock().unwrap();
+        let (risolvendo, in_coda) = shared
+            .link_statuses
+            .iter()
+            .partition::<Vec<_>, _>(|s| s.state == LinkState::Resolving);
         ResolveStatus {
-            resolving: shared.resolving.clone(),
-            in_coda: shared.link_queue.len(),
+            risolvendo: risolvendo.into_iter().map(|s| s.link.clone()).collect(),
+            in_coda: in_coda.into_iter().map(|s| s.link.clone()).collect(),
             accodati: shared.accodati,
             gia_in_archivio: shared.gia_in_archivio,
             non_risolti: shared.non_risolti,
@@ -268,7 +310,10 @@ impl DownloadQueue {
                 let _ = remove_from_download_archive(&paths, &job.id);
             }
 
-            self.set_state(&job.id, JobState::Running { percent: 0.0 });
+            // "Scarico metadati": finché non arriva il primo avanzamento reale sui
+            // byte (vedi `QueueReporter::progress`), yt-dlp sta ancora estraendo
+            // formati/metadati, non trasferendo il video.
+            self.set_state(&job.id, JobState::FetchingMetadata);
             let reporter = QueueReporter { queue: Arc::clone(&self), id: job.id.clone() };
             let outcome = download_video(&job.id, &job.url, job.strategy, job.max_height, &reporter);
 
@@ -353,7 +398,7 @@ impl DownloadQueue {
         let mut shared = self.shared.lock().unwrap();
         shared
             .statuses
-            .retain(|s| matches!(s.state, JobState::Queued | JobState::Running { .. }));
+            .retain(|s| matches!(s.state, JobState::Queued | JobState::FetchingMetadata | JobState::Running { .. }));
     }
 
     /// Chiede ai worker di fermarsi. Quelli già dentro un download **finiscono**: un
