@@ -25,6 +25,7 @@
 pub mod backup;
 pub mod download;
 pub mod maintain;
+pub mod queue;
 pub mod runs;
 pub mod sources;
 pub mod sync;
@@ -36,6 +37,7 @@ pub use maintain::{
     delete_video_completely, delete_video_file, migrate_all, reorganize_library, set_favorite,
     set_hidden, sync_author_avatars, MigrateReport, ReorganizeReport,
 };
+pub use queue::{DownloadQueue, JobState, JobStatus};
 pub use runs::{list_runs, clear_runs, RunRecord};
 pub use sources::{add_source, quick_download_target, remove_source, QuickTarget};
 pub use sync::{sync_all, sync_source, SyncReport};

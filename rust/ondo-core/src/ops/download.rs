@@ -168,6 +168,43 @@ fn mark_removed(id: &str) -> Result<()> {
     })
 }
 
+/// Rivendicazione esposta alla coda persistente ([`crate::ops::queue`]), che la
+/// chiama dal worker — deve avvenire **prima** del download, non dopo.
+pub(crate) fn claim_for_queue(id: &str) -> Result<bool> {
+    try_claim(id)
+}
+
+/// Applica l'esito di un download avviato dalla coda persistente. Lo chiama il solo
+/// thread applicatore, così le scritture restano su un thread unico anche lì.
+///
+/// `Ok(true)` = scaricato · `Ok(false)` = non più disponibile su YouTube (segnato
+/// «rimosso», file e metadati mai cancellati) · `Err` = fallito.
+pub(crate) fn apply_queue_outcome(
+    id: &str,
+    outcome: Result<crate::downloader::Extracted>,
+) -> Result<bool> {
+    match outcome {
+        Ok(extracted) => {
+            metadata::set(id, &extracted.raw_info)?;
+            apply_downloaded(id, &extracted.fields)?;
+            // Chiude la catena anche per la coda: il video appena scaricato porta i
+            // metadati del canale, ed è il momento in cui la foto del creator è
+            // recuperabile. Con force:false non costa nulla se c'è già.
+            let _ = crate::ops::maintain::sync_author_avatars(false, &crate::downloader::SilentReporter);
+            Ok(true)
+        }
+        Err(err) if is_video_gone_error(&err.message) => {
+            mark_removed(id)?;
+            mark(id, download_state::NONE, None)?;
+            Ok(false)
+        }
+        Err(err) => {
+            mark(id, download_state::FAILED, Some(&err.message))?;
+            Err(err)
+        }
+    }
+}
+
 /// Applica al catalogo l'esito di **un** video. È l'unico punto in cui lo stato viene
 /// scritto durante un lotto: nella versione parallela lo chiama solo il thread
 /// principale, mai i worker.

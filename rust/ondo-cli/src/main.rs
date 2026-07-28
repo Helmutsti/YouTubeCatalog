@@ -752,6 +752,194 @@ fn menu_authors(screen: &mut Screen) {
 
 // ── 4. Download rapido ──────────────────────────────────────────────────────
 
+/// Console di download: il prompt resta **sempre in alto**, i download continuano
+/// **sotto** mentre si incolla il link successivo.
+///
+/// ## Perché è scritta a mano invece di usare `dialoguer`
+///
+/// `dialoguer::Input` prende possesso della riga e blocca finché non si preme invio:
+/// mentre digiti non si può ridisegnare nulla, quindi una lista che si aggiorna sotto
+/// il prompt è impossibile. Qui l'input si legge **tasto per tasto** (`Term::read_key`)
+/// e fra un tasto e l'altro si ridipinge il blocco sottostante.
+///
+/// Regola che tiene insieme il disegno: **una sola cosa scrive sul terminale**, questo
+/// ciclo. I worker non stampano niente — riportano nello stato condiviso della coda, e
+/// qui si legge lo snapshot. Senza questa regola due thread che stampano insieme
+/// distruggerebbero la riga che stai scrivendo.
+fn download_console(screen: &mut Screen) {
+    use console::Key;
+    use ondo_core::ops::{DownloadQueue, JobState};
+
+    let workers = ondo_core::config::parallel_downloads().unwrap_or(1);
+    let queue = DownloadQueue::start(workers);
+    let term = Term::stdout();
+
+    if !term.is_term() {
+        // Senza un terminale vero non si può disegnare: si ricade sul flusso classico.
+        queue.stop();
+        return menu_quick(screen);
+    }
+
+    let mut input = String::new();
+    let mut messaggio = String::new();
+    let mut ultime_righe = 0usize;
+
+    loop {
+        // ── disegno ──────────────────────────────────────────────────────────
+        let _ = term.clear_screen();
+        println!("{}", style("Download rapido — la coda continua mentre incolli").bold());
+        println!(
+            "{}",
+            style("link separati da virgola · invio per accodare · ESC per uscire").dim()
+        );
+        println!();
+        println!("  {} {}", style("Scarica ▸").cyan().bold(), input);
+        println!("{}", style("─".repeat(66)).dim());
+
+        let snapshot = queue.snapshot();
+        if snapshot.is_empty() {
+            println!("{}", style("  (nessun download)").dim());
+        } else {
+            for s in snapshot.iter().take(15) {
+                let titolo: String = s.title.chars().take(44).collect();
+                let riga = match &s.state {
+                    JobState::Queued => format!("{}  {titolo}", style("⋯ in attesa").dim()),
+                    JobState::Running { percent } => {
+                        let p = percent.round().clamp(0.0, 100.0) as usize;
+                        let barra = "█".repeat(p * 18 / 100) + &"░".repeat(18 - p * 18 / 100);
+                        format!("{} {p:>3}%  {titolo}", style(barra).cyan())
+                    }
+                    JobState::Done => format!("{}  {titolo}", style("✔ fatto    ").green()),
+                    JobState::Skipped => format!("{}  {titolo}", style("↷ saltato  ").dim()),
+                    JobState::Failed { message } => format!(
+                        "{}  {titolo}\n              {}",
+                        style("✘ fallito  ").red(),
+                        style(message.chars().take(60).collect::<String>()).red()
+                    ),
+                };
+                println!("  {riga}");
+            }
+            if snapshot.len() > 15 {
+                println!("  {}", style(format!("… e altri {}", snapshot.len() - 15)).dim());
+            }
+        }
+
+        let rimasti = queue.outstanding();
+        println!("{}", style("─".repeat(66)).dim());
+        println!(
+            "  {}",
+            style(format!(
+                "{rimasti} in corso o in attesa · {workers} alla volta · ^L pulisci i conclusi"
+            ))
+            .dim()
+        );
+        if !messaggio.is_empty() {
+            println!("\n  {messaggio}");
+        }
+        ultime_righe = ultime_righe.max(1);
+
+        // ── input, con ridisegno periodico mentre non si digita ──────────────
+        //
+        // `read_key` blocca, quindi mentre si aspetta un tasto non si può aggiornare
+        // l'avanzamento. Si aspetta perciò a piccoli passi: se non arriva nulla entro
+        // mezzo secondo si ridisegna e si torna in attesa.
+        let mut tasto = None;
+        let attesa = std::time::Instant::now();
+        while tasto.is_none() {
+            if let Ok(k) = term.read_key() {
+                tasto = Some(k);
+                break;
+            }
+            if attesa.elapsed() > std::time::Duration::from_millis(500) {
+                break;
+            }
+        }
+
+        match tasto {
+            Some(Key::Escape) => {
+                if rimasti > 0 {
+                    let _ = term.clear_screen();
+                    println!(
+                        "\n{}",
+                        style(format!("{rimasti} download ancora in corso.")).yellow()
+                    );
+                    println!(
+                        "{}",
+                        style("Uscendo da qui continuano finché Ondo resta aperto; chiudendo Ondo si fermano.").dim()
+                    );
+                    if !confirm("Uscire comunque?", false) {
+                        continue;
+                    }
+                }
+                queue.stop();
+                if rimasti > 0 {
+                    screen.warn(format!("{rimasti} download interrotti all'uscita."));
+                }
+                return;
+            }
+            Some(Key::Enter) => {
+                let testo = std::mem::take(&mut input);
+                let links = ops::sources::split_links(&testo);
+                if links.is_empty() {
+                    messaggio.clear();
+                    continue;
+                }
+                messaggio = accoda(&queue, &links);
+            }
+            Some(Key::Backspace) => {
+                input.pop();
+            }
+            Some(Key::Char(c)) => {
+                // ^L: ripulisce i conclusi dall'elenco.
+                if c == '\u{c}' {
+                    queue.clear_finished();
+                } else if !c.is_control() {
+                    input.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Risolve i link e li accoda. La risoluzione tocca la rete, quindi si dichiara a
+/// schermo cosa sta succedendo invece di sembrare bloccati.
+fn accoda(queue: &ondo_core::ops::DownloadQueue, links: &[String]) -> String {
+    let (strategy, max_height) = quality_without_asking()
+        // Nella console non si può chiedere la risoluzione per ogni video senza
+        // rompere il flusso: senza una qualità predefinita si va al massimo, e lo si
+        // dice nel messaggio di ritorno.
+        .unwrap_or((AudioStrategy::Auto, Some(None)));
+
+    let mut ids = Vec::new();
+    let mut errori = 0;
+    let mut gia = 0;
+
+    for link in links {
+        print!("\r  {} {}", style("risolvo…").dim(), link.chars().take(50).collect::<String>());
+        let _ = std::io::stdout().flush();
+        match ops::quick_download_target(link) {
+            Ok(ops::QuickTarget::Video { id, .. }) => ids.push(id),
+            Ok(ops::QuickTarget::Playlist { ids: pl, .. }) => ids.extend(pl),
+            Ok(ops::QuickTarget::AlreadyDownloaded { .. }) => gia += 1,
+            Err(_) => errori += 1,
+        }
+    }
+
+    let accodati = queue.enqueue(&ids, strategy, max_height);
+    let mut m = format!("{} accodati", accodati);
+    if gia > 0 {
+        m.push_str(&format!(", {gia} già in archivio"));
+    }
+    if errori > 0 {
+        m.push_str(&format!(", {errori} non risolti"));
+    }
+    if ondo_core::config::default_quality().map(|q| q == ondo_core::config::QualityPref::Ask).unwrap_or(false) {
+        m.push_str("  (massima qualità — impostane una predefinita per cambiarla)");
+    }
+    m
+}
+
 fn menu_quick(screen: &mut Screen) {
     screen.clear();
     println!(
@@ -927,6 +1115,11 @@ fn menu_settings(screen: &mut Screen) {
             .unwrap_or_else(|_| "?".into());
 
         let paralleli = ondo_core::config::parallel_downloads().unwrap_or(1);
+        let vlc = match get_paths().map(|p| p.vlc_path).unwrap_or_default() {
+            p if p.is_empty() => "non impostato".to_string(),
+            p if std::path::Path::new(&p).is_file() => "✔ ok".to_string(),
+            _ => "✘ non trovato".to_string(),
+        };
 
         let labels = vec![
             "Stato e percorsi".to_string(),
@@ -935,6 +1128,7 @@ fn menu_settings(screen: &mut Screen) {
                 "⇉ Download in parallelo: {paralleli}{}",
                 if paralleli == 1 { " (uno alla volta)" } else { "" }
             ),
+            format!("🎬 Percorso di VLC: {vlc}"),
             "💾 Salva un backup…".into(),
             "⇩ Ripristina da un backup…".into(),
             "📁 Riorganizza l'archivio per autore".into(),
@@ -949,9 +1143,10 @@ fn menu_settings(screen: &mut Screen) {
             0 => show_status(screen),
             1 => set_quality(screen),
             2 => set_parallel(screen),
-            3 => backup_save(screen),
-            4 => backup_restore(screen),
-            5 => {
+            3 => set_vlc_path(screen),
+            4 => backup_save(screen),
+            5 => backup_restore(screen),
+            6 => {
                 screen.clear();
                 println!("{}", style("Analisi (nessun file viene toccato)…").dim());
                 match ops::reorganize_library(true) {
@@ -978,7 +1173,7 @@ fn menu_settings(screen: &mut Screen) {
                     Err(e) => screen.err(e),
                 }
             }
-            6 => {
+            7 => {
                 screen.clear();
                 println!("{}\n", style("Foto dei creator…").bold());
                 let force = confirm("Ri-scaricare anche quelle già salvate?", false);
@@ -999,7 +1194,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            7 => {
+            8 => {
                 screen.clear();
                 match ops::list_runs(30) {
                     Ok(runs) if runs.is_empty() => println!("Nessuna operazione registrata."),
@@ -1019,7 +1214,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            8 => {
+            9 => {
                 if confirm("Svuotare lo storico?", false) {
                     match ops::clear_runs() {
                         Ok(n) => screen.ok(format!("{n} voci rimosse.")),
@@ -1027,7 +1222,7 @@ fn menu_settings(screen: &mut Screen) {
                     }
                 }
             }
-            9 => {
+            10 => {
                 screen.clear();
                 println!(
                     "{}",
@@ -1172,6 +1367,88 @@ fn set_parallel(screen: &mut Screen) {
     }
     match ondo_core::config::set_parallel_downloads(scelte[i]) {
         Ok(()) => screen.ok(format!("Download in parallelo: {}", scelte[i])),
+        Err(e) => screen.err(e),
+    }
+}
+
+// ── Percorso di VLC ─────────────────────────────────────────────────────────
+
+/// Posti in cui VLC si trova di solito. Su questa macchina è nella cartella a **32
+/// bit** anche su un Windows a 64 — non è un caso isolato, l'installer a 32 bit resta
+/// il download predefinito dal sito di VideoLAN. Per questo non si assume un percorso
+/// solo: si cercano entrambi e si propone quello che esiste davvero.
+#[cfg(target_os = "windows")]
+const VLC_CANDIDATI: [&str; 2] = [
+    r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
+    r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+];
+#[cfg(target_os = "macos")]
+const VLC_CANDIDATI: [&str; 1] = ["/Applications/VLC.app/Contents/MacOS/VLC"];
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+const VLC_CANDIDATI: [&str; 3] = ["/usr/bin/vlc", "/usr/local/bin/vlc", "/snap/bin/vlc"];
+
+fn set_vlc_path(screen: &mut Screen) {
+    screen.clear();
+    let attuale = get_paths().map(|p| p.vlc_path).unwrap_or_default();
+    let valido = !attuale.is_empty() && std::path::Path::new(&attuale).is_file();
+
+    println!("{}", style("Percorso di VLC").bold());
+    println!(
+        "{}",
+        style("Serve solo per «Riproduci con VLC» dal dettaglio di un video.\nSe non lo usi, puoi lasciarlo com'è.").dim()
+    );
+    println!(
+        "\n  attuale: {}",
+        if attuale.is_empty() {
+            style("(non impostato)".to_string()).dim().to_string()
+        } else if valido {
+            style(format!("{attuale}  ✔ trovato")).green().to_string()
+        } else {
+            style(format!("{attuale}  ✘ non esiste")).red().to_string()
+        }
+    );
+
+    // Si propongono solo i percorsi che esistono davvero: suggerire un file assente
+    // sposterebbe solo più avanti la scoperta dell'errore.
+    let trovati: Vec<&str> = VLC_CANDIDATI
+        .iter()
+        .copied()
+        .filter(|p| std::path::Path::new(p).is_file() && *p != attuale)
+        .collect();
+
+    let mut labels: Vec<String> = trovati
+        .iter()
+        .map(|p| format!("Usa {p}   {}", style("(trovato)").green()))
+        .collect();
+    labels.push("Scrivi un percorso…".to_string());
+
+    println!();
+    let Some(i) = select_back("Percorso di VLC", labels) else { return };
+
+    let scelto = if i < trovati.len() {
+        trovati[i].to_string()
+    } else {
+        println!(
+            "\n{}",
+            style("Percorso completo dell'eseguibile, virgolette comprese se lo incolli da Esplora file.").dim()
+        );
+        let Some(p) = ask("Percorso") else { return };
+        p.trim().trim_matches('"').to_string()
+    };
+
+    if !std::path::Path::new(&scelto).is_file() {
+        // Non si rifiuta: un percorso su un disco al momento scollegato è legittimo.
+        // Ma si dice chiaramente, invece di scoprirlo alla prima riproduzione.
+        if !confirm(
+            &format!("«{scelto}» non esiste (adesso). Salvarlo lo stesso?"),
+            false,
+        ) {
+            return;
+        }
+    }
+
+    match ondo_core::config::update_config(&serde_json::json!({ "playback": { "vlcPath": scelto } })) {
+        Ok(_) => screen.ok(format!("VLC: {scelto}")),
         Err(e) => screen.err(e),
     }
 }
@@ -1384,7 +1661,7 @@ fn main() {
         ("Cerca", menu_search),
         ("Sorgenti", menu_sources),
         ("Libreria", menu_library),
-        ("Download rapido", menu_quick),
+        ("Download rapido", download_console),
         ("Impostazioni", menu_settings),
     ];
 
