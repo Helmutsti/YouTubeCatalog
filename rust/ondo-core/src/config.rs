@@ -97,7 +97,12 @@ pub fn default_config() -> Value {
             // Con un valore diverso da "ask" il download parte SENZA interruzioni:
             // è ciò che permette di lanciare più istanze in parallelo senza dover
             // rispondere a un prompt in ognuna.
-            "defaultQuality": "ask"
+            "defaultQuality": "ask",
+            // Quanti download far girare insieme, su thread separati dello stesso
+            // processo. 1 = uno alla volta (con la barra di avanzamento).
+            // Tenuto basso di proposito: ogni download in più è una connessione in
+            // più verso la CDN di YouTube, e alzarlo troppo invita i 403.
+            "parallel": 3
         },
         "playback": {
             "vlcPath": "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe"
@@ -189,6 +194,25 @@ pub const QUALITY_CHOICES: [QualityPref; 8] = [
     QualityPref::Cap(480),
     QualityPref::Cap(360),
 ];
+
+/// Quanti download in parallelo. Limitato a 1..=8: oltre non si guadagna banda, si
+/// guadagnano solo 403 dalla CDN di YouTube. Un valore assurdo in config ricade su 1,
+/// che è sempre sicuro.
+pub const MAX_PARALLEL: u64 = 8;
+
+pub fn parallel_downloads() -> Result<usize> {
+    Ok(load_config()?
+        .pointer("/download/parallel")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, MAX_PARALLEL) as usize)
+}
+
+pub fn set_parallel_downloads(n: usize) -> Result<()> {
+    let n = (n as u64).clamp(1, MAX_PARALLEL);
+    update_config(&json!({ "download": { "parallel": n } }))?;
+    Ok(())
+}
 
 pub fn default_quality() -> Result<QualityPref> {
     Ok(QualityPref::parse(load_config()?.pointer("/download/defaultQuality")))

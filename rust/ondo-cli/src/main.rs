@@ -536,7 +536,8 @@ fn menu_sources(screen: &mut Screen) {
 
         let mut labels = vec!["＋ Aggiungi una playlist".to_string()];
         if !sources.is_empty() {
-            labels.push("⟳ Sincronizza tutte".into());
+            labels.push("⟳ Aggiorna tutto — sincronizza, schede, foto".into());
+            labels.push("↻ Solo sincronizza (veloce)".into());
             labels.push("⟳ Sincronizza una…".into());
             labels.push("✎ Completa metadati e copertine".into());
             labels.push("－ Rimuovi una sorgente…".into());
@@ -567,8 +568,9 @@ fn menu_sources(screen: &mut Screen) {
                     Err(e) => screen.err(e),
                 }
             }
-            1 => run_sync(screen),
-            2 => {
+            1 => run_update(screen),
+            2 => run_sync(screen),
+            3 => {
                 let labels: Vec<String> = sources.iter().map(|s| s.display_name()).collect();
                 if let Some(j) = select_back("Quale sorgente?", labels) {
                     screen.clear();
@@ -580,8 +582,8 @@ fn menu_sources(screen: &mut Screen) {
                     pause();
                 }
             }
-            3 => run_enrich(screen, None),
-            4 => {
+            4 => run_enrich(screen, None),
+            5 => {
                 let labels: Vec<String> = sources.iter().map(|s| s.display_name()).collect();
                 if let Some(j) = select_back("Quale rimuovere?", labels) {
                     let name = sources[j].display_name();
@@ -613,6 +615,40 @@ fn sync_summary(r: &ops::SyncReport) -> String {
         m.push_str(&format!("\n  ✘ {e}"));
     }
     m
+}
+
+/// Aggiornamento completo: sincronizza, completa le schede, prende le foto dei
+/// creator. **Non scarica** — alla fine dice quanti video sono pronti e lascia
+/// decidere.
+fn run_update(screen: &mut Screen) {
+    screen.clear();
+    println!("{}", style("Aggiornamento della libreria").bold());
+    println!(
+        "{}\n",
+        style("① sincronizza le sorgenti  ② completa metadati e copertine  ③ foto dei creator\nNon scarica video. Ctrl-C per interrompere.").dim()
+    );
+
+    let r = TermReporter::new(true);
+    let out = ops::update_library(&r);
+    r.finish();
+
+    match out {
+        Ok(rep) => {
+            let mut m = format!("{} (in {}s)", rep.summary(), rep.seconds);
+            for w in rep.warnings() {
+                m.push_str(&format!("\n  ⚠ {w}"));
+            }
+            if rep.pending > 0 {
+                m.push_str(&format!(
+                    "\n\n  {} video pronti da scaricare — Libreria → Da scaricare",
+                    rep.pending
+                ));
+            }
+            screen.set(format!("\n{} {m}\n", style("✔").green()));
+        }
+        Err(e) => screen.err(e),
+    }
+    pause();
 }
 
 fn run_sync(screen: &mut Screen) {
@@ -890,9 +926,15 @@ fn menu_settings(screen: &mut Screen) {
             .map(|q| q.label())
             .unwrap_or_else(|_| "?".into());
 
+        let paralleli = ondo_core::config::parallel_downloads().unwrap_or(1);
+
         let labels = vec![
             "Stato e percorsi".to_string(),
             format!("🎚 Qualità predefinita: {attuale}"),
+            format!(
+                "⇉ Download in parallelo: {paralleli}{}",
+                if paralleli == 1 { " (uno alla volta)" } else { "" }
+            ),
             "💾 Salva un backup…".into(),
             "⇩ Ripristina da un backup…".into(),
             "📁 Riorganizza l'archivio per autore".into(),
@@ -906,9 +948,10 @@ fn menu_settings(screen: &mut Screen) {
         match i {
             0 => show_status(screen),
             1 => set_quality(screen),
-            2 => backup_save(screen),
-            3 => backup_restore(screen),
-            4 => {
+            2 => set_parallel(screen),
+            3 => backup_save(screen),
+            4 => backup_restore(screen),
+            5 => {
                 screen.clear();
                 println!("{}", style("Analisi (nessun file viene toccato)…").dim());
                 match ops::reorganize_library(true) {
@@ -935,7 +978,7 @@ fn menu_settings(screen: &mut Screen) {
                     Err(e) => screen.err(e),
                 }
             }
-            5 => {
+            6 => {
                 screen.clear();
                 println!("{}\n", style("Foto dei creator…").bold());
                 let force = confirm("Ri-scaricare anche quelle già salvate?", false);
@@ -956,7 +999,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            6 => {
+            7 => {
                 screen.clear();
                 match ops::list_runs(30) {
                     Ok(runs) if runs.is_empty() => println!("Nessuna operazione registrata."),
@@ -976,7 +1019,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            7 => {
+            8 => {
                 if confirm("Svuotare lo storico?", false) {
                     match ops::clear_runs() {
                         Ok(n) => screen.ok(format!("{n} voci rimosse.")),
@@ -984,7 +1027,7 @@ fn menu_settings(screen: &mut Screen) {
                     }
                 }
             }
-            8 => {
+            9 => {
                 screen.clear();
                 println!(
                     "{}",
@@ -1073,6 +1116,62 @@ fn set_quality(screen: &mut Screen) {
     }
     match ondo_core::config::set_default_quality(nuova) {
         Ok(()) => screen.ok(format!("Qualità predefinita: {}", nuova.label())),
+        Err(e) => screen.err(e),
+    }
+}
+
+fn set_parallel(screen: &mut Screen) {
+    screen.clear();
+    let attuale = ondo_core::config::parallel_downloads().unwrap_or(1);
+
+    println!("{}", style("Download in parallelo").bold());
+    println!(
+        "{}",
+        style(
+            "Quanti video scaricare insieme, su thread separati dello stesso processo.\n\
+             I download girano in parallelo; a scrivere sul catalogo resta un thread solo,\n\
+             quindi non c'è modo che due risultati si pestino i piedi."
+        )
+        .dim()
+    );
+    println!(
+        "\n{}",
+        style(
+            "Con più di 1 sparisce la barra di avanzamento per-video (N barre insieme\n\
+             sarebbero illeggibili): resta una riga di inizio e una di fine per ciascuno.\n\
+             Non alzarlo troppo: ogni download è una connessione in più verso YouTube,\n\
+             e oltre una certa soglia si guadagnano solo 403."
+        )
+        .yellow()
+    );
+    println!();
+
+    let scelte: Vec<usize> = (1..=ondo_core::config::MAX_PARALLEL as usize).collect();
+    let labels: Vec<String> = scelte
+        .iter()
+        .map(|n| {
+            let base = match n {
+                1 => "1 — uno alla volta (con barra di avanzamento)".to_string(),
+                2 | 3 => format!("{n} — consigliato"),
+                _ => n.to_string(),
+            };
+            if *n == attuale { format!("{base}   ← attuale") } else { base }
+        })
+        .collect();
+
+    let Ok(Some(i)) = Select::with_theme(&theme())
+        .with_prompt("Download simultanei")
+        .items(&labels)
+        .default(attuale.saturating_sub(1).min(labels.len() - 1))
+        .interact_opt()
+    else {
+        return;
+    };
+    if scelte[i] == attuale {
+        return;
+    }
+    match ondo_core::config::set_parallel_downloads(scelte[i]) {
+        Ok(()) => screen.ok(format!("Download in parallelo: {}", scelte[i])),
         Err(e) => screen.err(e),
     }
 }

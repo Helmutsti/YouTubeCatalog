@@ -28,6 +28,7 @@ pub mod maintain;
 pub mod runs;
 pub mod sources;
 pub mod sync;
+pub mod update;
 
 pub use backup::{create_backup, inspect_backup, restore_backup, suggested_filename, write_backup_to, BackupReport, RestoreReport};
 pub use download::{download_many, enrich, DownloadReport, EnrichReport};
@@ -38,3 +39,4 @@ pub use maintain::{
 pub use runs::{list_runs, clear_runs, RunRecord};
 pub use sources::{add_source, quick_download_target, remove_source, QuickTarget};
 pub use sync::{sync_all, sync_source, SyncReport};
+pub use update::{update_library, UpdateReport};

@@ -26,6 +26,8 @@ pub struct DownloadReport {
     /// Presi da un'altra istanza mentre questa li aveva ancora in lista.
     pub skipped: usize,
     pub total: usize,
+    /// Foto di creator salvate a fine lotto (la catena si chiude qui).
+    pub avatars_saved: usize,
 }
 
 /// Fonde i campi curati nella entry e la marca scaricata.
@@ -166,9 +168,168 @@ fn mark_removed(id: &str) -> Result<()> {
     })
 }
 
+/// Applica al catalogo l'esito di **un** video. È l'unico punto in cui lo stato viene
+/// scritto durante un lotto: nella versione parallela lo chiama solo il thread
+/// principale, mai i worker.
+fn apply_outcome(
+    id: &str,
+    outcome: Result<crate::downloader::Extracted>,
+    report: &mut DownloadReport,
+    reporter: &dyn Reporter,
+) -> Result<()> {
+    match outcome {
+        Ok(extracted) => {
+            metadata::set(id, &extracted.raw_info)?;
+            apply_downloaded(id, &extracted.fields)?;
+            report.downloaded += 1;
+            reporter.log(&format!("✔ {id} scaricato."));
+        }
+        Err(err) => {
+            if is_video_gone_error(&err.message) {
+                // Errore definitivo: il video non tornerà. Meglio «rimosso» che
+                // `failed` ri-tentato per sempre a ogni sync.
+                mark_removed(id)?;
+                mark(id, download_state::NONE, None)?;
+                report.removed += 1;
+                reporter.log(&format!("⊘ {id} non è più disponibile — segnato «rimosso»."));
+            } else {
+                mark(id, download_state::FAILED, Some(&err.message))?;
+                report.failed += 1;
+                reporter.log(&format!("✘ {id}: {}", err.message));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Scarica **in parallelo**, su thread separati dello stesso processo.
+///
+/// ## Chi fa cosa
+///
+/// ```text
+/// thread principale        worker (×N)
+/// ─────────────────        ───────────
+/// rivendica il video   →   scarica (yt-dlp + ffmpeg)
+///                      ←   restituisce i dati estratti
+/// scrive lo stato
+/// ```
+///
+/// I worker **non toccano mai lo stato**: chiamano `downloader::download_video`, che
+/// è puro per costruzione, e rimandano indietro un `Extracted`. Tutte le scritture —
+/// rivendicazione, metadati, entry di catalogo — restano sul thread principale, in
+/// sequenza. È la proprietà che rende il parallelismo poco rischioso: non ci sono due
+/// scrittori, c'è un solo scrittore e N lettori di rete.
+///
+/// La rivendicazione avviene **prima** di consegnare il lavoro a un worker, così due
+/// istanze diverse del programma non possono prendere lo stesso video (e due thread
+/// della stessa istanza nemmeno, perché a rivendicare è un solo thread).
+fn download_parallel(
+    ids: &[String],
+    strategy: AudioStrategy,
+    max_height: Option<Option<u64>>,
+    workers: usize,
+    reporter: &dyn Reporter,
+    report: &mut DownloadReport,
+) -> Result<()> {
+    use std::sync::mpsc;
+
+    let paths = get_paths()?;
+    let total = ids.len();
+    let (job_tx, job_rx) = mpsc::channel::<(usize, String, String)>();
+    let job_rx = std::sync::Mutex::new(job_rx);
+    let (res_tx, res_rx) = mpsc::channel::<(usize, String, Result<crate::downloader::Extracted>)>();
+
+    // `scope` garantisce che i thread finiscano prima di uscire dalla funzione: nessun
+    // worker può sopravvivere al lotto e continuare a scrivere file di nascosto.
+    std::thread::scope(|scope| -> Result<()> {
+        for _ in 0..workers {
+            let job_rx = &job_rx;
+            let res_tx = res_tx.clone();
+            scope.spawn(move || {
+                loop {
+                    // Il lock si tiene solo per prendere il lavoro, non per svolgerlo.
+                    let job = { job_rx.lock().unwrap().recv() };
+                    let Ok((index, id, url)) = job else { break };
+                    let keeper = LeaseKeeper::new(&SilentWorker, &id);
+                    let outcome = download_video(&id, &url, strategy, max_height, &keeper);
+                    if res_tx.send((index, id, outcome)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(res_tx); // l'ultimo worker che esce chiude il canale dei risultati
+
+        let mut inviati = 0;
+        let mut ricevuti = 0;
+        let mut prossimo = 0;
+
+        // Si tiene in volo al massimo `workers` lavori: consegnarli tutti subito
+        // significherebbe rivendicarli tutti in anticipo, e un'interruzione li
+        // lascerebbe tutti marcati «in corso».
+        loop {
+            while inviati - ricevuti < workers && prossimo < total {
+                let id = ids[prossimo].clone();
+                prossimo += 1;
+
+                let st = state::read()?;
+                let Some(video) = st.videos.get(&id).cloned() else { continue };
+                let Some(url) = video.webpage_url().map(str::to_string) else {
+                    report.failed += 1;
+                    mark(&id, download_state::FAILED, Some("Nessun URL registrato."))?;
+                    continue;
+                };
+                if !try_claim(&id)? {
+                    report.skipped += 1;
+                    reporter.log(&format!("↷ {id}: già in corso altrove, salto."));
+                    continue;
+                }
+                remove_from_download_archive(&paths, &id)?;
+                reporter.log(&format!("▶ {} — {}", video.display_title(), id));
+                let _ = job_tx.send((prossimo, id, url));
+                inviati += 1;
+            }
+
+            if inviati == ricevuti {
+                break; // niente in volo e niente da inviare
+            }
+
+            match res_rx.recv() {
+                Ok((_, id, outcome)) => {
+                    ricevuti += 1;
+                    apply_outcome(&id, outcome, report, reporter)?;
+                    let fatti = report.downloaded + report.failed + report.removed;
+                    reporter.progress((fatti as f64 / total.max(1) as f64) * 100.0);
+                }
+                Err(_) => break,
+            }
+
+            if reporter.cancelled() {
+                reporter.log("Interrotto: i download già avviati vengono lasciati finire.");
+                break;
+            }
+        }
+
+        drop(job_tx); // fa uscire i worker dal loop
+        Ok(())
+    })
+}
+
+/// Reporter usato **dentro** un worker: silenzioso. Con N download insieme, mescolare
+/// le righe di avanzamento di yt-dlp di tutti renderebbe l'output illeggibile; le
+/// righe che contano (inizio e fine di ogni video) le stampa il thread principale.
+struct SilentWorker;
+impl Reporter for SilentWorker {
+    fn log(&self, _line: &str) {}
+    fn progress(&self, _percent: f64) {}
+}
+
 /// Scarica una lista **esplicita** di id, nell'ordine dato. Salta quelli già
 /// scaricati. Col modello a flag ortogonali non esiste più una coda "pending" da
 /// scansionare: si scarica esattamente ciò che è stato scelto.
+///
+/// Il numero di download simultanei viene da `download.parallel` in config; con `1`
+/// si resta sul percorso sequenziale, che ha la barra di avanzamento per-video.
 pub fn download_many(
     ids: &[String],
     strategy: AudioStrategy,
@@ -190,6 +351,20 @@ pub fn download_many(
         reporter.log("Nessun video da scaricare (lista vuota o già tutti scaricati).");
         return Ok(report);
     }
+    let workers = crate::config::parallel_downloads()
+        .unwrap_or(1)
+        .min(candidates.len().max(1));
+
+    if workers > 1 {
+        reporter.log(&format!(
+            "{} video da scaricare, {workers} alla volta.",
+            candidates.len()
+        ));
+        let ids: Vec<String> = candidates.iter().map(|v| v.id().to_string()).collect();
+        download_parallel(&ids, strategy, max_height, workers, reporter, &mut report)?;
+        return finish_batch(report, ids.len(), ids, &started, reporter);
+    }
+
     reporter.log(&format!("{} video da scaricare.", candidates.len()));
 
     for (i, candidate) in candidates.iter().enumerate() {
@@ -246,13 +421,46 @@ pub fn download_many(
         }
     }
 
-    reporter.log(&format!("Completato: {} scaricati, {} falliti.", report.downloaded, report.failed));
+    finish_batch(report, ids.len(), ids.to_vec(), &started, reporter)
+}
+
+/// Chiusura comune al percorso sequenziale e a quello parallelo: riepilogo, foto dei
+/// creator e registrazione nello storico.
+fn finish_batch(
+    mut report: DownloadReport,
+    _total: usize,
+    ids: Vec<String>,
+    started: &str,
+    reporter: &dyn Reporter,
+) -> Result<DownloadReport> {
+    reporter.log(&format!(
+        "Completato: {} scaricati, {} falliti.",
+        report.downloaded, report.failed
+    ));
+
+    // Chiude la catena: un video scaricato porta i metadati completi del canale, che
+    // sono ciò che serve per andare a prendere la foto del creator. Farlo qui evita
+    // che l'utente debba ricordarsi di un passaggio separato — e ripristina un
+    // comportamento che il JavaScript aveva (`downloadSingleJob` chiudeva chiamando
+    // `syncChannelAvatars`). Con `force:false` non costa nulla se non c'è nulla di nuovo.
+    if report.downloaded > 0 {
+        if let Ok(av) = crate::ops::maintain::sync_author_avatars(false, reporter) {
+            if av.saved > 0 {
+                reporter.log(&format!("✔ {} foto creator salvate.", av.saved));
+            }
+            report.avatars_saved = av.saved;
+        }
+    }
+
     runs::record(
         "download",
         json!({ "videoIds": ids }),
         report.failed == 0,
-        json!({ "downloaded": report.downloaded, "failed": report.failed, "removed": report.removed, "total": report.total }),
-        &started,
+        json!({
+            "downloaded": report.downloaded, "failed": report.failed,
+            "removed": report.removed, "skipped": report.skipped, "total": report.total
+        }),
+        started,
         None,
     );
     Ok(report)
@@ -264,6 +472,8 @@ pub struct EnrichReport {
     pub failed: usize,
     pub removed: usize,
     pub total: usize,
+    /// Foto dei creator prese a fine giro (vedi la nota in fondo a [`enrich`]).
+    pub avatars: crate::ops::maintain::AvatarReport,
 }
 
 /// Recupera metadati completi e copertina per i video che non li hanno ancora, senza
@@ -348,6 +558,21 @@ pub fn enrich(source_id: Option<&str>, reporter: &dyn Reporter) -> Result<Enrich
         "Completato: {} arricchiti, {} falliti, {} non più disponibili.",
         report.enriched, report.failed, report.removed
     ));
+
+    // Foto dei creator, a fine giro. È l'arricchimento a portare l'URL del canale, e
+    // senza quello l'autore non è interrogabile: farlo qui è l'unico momento in cui
+    // l'informazione c'è già. Così un creator appena comparso ha la sua foto senza
+    // che l'utente debba ricordarsi di un'azione separata.
+    //
+    // Ripristina un comportamento che l'implementazione JavaScript aveva
+    // (`enrichSourceJob` chiudeva chiamando `syncChannelAvatars({force:false})`) e che
+    // nel porting era andato perso. Con `force:false` il costo è quasi nullo quando
+    // non c'è nulla di nuovo: gli autori che hanno già la foto vengono saltati senza
+    // toccare la rete.
+    if report.enriched > 0 {
+        reporter.log("Foto dei creator…");
+        report.avatars = crate::ops::maintain::sync_author_avatars(false, reporter).unwrap_or_default();
+    }
     runs::record(
         "enrich",
         json!({ "sourceId": source_id }),
