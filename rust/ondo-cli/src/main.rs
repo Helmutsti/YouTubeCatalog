@@ -1,26 +1,29 @@
-//! `ondo` — menu a frecce per il catalogo video locale.
-//! Porting di `packages/cli/cli.js`.
+//! `ondo` — la CLI.
 //!
-//! Conserva le scelte di UX dell'originale, che sono decisioni di progetto e non
-//! dettagli implementativi:
-//!   - **navigazione con le frecce**, mai comandi digitati (le uniche eccezioni
-//!     sono ricerca e incolla-link, dove il testo libero è il punto);
-//!   - una voce **"← Torna"** sempre in coda a ogni sottomenu: è così che si
-//!     annulla, mai con un comando;
-//!   - **reset dello schermo** a ogni menu, con un messaggio "in sospeso" che
-//!     sopravvive esattamente a una schermata (senza, dopo pochi giri il
-//!     terminale diventa illeggibile — problema reale risolto nel CLI JS).
+//! Struttura dei menu decisa dall'utente:
 //!
-//! Come l'originale è un adapter sottile: nessuna regola di stato vive qui.
+//! ```text
+//! Cerca            ricerca libera nella libreria
+//! Sorgenti         elenco e gestione delle sorgenti
+//! Libreria         autori · tutti i video · preferiti · da scaricare
+//!                  · archiviati · rimossi da YouTube · falliti
+//! Download rapido  un link, un download — senza registrare una sorgente
+//! Impostazioni     percorsi, strumenti, manutenzione, storico
+//! ```
 //!
-//! ## Interruzione di un download
+//! Scelte di UX conservate dall'originale, che sono decisioni di progetto:
+//! navigazione **con le frecce** (testo libero solo dove è il punto: ricerca e
+//! link), una voce **"← Torna"** in coda a ogni sottomenu, e il **reset dello
+//! schermo** a ogni menu con un messaggio "in sospeso" che sopravvive esattamente a
+//! una schermata — senza, dopo pochi giri il terminale diventa illeggibile.
 //!
-//! Il JS aveva una "X" che abortiva un job in background. Qui le operazioni girano
-//! in primo piano (vedi `ondo_core::tasks`), quindi l'interruzione è **Ctrl-C**:
-//! la console la recapita all'intero gruppo di processi, yt-dlp compreso. Chiude
-//! anche il CLI — comportamento semplice e prevedibile, al posto di un abort
-//! parziale. Il catalogo non resta incoerente: un video interrotto risulta
-//! `downloading` e la reconciliation all'avvio successivo lo riporta a `none`.
+//! È un adapter sottile: nessuna regola di stato vive qui, tutto passa da
+//! `ondo_core::{library, ops}`.
+//!
+//! **Interruzione**: Ctrl-C. Le operazioni girano in primo piano, quindi la console
+//! recapita il segnale a tutto il gruppo di processi, yt-dlp compreso. Chiude anche
+//! la CLI, ma non lascia lo stato incoerente: un video interrotto resta
+//! `downloading` e la riconciliazione all'avvio successivo lo riporta a "da scaricare".
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -31,11 +34,12 @@ use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, Select};
 
 use ondo_core::config::{check_tools, get_paths};
-use ondo_core::schema::{download_state, Video, VideoCategory};
-use ondo_core::ytdlp::{AudioStrategy, Reporter};
-use ondo_core::{library, metadata, query, search, sources, store, sync, tasks};
+use ondo_core::downloader::{AudioStrategy, FormatsSummary, Reporter};
+use ondo_core::library::schema::{download_state, VideoCategory};
+use ondo_core::library::{self, files, metadata, query, search, state, Video};
+use ondo_core::ops;
 
-// ── Schermata e messaggi in sospeso ─────────────────────────────────────────
+// ── Schermo ─────────────────────────────────────────────────────────────────
 
 struct Screen {
     term: Term,
@@ -46,33 +50,29 @@ impl Screen {
     fn new() -> Self {
         Self { term: Term::stdout(), pending: None }
     }
-
-    /// Pulisce il terminale e ristampa l'eventuale messaggio in sospeso. Il clear
-    /// si applica solo su un TTY vero, per non rompere l'output rediretto.
     fn clear(&mut self) {
         if self.term.is_term() {
             let _ = self.term.clear_screen();
         }
-        if let Some(msg) = self.pending.take() {
-            println!("{msg}");
+        if let Some(m) = self.pending.take() {
+            println!("{m}");
         }
     }
-
-    fn set(&mut self, message: impl Into<String>) {
-        self.pending = Some(message.into());
+    fn set(&mut self, m: impl Into<String>) {
+        self.pending = Some(m.into());
     }
-
-    fn ok(&mut self, message: impl std::fmt::Display) {
-        self.set(format!("\n{} {message}\n", style("✔").green()));
+    fn ok(&mut self, m: impl std::fmt::Display) {
+        self.set(format!("\n{} {m}\n", style("✔").green()));
     }
-
-    fn err(&mut self, message: impl std::fmt::Display) {
-        self.set(format!("\n{} {message}\n", style("✘").red()));
+    fn warn(&mut self, m: impl std::fmt::Display) {
+        self.set(format!("\n{} {m}\n", style("⚠").yellow()));
     }
-
-    fn report<T>(&mut self, result: ondo_core::Result<T>, message: &str) {
-        match result {
-            Ok(_) => self.ok(message),
+    fn err(&mut self, m: impl std::fmt::Display) {
+        self.set(format!("\n{} {m}\n", style("✘").red()));
+    }
+    fn report<T>(&mut self, r: ondo_core::Result<T>, m: &str) {
+        match r {
+            Ok(_) => self.ok(m),
             Err(e) => self.err(e),
         }
     }
@@ -80,103 +80,88 @@ impl Screen {
 
 // ── Reporter da terminale ───────────────────────────────────────────────────
 
-/// Sostituisce l'infrastruttura `EventEmitter` → SSE → `useJobStream` del modello
-/// con la web GUI: qui chi lancia l'operazione è lo stesso processo che la mostra,
-/// quindi log e avanzamento vanno direttamente a schermo.
-struct TerminalReporter {
-    /// Ultima percentuale disegnata: si ridisegna la barra solo quando cambia di
-    /// almeno un punto, altrimenti yt-dlp la aggiornerebbe centinaia di volte.
-    last_drawn: Mutex<i64>,
+struct TermReporter {
+    last: Mutex<i64>,
     quiet: bool,
 }
 
-impl TerminalReporter {
+impl TermReporter {
     fn new(quiet: bool) -> Self {
-        Self { last_drawn: Mutex::new(-1), quiet }
+        Self { last: Mutex::new(-1), quiet }
     }
-
     fn finish(&self) {
-        if *self.last_drawn.lock().unwrap() >= 0 {
+        let mut l = self.last.lock().unwrap();
+        if *l >= 0 {
             println!();
-            *self.last_drawn.lock().unwrap() = -1;
+            *l = -1;
         }
     }
 }
 
-impl Reporter for TerminalReporter {
+impl Reporter for TermReporter {
     fn log(&self, line: &str) {
-        // Le righe di avanzamento di yt-dlp sono già rese dalla barra: ristamparle
-        // produrrebbe centinaia di righe identiche.
+        // Le righe di avanzamento di yt-dlp sono già rese dalla barra.
         if line.starts_with("[download]") && line.contains('%') {
             return;
         }
-        if self.quiet && !(line.starts_with('✔') || line.starts_with('✘') || line.starts_with('⊘') || line.starts_with("---")) {
+        let important = line.starts_with('✔') || line.starts_with('✘') || line.starts_with('⊘') || line.starts_with("---");
+        if self.quiet && !important {
             return;
         }
         self.finish();
-        println!("  {}", style(line).dim());
+        println!("  {}", if important { style(line).white() } else { style(line).dim() });
     }
-
     fn progress(&self, percent: f64) {
         let pct = percent.round() as i64;
-        let mut last = self.last_drawn.lock().unwrap();
+        let mut last = self.last.lock().unwrap();
         if *last == pct {
             return;
         }
         *last = pct;
         let filled = (pct.clamp(0, 100) as usize) * 30 / 100;
-        let bar: String = "█".repeat(filled) + &"░".repeat(30 - filled);
-        print!("\r  {} {pct:>3}%", style(bar).cyan());
+        print!("\r  {} {pct:>3}%", style("█".repeat(filled) + &"░".repeat(30 - filled)).cyan());
         let _ = std::io::stdout().flush();
     }
 }
 
-// ── Utilità di presentazione ────────────────────────────────────────────────
+// ── Presentazione ───────────────────────────────────────────────────────────
 
-fn format_duration(seconds: Option<f64>) -> String {
+fn dur(seconds: Option<f64>) -> String {
     match seconds {
         Some(s) if s > 0.0 => {
-            let total = s as u64;
-            let (h, m, sec) = (total / 3600, (total % 3600) / 60, total % 60);
-            if h > 0 {
-                format!("{h}:{m:02}:{sec:02}")
-            } else {
-                format!("{m}:{sec:02}")
-            }
+            let t = s as u64;
+            let (h, m, sec) = (t / 3600, (t % 3600) / 60, t % 60);
+            if h > 0 { format!("{h}:{m:02}:{sec:02}") } else { format!("{m}:{sec:02}") }
         }
-        _ => "--:--".to_string(),
+        _ => "--:--".into(),
     }
 }
 
-fn format_size(bytes: Option<u64>) -> String {
+fn size(bytes: Option<u64>) -> String {
     match bytes {
         Some(b) if b > 0 => {
             let gb = b as f64 / 1_073_741_824.0;
-            if gb >= 1.0 {
-                format!("{gb:.1} GB")
-            } else {
-                format!("{:.0} MB", b as f64 / 1_048_576.0)
-            }
+            if gb >= 1.0 { format!("{gb:.1} GB") } else { format!("{:.0} MB", b as f64 / 1_048_576.0) }
         }
-        _ => "—".to_string(),
+        _ => "—".into(),
     }
 }
 
-fn video_line(video: &Video) -> String {
-    let cat = video.category();
-    let icon = match cat {
-        VideoCategory::Downloaded => style(cat.label()).green(),
-        VideoCategory::Removed => style(cat.label()).red(),
-        VideoCategory::Failed => style(cat.label()).yellow(),
-        VideoCategory::Downloading => style(cat.label()).cyan(),
-        VideoCategory::Hidden | VideoCategory::Available => style(cat.label()).dim(),
+fn video_line(v: &Video) -> String {
+    let c = v.category();
+    let icon = match c {
+        VideoCategory::Downloaded => style(c.label()).green(),
+        VideoCategory::Removed => style(c.label()).red(),
+        VideoCategory::Failed => style(c.label()).yellow(),
+        VideoCategory::Downloading => style(c.label()).cyan(),
+        VideoCategory::Hidden | VideoCategory::Available => style(c.label()).dim(),
     };
-    let star = if video.favorite() { "★ " } else { "" };
     format!(
-        "{icon}  {star}{}  {}  [{}]",
-        video.display_title(),
-        style(video.channel_name().unwrap_or("—")).dim(),
-        format_duration(video.duration_seconds())
+        "{icon}  {}{}  {}  [{}]",
+        if v.favorite() { "★ " } else { "" },
+        v.display_title(),
+        style(v.channel_name().unwrap_or("—")).dim(),
+        dur(v.duration_seconds())
     )
 }
 
@@ -184,29 +169,27 @@ fn theme() -> ColorfulTheme {
     ColorfulTheme::default()
 }
 
-/// `Select` con "← Torna" già in coda. `None` = si torna indietro (voce scelta o
-/// ESC premuto).
-fn select_with_back(prompt: &str, mut labels: Vec<String>) -> Option<usize> {
-    let count = labels.len();
-    labels.push("← Torna".to_string());
-    let choice = Select::with_theme(&theme())
+fn select_back(prompt: &str, mut labels: Vec<String>) -> Option<usize> {
+    let n = labels.len();
+    labels.push("← Torna".into());
+    let i = Select::with_theme(&theme())
         .with_prompt(prompt)
         .items(&labels)
         .default(0)
         .interact_opt()
         .ok()
         .flatten()?;
-    (choice < count).then_some(choice)
+    (i < n).then_some(i)
 }
 
-fn ask_text(prompt: &str) -> Option<String> {
-    let value: String = Input::with_theme(&theme())
+fn ask(prompt: &str) -> Option<String> {
+    let v: String = Input::with_theme(&theme())
         .with_prompt(prompt)
         .allow_empty(true)
         .interact_text()
         .ok()?;
-    let value = value.trim().to_string();
-    (!value.is_empty()).then_some(value)
+    let v = v.trim().to_string();
+    (!v.is_empty()).then_some(v)
 }
 
 fn confirm(prompt: &str, default: bool) -> bool {
@@ -222,228 +205,165 @@ fn confirm(prompt: &str, default: bool) -> bool {
 fn pause() {
     print!("\nPremi invio per continuare… ");
     let _ = std::io::stdout().flush();
-    let mut buf = String::new();
-    let _ = std::io::stdin().read_line(&mut buf);
+    let mut b = String::new();
+    let _ = std::io::stdin().read_line(&mut b);
 }
 
-// ── Scelta della risoluzione ────────────────────────────────────────────────
+// ── Qualità ─────────────────────────────────────────────────────────────────
 
-/// Chiede la risoluzione fra quelle **realmente disponibili** per questo video, e
-/// se serve la strategia audio. La prima voce è "massima" = nessun cap.
-fn ask_quality(formats: &ondo_core::ytdlp::FormatsSummary) -> Option<(AudioStrategy, Option<Option<u64>>)> {
+/// Chiede la risoluzione fra quelle **realmente disponibili** per questo video, e la
+/// strategia audio quando serve.
+fn ask_quality(f: &FormatsSummary) -> Option<(AudioStrategy, Option<Option<u64>>)> {
     let mut strategy = AudioStrategy::Auto;
 
-    // Il caso che la nota di qualità esiste per intercettare: yt-dlp ripiegherebbe
-    // in silenzio su un combinato basso perché manca l'audio-only da fondere.
-    if formats.needs_audio_choice {
+    // Il caso per cui la nota di qualità esiste: yt-dlp ripiegherebbe in silenzio su
+    // un combinato basso perché manca una traccia audio separata da fondere.
+    if f.needs_audio_choice {
         println!(
             "\n{}",
             style(format!(
-                "⚠  Per questo video YouTube espone il video fino a {}p ma nessuna traccia audio separata.\n   \
-                 Senza una scelta, il download ripiegherebbe su {}p (video+audio già uniti).",
-                formats.max_video_height, formats.max_combined_height
+                "⚠  Video disponibile fino a {}p, ma senza traccia audio separata.\n   \
+                 Senza una scelta il download ripiegherebbe su {}p.",
+                f.max_video_height, f.max_combined_height
             ))
             .yellow()
         );
-        let choice = Select::with_theme(&theme())
+        let i = Select::with_theme(&theme())
             .with_prompt("Come procedere?")
             .items(&[
-                format!("Fondi video {}p + audio con ffmpeg (consigliato)", formats.max_video_height),
-                format!("Scarica il combinato a {}p", formats.max_combined_height),
+                format!("Fondi video {}p + audio con ffmpeg (consigliato)", f.max_video_height),
+                format!("Scarica il combinato a {}p", f.max_combined_height),
             ])
             .default(0)
             .interact_opt()
             .ok()??;
-        strategy = if choice == 0 { AudioStrategy::Merged } else { AudioStrategy::Combined };
+        strategy = if i == 0 { AudioStrategy::Merged } else { AudioStrategy::Combined };
     }
 
-    if formats.available_heights.is_empty() {
+    if f.available_heights.is_empty() {
         return Some((strategy, None));
     }
-
-    let mut labels: Vec<String> = vec![format!("{}p (massima)", formats.available_heights[0])];
-    labels.extend(
-        formats.available_heights[1..]
-            .iter()
-            .map(|h| format!("{h}p")),
-    );
-    let idx = Select::with_theme(&theme())
+    let mut labels = vec![format!("{}p (massima)", f.available_heights[0])];
+    labels.extend(f.available_heights[1..].iter().map(|h| format!("{h}p")));
+    let i = Select::with_theme(&theme())
         .with_prompt("Risoluzione")
         .items(&labels)
         .default(0)
         .interact_opt()
         .ok()??;
-
-    // Indice 0 = "massima" → Some(None): nessun cap, esplicito (non "usa config").
-    let cap = if idx == 0 { None } else { Some(formats.available_heights[idx]) };
-    Some((strategy, Some(cap)))
+    // Indice 0 = massima → nessun cap, esplicito (non "usa la config").
+    Some((strategy, Some(if i == 0 { None } else { Some(f.available_heights[i]) })))
 }
 
-// ── Menu: Catalogo ──────────────────────────────────────────────────────────
+// ── Elenco di video e dettaglio ─────────────────────────────────────────────
 
-const FILTERS: [(&str, Option<VideoCategory>); 7] = [
-    ("Tutti", None),
-    ("Disponibili", Some(VideoCategory::Available)),
-    ("Scaricati", Some(VideoCategory::Downloaded)),
-    ("Falliti", Some(VideoCategory::Failed)),
-    ("Rimossi da YouTube", Some(VideoCategory::Removed)),
-    ("Archiviati (nascosti)", Some(VideoCategory::Hidden)),
-    ("In download", Some(VideoCategory::Downloading)),
-];
-
-fn menu_catalog(screen: &mut Screen) {
-    loop {
-        screen.clear();
-        let catalog = match store::read_catalog() {
-            Ok(c) => c,
-            Err(e) => return screen.err(e),
-        };
-        let all = query::list_videos_in(&catalog, &query::VideoFilter::new());
-
-        let mut labels: Vec<String> = FILTERS
-            .iter()
-            .map(|(name, cat)| {
-                let n = match cat {
-                    None => all.len(),
-                    Some(c) => all.iter().filter(|v| v.category() == *c).count(),
-                };
-                format!("{name} ({n})")
-            })
-            .collect();
-        let favorites = all.iter().filter(|v| v.favorite()).count();
-        labels.push(format!("★ Preferiti ({favorites})"));
-
-        let Some(choice) = select_with_back("Catalogo — quale gruppo?", labels) else {
-            return;
-        };
-
-        let (title, videos): (String, Vec<Video>) = if choice == FILTERS.len() {
-            ("Preferiti".into(), all.into_iter().filter(|v| v.favorite()).collect())
-        } else {
-            let (name, wanted) = FILTERS[choice];
-            let filtered = match wanted {
-                None => all,
-                Some(c) => all.into_iter().filter(|v| v.category() == c).collect(),
-            };
-            (name.to_string(), filtered)
-        };
-        browse_videos(screen, videos, &title);
-    }
-}
-
-fn browse_videos(screen: &mut Screen, videos: Vec<Video>, title: &str) {
+fn browse(screen: &mut Screen, videos: Vec<Video>, title: &str) {
     if videos.is_empty() {
-        screen.set(format!("\nNessun video in «{title}».\n"));
+        screen.set(format!("\nNiente in «{title}».\n"));
         return;
     }
     loop {
         screen.clear();
-        let mut labels: Vec<String> = Vec::new();
-        // Scaricare in blocco tutto ciò che in questa vista non è ancora scaricato.
-        let downloadable: Vec<String> = videos
+        let pending: Vec<String> = videos
             .iter()
-            .filter(|v| v.download() == download_state::NONE)
+            .filter(|v| v.download() == download_state::NONE && !v.hidden())
             .map(|v| v.id().to_string())
             .collect();
-        if !downloadable.is_empty() {
-            labels.push(format!("▶ Scarica tutti i {} non scaricati", downloadable.len()));
+
+        let mut labels = Vec::new();
+        if !pending.is_empty() {
+            labels.push(format!("▶ Scarica tutti i {} non scaricati", pending.len()));
         }
         labels.extend(videos.iter().map(video_line));
 
-        let prompt = format!("{title} — {} video", videos.len());
-        let Some(index) = select_with_back(&prompt, labels) else {
+        let Some(i) = select_back(&format!("{title} — {} video", videos.len()), labels) else {
             return;
         };
-
-        if !downloadable.is_empty() && index == 0 {
-            if confirm(&format!("Scaricare {} video ora?", downloadable.len()), true) {
-                run_download(screen, &downloadable, AudioStrategy::Auto, None);
+        if !pending.is_empty() && i == 0 {
+            if confirm(&format!("Scaricare {} video?", pending.len()), true) {
+                run_download(screen, &pending, AudioStrategy::Auto, None);
             }
-            return; // la lista è ormai obsoleta: si torna al livello superiore
+            return; // l'elenco è ormai obsoleto
         }
-        let offset = usize::from(!downloadable.is_empty());
-        let id = videos[index - offset].id().to_string();
-        video_detail(screen, &id);
+        let id = videos[i - usize::from(!pending.is_empty())].id().to_string();
+        detail(screen, &id);
     }
 }
 
-// ── Dettaglio di un video ───────────────────────────────────────────────────
-
-fn video_detail(screen: &mut Screen, id: &str) {
+fn detail(screen: &mut Screen, id: &str) {
     loop {
         screen.clear();
-        let video = match query::get_video(id) {
-            Ok(v) => v,
+        let st = match state::read() {
+            Ok(s) => s,
             Err(e) => return screen.err(e),
         };
+        let Ok(v) = st.video(id) else {
+            return screen.err(format!("Video non trovato: {id}"));
+        };
+        let v = v.clone();
 
-        println!("{}", style(video.display_title()).bold().cyan());
-        println!("  canale   {}", video.channel_name().unwrap_or("—"));
-        println!("  durata   {}", format_duration(video.duration_seconds()));
-        println!("  stato    {}", video.category().label());
-        println!("  id       {}", video.id());
-        if let Some(url) = video.webpage_url() {
-            println!("  origine  {url}");
+        println!("{}", style(v.display_title()).bold().cyan());
+        println!("  autore   {}", v.channel_name().unwrap_or("—"));
+        println!("  durata   {}", dur(v.duration_seconds()));
+        println!("  stato    {}", v.category().label());
+        println!("  id       {}", v.id());
+        if let Some(u) = v.webpage_url() {
+            println!("  origine  {u}");
         }
-        if let Some(local) = video.local_path() {
-            let size = video.0.get("video").and_then(|v| v.get("sizeBytes")).and_then(serde_json::Value::as_u64);
-            println!("  file     {local}  ({})", format_size(size));
+        if let Some(p) = v.local_path() {
+            println!("  file     {p}  ({})", size(v.size_bytes()));
         }
-        if let Some(note) = video.0.get("video").and_then(|v| v.get("qualityNote")) {
-            if !note.is_null() {
-                println!(
-                    "  {}",
-                    style(format!(
-                        "⚠ scaricato a {}p — probabile ripiego, vale la pena riprovare",
-                        note.get("downloadedHeight").and_then(serde_json::Value::as_u64).unwrap_or(0)
-                    ))
-                    .yellow()
-                );
-            }
+        let labels_sources: Vec<String> = v
+            .source_ids()
+            .iter()
+            .map(|sid| st.sources.get(*sid).map(|s| s.display_name()).unwrap_or_else(|| (*sid).into()))
+            .collect();
+        if !labels_sources.is_empty() {
+            println!("  sorgenti {}", labels_sources.join(", "));
         }
-        if let Some(err) = video.0.get("error").and_then(|e| e.get("message")).and_then(serde_json::Value::as_str) {
-            println!("  {}", style(format!("errore   {err}")).red());
+        if let Some(n) = v.quality_note() {
+            println!(
+                "  {}",
+                style(format!(
+                    "⚠ scaricato a {}p — probabile ripiego, vale la pena riprovare",
+                    n.get("downloadedHeight").and_then(serde_json::Value::as_u64).unwrap_or(0)
+                ))
+                .yellow()
+            );
+        }
+        if let Some(e) = v.error_message() {
+            println!("  {}", style(format!("errore   {e}")).red());
         }
         println!();
 
         let mut actions: Vec<(&str, String)> = Vec::new();
-        if video.is_downloaded() {
+        if v.is_downloaded() {
             actions.push(("play", "▶ Riproduci con VLC".into()));
-            actions.push(("redownload", "⟳ Elimina il file e ri-scarica".into()));
-            actions.push(("delfile", "🗑 Cancella solo il file (tieni la scheda)".into()));
+            actions.push(("re", "⟳ Elimina e ri-scarica".into()));
+            actions.push(("delfile", "🗑 Cancella il file (tieni la scheda)".into()));
         } else {
-            actions.push(("download", "⬇ Scarica".into()));
+            actions.push(("dl", "⬇ Scarica".into()));
         }
-        actions.push(if video.favorite() {
-            ("unfav", "☆ Togli dai preferiti".into())
-        } else {
-            ("fav", "★ Aggiungi ai preferiti".into())
-        });
-        actions.push(if video.hidden() {
-            ("unhide", "◉ Ripristina dagli archiviati".into())
-        } else {
-            ("hide", "◌ Archivia (nascondi)".into())
-        });
-        if video.hidden() {
-            actions.push(("purge", "⚠ Cancella definitivamente (file + scheda)".into()));
+        actions.push(if v.favorite() { ("unfav", "☆ Togli dai preferiti".into()) } else { ("fav", "★ Preferito".into()) });
+        actions.push(if v.hidden() { ("unhide", "◉ Ripristina".into()) } else { ("hide", "◌ Archivia".into()) });
+        if v.hidden() {
+            actions.push(("purge", "⚠ Cancella per sempre".into()));
         }
         actions.push(("meta", "ℹ Metadati grezzi".into()));
 
-        let labels: Vec<String> = actions.iter().map(|(_, l)| l.clone()).collect();
-        let Some(choice) = select_with_back("Azione", labels) else {
+        let Some(i) = select_back("Azione", actions.iter().map(|(_, l)| l.clone()).collect()) else {
             return;
         };
-
-        match actions[choice].0 {
-            "play" => match play_with_vlc(&video) {
+        match actions[i].0 {
+            "play" => match play(&v) {
                 Ok(()) => screen.ok("VLC avviato."),
                 Err(e) => screen.err(e),
             },
-            "download" => download_one(screen, &video),
-            "redownload" => {
-                if confirm("Cancellare il file attuale e ri-scaricarlo?", false) {
-                    match library::delete_video_file(id) {
-                        Ok(()) => match query::get_video(id) {
+            "dl" => download_one(screen, &v),
+            "re" => {
+                if confirm("Cancellare il file e ri-scaricarlo?", false) {
+                    match ops::delete_video_file(id) {
+                        Ok(()) => match state::read().and_then(|s| s.video(id).cloned()) {
                             Ok(fresh) => download_one(screen, &fresh),
                             Err(e) => screen.err(e),
                         },
@@ -452,33 +372,33 @@ fn video_detail(screen: &mut Screen, id: &str) {
                 }
             }
             "delfile" => {
-                if confirm("Cancellare il file dal disco? La scheda resta in libreria.", false) {
-                    screen.report(library::delete_video_file(id), "File cancellato, scheda mantenuta.");
+                if confirm("Cancellare il file? La scheda resta in libreria.", false) {
+                    screen.report(ops::delete_video_file(id), "File cancellato.");
                 }
             }
             "purge" => {
-                if confirm("CANCELLARE DEFINITIVAMENTE questo video? Irreversibile.", false) {
-                    screen.report(library::delete_video_completely(id), "Cancellato definitivamente.");
-                    return; // la scheda non esiste più
+                if confirm("CANCELLARE PER SEMPRE (file, scheda, metadati)?", false) {
+                    screen.report(ops::delete_video_completely(id), "Cancellato per sempre.");
+                    return;
                 }
             }
-            "fav" => screen.report(query::set_video_favorite(id, true), "Aggiunto ai preferiti."),
-            "unfav" => screen.report(query::set_video_favorite(id, false), "Rimosso dai preferiti."),
-            "hide" => screen.report(query::set_video_hidden(id, true), "Archiviato."),
-            "unhide" => screen.report(query::set_video_hidden(id, false), "Ripristinato."),
+            "fav" => screen.report(ops::set_favorite(id, true), "Aggiunto ai preferiti."),
+            "unfav" => screen.report(ops::set_favorite(id, false), "Rimosso dai preferiti."),
+            "hide" => screen.report(ops::set_hidden(id, true), "Archiviato."),
+            "unhide" => screen.report(ops::set_hidden(id, false), "Ripristinato."),
             "meta" => {
                 screen.clear();
-                match metadata::get_metadata(id) {
+                match metadata::get(id) {
                     Ok(Some(m)) => {
-                        let text = serde_json::to_string_pretty(&m).unwrap_or_default();
-                        for line in text.lines().take(60) {
-                            println!("{line}");
+                        let t = serde_json::to_string_pretty(&m).unwrap_or_default();
+                        for l in t.lines().take(60) {
+                            println!("{l}");
                         }
-                        if text.lines().count() > 60 {
+                        if t.lines().count() > 60 {
                             println!("{}", style("… (troncato)").dim());
                         }
                     }
-                    Ok(None) => println!("Nessun metadato grezzo salvato per questo video."),
+                    Ok(None) => println!("Nessun metadato grezzo per questo video."),
                     Err(e) => println!("{e}"),
                 }
                 pause();
@@ -488,58 +408,44 @@ fn video_detail(screen: &mut Screen, id: &str) {
     }
 }
 
-fn download_one(screen: &mut Screen, video: &Video) {
-    let Some(url) = video.webpage_url().map(str::to_string) else {
-        return screen.err("Nessun URL registrato per questo video.");
+fn download_one(screen: &mut Screen, v: &Video) {
+    let Some(url) = v.webpage_url().map(str::to_string) else {
+        return screen.err("Nessun URL registrato.");
     };
     screen.clear();
     println!("{}", style("Analisi dei formati disponibili…").dim());
-
-    // Si interroga yt-dlp per sapere quali risoluzioni esistono davvero, invece di
-    // proporre una lista fissa che potrebbe non corrispondere a questo video.
-    let (strategy, max_height) = match ondo_core::ytdlp::resolve_video_info(&url) {
-        Ok(resolved) => match ask_quality(&resolved.formats) {
-            Some(v) => v,
-            None => return,
+    match ondo_core::downloader::resolve_video_info(&url) {
+        Ok(r) => match ask_quality(&r.formats) {
+            Some((s, h)) => run_download(screen, &[v.id().to_string()], s, h),
+            None => {}
         },
-        Err(e) => {
-            screen.err(format!("Formati non risolti: {e}"));
-            return;
-        }
-    };
-    run_download(screen, &[video.id().to_string()], strategy, max_height);
+        Err(e) => screen.err(format!("Formati non risolti: {e}")),
+    }
 }
 
-fn run_download(screen: &mut Screen, ids: &[String], strategy: AudioStrategy, max_height: Option<Option<u64>>) {
+fn run_download(screen: &mut Screen, ids: &[String], s: AudioStrategy, h: Option<Option<u64>>) {
     screen.clear();
-    println!("{}\n", style("Download in corso — Ctrl-C per interrompere").bold());
-    let reporter = TerminalReporter::new(ids.len() > 1);
-    let result = tasks::download_many(ids, strategy, max_height, &reporter);
-    reporter.finish();
-    match result {
-        Ok(r) => {
-            let msg = format!("{} scaricati, {} falliti su {}.", r.downloaded, r.failed, r.total);
-            if r.failed == 0 {
-                screen.ok(msg);
-            } else {
-                screen.set(format!("\n{} {msg}\n", style("⚠").yellow()));
-            }
+    println!("{}\n", style("Download — Ctrl-C per interrompere").bold());
+    let r = TermReporter::new(ids.len() > 1);
+    let out = ops::download_many(ids, s, h, &r);
+    r.finish();
+    match out {
+        Ok(rep) => {
+            let m = format!("{} scaricati, {} falliti su {}.", rep.downloaded, rep.failed, rep.total);
+            if rep.failed == 0 { screen.ok(m) } else { screen.warn(m) }
         }
         Err(e) => screen.err(e),
     }
     pause();
 }
 
-// ── Riproduzione con VLC ────────────────────────────────────────────────────
-
-/// VLC parte come processo **indipendente**: continua a girare anche chiudendo il
-/// CLI (equivalente di `detached: true` + `unref()` nel JS).
-fn play_with_vlc(video: &Video) -> ondo_core::Result<()> {
-    let path = library::resolve_video_path(video)?;
+/// VLC parte come processo **indipendente**: continua a girare anche chiudendo la CLI.
+fn play(v: &Video) -> ondo_core::Result<()> {
+    let path = files::resolve_video_path(v)?;
     let paths = get_paths()?;
     if paths.vlc_path.is_empty() || !std::path::Path::new(&paths.vlc_path).is_file() {
         return Err(ondo_core::OndoError::not_found(format!(
-            "VLC non trovato in {}. Imposta playback.vlcPath in data/config.json.",
+            "VLC non trovato in {}. Impostalo in data/config.json → playback.vlcPath.",
             paths.vlc_path
         )));
     }
@@ -549,146 +455,110 @@ fn play_with_vlc(video: &Video) -> ondo_core::Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| {
-            ondo_core::OndoError::new(ondo_core::ErrorKind::Io, format!("Avvio di VLC fallito: {e}"))
-        })?;
+        .map_err(|e| ondo_core::OndoError::new(ondo_core::ErrorKind::Io, format!("Avvio di VLC fallito: {e}")))?;
     Ok(())
 }
 
-// ── Menu: Cerca ─────────────────────────────────────────────────────────────
+// ── 1. Cerca ────────────────────────────────────────────────────────────────
 
 fn menu_search(screen: &mut Screen) {
     loop {
         screen.clear();
-        println!("{}", style("Cerca fra titoli, canali, tag e descrizioni (invio vuoto per tornare)").dim());
-        let Some(q) = ask_text("Cerca") else { return };
-        match search::search_videos(&q, Some(50)) {
-            Ok(hits) if hits.is_empty() => screen.set(format!("\nNessun risultato per «{q}».\n")),
-            Ok(hits) => browse_videos(screen, hits, &format!("Risultati per «{q}»")),
+        println!("{}", style("Cerca fra titoli, autori, tag e descrizioni (invio vuoto per tornare)").dim());
+        let Some(q) = ask("Cerca") else { return };
+        match state::read() {
+            Ok(st) => {
+                let hits: Vec<Video> = search(&st, &q, Some(50)).into_iter().cloned().collect();
+                if hits.is_empty() {
+                    screen.set(format!("\nNessun risultato per «{q}».\n"));
+                } else {
+                    browse(screen, hits, &format!("Risultati per «{q}»"));
+                }
+            }
             Err(e) => screen.err(e),
         }
     }
 }
 
-// ── Menu: Guarda ────────────────────────────────────────────────────────────
-
-fn menu_watch(screen: &mut Screen) {
-    loop {
-        screen.clear();
-        let channels = match query::list_channels(Some(download_state::DOWNLOADED)) {
-            Ok(c) => c,
-            Err(e) => return screen.err(e),
-        };
-        if channels.is_empty() {
-            return screen.set("\nNessun video scaricato: non c'è ancora niente da guardare.\n".to_string());
-        }
-        let labels: Vec<String> = channels
-            .iter()
-            .map(|c| {
-                format!(
-                    "{}  {}",
-                    c.name.clone().unwrap_or_else(|| c.key.clone()),
-                    style(format!("({})", c.count)).dim()
-                )
-            })
-            .collect();
-        let Some(index) = select_with_back("Guarda — quale creator?", labels) else {
-            return;
-        };
-        let channel = &channels[index];
-        match query::list_videos_by_channel(&channel.key, Some(download_state::DOWNLOADED)) {
-            Ok(videos) => browse_videos(screen, videos, channel.name.as_deref().unwrap_or(&channel.key)),
-            Err(e) => screen.err(e),
-        }
-    }
-}
-
-// ── Menu: Fonti ─────────────────────────────────────────────────────────────
+// ── 2. Sorgenti ─────────────────────────────────────────────────────────────
 
 fn menu_sources(screen: &mut Screen) {
     loop {
         screen.clear();
-        let list = match sources::list_sources() {
-            Ok(l) => l,
+        let st = match state::read() {
+            Ok(s) => s,
             Err(e) => return screen.err(e),
         };
+        let sources: Vec<_> = st.sources.values().cloned().collect();
 
-        if list.is_empty() {
-            println!("{}\n", style("Nessuna fonte configurata.").dim());
+        if sources.is_empty() {
+            println!("{}\n", style("Nessuna sorgente configurata.").dim());
         } else {
-            println!("{}", style("Fonti configurate").bold());
-            for s in &list {
+            println!("{}", style("Sorgenti").bold());
+            for s in &sources {
                 println!(
                     "  {}  {}  {}",
-                    s.name.clone().unwrap_or_else(|| s.id.clone()),
-                    style(format!("({} video)", s.video_count)).dim(),
-                    style(s.last_checked_at.clone().unwrap_or_else(|| "mai sincronizzata".into())).dim()
+                    s.display_name(),
+                    style(format!("({} video)", st.videos_of_source(s.id()).len())).dim(),
+                    style(s.last_checked_at().unwrap_or("mai sincronizzata")).dim()
                 );
             }
             println!();
         }
 
         let mut labels = vec!["＋ Aggiungi una playlist".to_string()];
-        if !list.is_empty() {
-            labels.push("⟳ Sincronizza tutte".to_string());
-            labels.push("⟳ Sincronizza una fonte…".to_string());
-            labels.push("✎ Completa i metadati mancanti".to_string());
-            labels.push("－ Rimuovi una fonte…".to_string());
+        if !sources.is_empty() {
+            labels.push("⟳ Sincronizza tutte".into());
+            labels.push("⟳ Sincronizza una…".into());
+            labels.push("✎ Completa metadati e copertine".into());
+            labels.push("－ Rimuovi una sorgente…".into());
         }
+        let Some(i) = select_back("Sorgenti", labels) else { return };
 
-        let Some(choice) = select_with_back("Gestisci fonti", labels) else {
-            return;
-        };
-
-        match choice {
+        match i {
             0 => {
-                let Some(url) = ask_text("URL della playlist (deve contenere list=)") else { continue };
+                let Some(url) = ask("URL della playlist (con list=)") else { continue };
                 screen.clear();
-                println!("{}", style("Enumerazione della playlist…").dim());
-                match sources::add_source(&url) {
-                    Ok(outcome) if outcome.already_exists => {
-                        screen.set(format!("\nLa fonte «{}» è già configurata.\n", outcome.name.unwrap_or_default()))
-                    }
-                    Ok(outcome) => {
-                        let n = outcome.report.as_ref().map(|r| r.new_count).unwrap_or(0);
-                        let missing = outcome.report.as_ref().map(|r| r.missing_count()).unwrap_or(0);
-                        let mut msg = format!("Fonte «{}» aggiunta: {n} video.", outcome.name.unwrap_or_default());
+                println!("{}", style("Enumerazione…").dim());
+                match ops::add_source(&url) {
+                    Ok(o) if o.already_exists => screen.warn(format!("«{}» è già configurata.", o.name)),
+                    Ok(o) => {
+                        let n = o.report.as_ref().map(|r| r.new_count).unwrap_or(0);
+                        let missing = o.report.as_ref().map(|r| r.missing_count()).unwrap_or(0);
+                        let mut m = format!("«{}» aggiunta: {n} video.", o.name);
                         if missing > 0 {
-                            msg.push_str(&format!(
-                                " Attenzione: {missing} video dichiarati da YouTube non erano visibili in questa estrazione (privati o rimossi)."
+                            m.push_str(&format!(
+                                " {missing} dichiarati da YouTube non erano visibili (privati o rimossi)."
                             ));
                         }
-                        screen.ok(msg);
-                        if confirm("Completare ora i metadati e le copertine?", true) {
-                            run_enrich(screen, Some(&outcome.source_id));
+                        screen.ok(m);
+                        if confirm("Completare ora metadati e copertine?", true) {
+                            run_enrich(screen, Some(&o.source_id));
                         }
                     }
                     Err(e) => screen.err(e),
                 }
             }
-            1 => {
-                let ids: Vec<String> = list.iter().map(|s| s.id.clone()).collect();
-                run_sync(screen, &ids);
-            }
+            1 => run_sync(screen),
             2 => {
-                let labels: Vec<String> = list
-                    .iter()
-                    .map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))
-                    .collect();
-                if let Some(i) = select_with_back("Quale fonte?", labels) {
-                    run_sync(screen, &[list[i].id.clone()]);
+                let labels: Vec<String> = sources.iter().map(|s| s.display_name()).collect();
+                if let Some(j) = select_back("Quale sorgente?", labels) {
+                    screen.clear();
+                    println!("{}\n", style("Sincronizzazione…").bold());
+                    match ops::sync_source(sources[j].id()) {
+                        Ok(r) => screen.ok(sync_summary(&r)),
+                        Err(e) => screen.err(e),
+                    }
+                    pause();
                 }
             }
             3 => run_enrich(screen, None),
             4 => {
-                let labels: Vec<String> = list
-                    .iter()
-                    .map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))
-                    .collect();
-                if let Some(i) = select_with_back("Quale fonte rimuovere?", labels) {
-                    let name = list[i].name.clone().unwrap_or_else(|| list[i].id.clone());
+                let labels: Vec<String> = sources.iter().map(|s| s.display_name()).collect();
+                if let Some(j) = select_back("Quale rimuovere?", labels) {
+                    let name = sources[j].display_name();
                     if confirm(&format!("Rimuovere «{name}»? I video restano in libreria."), false) {
-                        screen.report(sources::remove_source(&list[i].id), "Fonte rimossa.");
+                        screen.report(ops::remove_source(sources[j].id()), "Sorgente rimossa.");
                     }
                 }
             }
@@ -697,133 +567,209 @@ fn menu_sources(screen: &mut Screen) {
     }
 }
 
-fn run_sync(screen: &mut Screen, source_ids: &[String]) {
-    screen.clear();
-    println!("{}\n", style("Sincronizzazione…").bold());
-    let (mut new, mut healed, mut removed, mut restored, mut reclaimed) = (0, 0, 0, 0, 0);
-    let mut skipped_healing = false;
-    let mut errors: Vec<String> = Vec::new();
-
-    for id in source_ids {
-        print!("  {id} … ");
-        let _ = std::io::stdout().flush();
-        match sync::sync_source(id) {
-            Ok(r) => {
-                println!(
-                    "{} nuovi, {} rimossi, {} ripristinati",
-                    r.new_count, r.removed_count, r.restored_count
-                );
-                new += r.new_count;
-                healed += r.healed_count;
-                removed += r.removed_count;
-                restored += r.restored_count;
-                reclaimed += r.reclaimed_count;
-                skipped_healing |= r.healing_skipped;
-            }
-            Err(e) => {
-                println!("{}", style("errore").red());
-                errors.push(format!("{id}: {e}"));
-            }
-        }
-    }
-
-    let mut msg = format!(
-        "Sincronizzazione completata: {new} nuovi, {removed} rimossi, {restored} ripristinati, {healed} da ri-scaricare."
+fn sync_summary(r: &ops::SyncReport) -> String {
+    let mut m = format!(
+        "{} nuovi, {} rimossi, {} ripristinati, {} da ri-scaricare.",
+        r.new_count, r.removed_count, r.restored_count, r.healed_count
     );
-    if reclaimed > 0 {
-        msg.push_str(&format!(" {reclaimed} recuperati (file ricomparso su disco)."));
+    if r.reclaimed_count > 0 {
+        m.push_str(&format!(" {} recuperati (file ricomparso).", r.reclaimed_count));
     }
-    if skipped_healing {
-        msg.push_str(
+    if r.healing_skipped {
+        m.push_str(
             "\n  ⚠ La cartella dei video risulta vuota o irraggiungibile: il controllo dei file \
              è stato SALTATO per non azzerare lo stato. Verifica che il disco sia collegato.",
         );
     }
-    for e in &errors {
-        msg.push_str(&format!("\n  ✘ {e}"));
+    for e in &r.errors {
+        m.push_str(&format!("\n  ✘ {e}"));
     }
-    screen.set(format!("\n{msg}\n"));
+    m
+}
+
+fn run_sync(screen: &mut Screen) {
+    screen.clear();
+    println!("{}\n", style("Sincronizzazione di tutte le sorgenti…").bold());
+    match ops::sync_all() {
+        Ok(r) => screen.set(format!("\n{}\n", sync_summary(&r))),
+        Err(e) => screen.err(e),
+    }
     pause();
 }
 
 fn run_enrich(screen: &mut Screen, source_id: Option<&str>) {
     screen.clear();
-    println!("{}\n", style("Recupero metadati e copertine — Ctrl-C per interrompere").bold());
-    let reporter = TerminalReporter::new(true);
-    let result = tasks::enrich_pending(source_id, &reporter);
-    reporter.finish();
-    match result {
-        Ok(r) => screen.ok(format!(
-            "{} arricchiti, {} falliti, {} non più disponibili.",
-            r.enriched, r.failed, r.removed
+    println!("{}\n", style("Metadati e copertine — Ctrl-C per interrompere").bold());
+    let r = TermReporter::new(true);
+    let out = ops::enrich(source_id, &r);
+    r.finish();
+    match out {
+        Ok(rep) => screen.ok(format!(
+            "{} completati, {} falliti, {} non più disponibili.",
+            rep.enriched, rep.failed, rep.removed
         )),
         Err(e) => screen.err(e),
     }
     pause();
 }
 
-// ── Menu: Scarica un singolo video ──────────────────────────────────────────
+// ── 3. Libreria ─────────────────────────────────────────────────────────────
 
-fn menu_single(screen: &mut Screen) {
+fn menu_library(screen: &mut Screen) {
+    loop {
+        screen.clear();
+        let st = match state::read() {
+            Ok(s) => s,
+            Err(e) => return screen.err(e),
+        };
+        let c = query::counts(&st);
+
+        let labels = vec![
+            format!("Autori ({})", st.authors.len()),
+            format!("Tutti i video ({}) — dall'ultimo aggiunto", c.total),
+            format!("★ Preferiti ({})", c.favorite),
+            format!("Da scaricare ({})", c.available),
+            format!("◌ Archiviati ({})", c.hidden),
+            format!("✖ Rimossi da YouTube ({})", c.removed),
+            format!("⚠ Falliti ({})", c.failed),
+        ];
+        let Some(i) = select_back("Libreria", labels) else { return };
+
+        match i {
+            0 => menu_authors(screen),
+            _ => {
+                let (title, filter) = match i {
+                    1 => ("Tutti i video", query::Filter::new()),
+                    2 => ("Preferiti", query::Filter::new().favorite(true)),
+                    3 => ("Da scaricare", query::Filter::new().category(VideoCategory::Available)),
+                    4 => ("Archiviati", query::Filter::new().category(VideoCategory::Hidden)),
+                    5 => ("Rimossi da YouTube", query::Filter::new().category(VideoCategory::Removed)),
+                    _ => ("Falliti", query::Filter::new().category(VideoCategory::Failed)),
+                };
+                let videos: Vec<Video> = query::videos(&st, &filter).into_iter().cloned().collect();
+                browse(screen, videos, title);
+            }
+        }
+    }
+}
+
+fn menu_authors(screen: &mut Screen) {
+    loop {
+        screen.clear();
+        let st = match state::read() {
+            Ok(s) => s,
+            Err(e) => return screen.err(e),
+        };
+        let authors = query::authors(&st, false);
+        if authors.is_empty() {
+            return screen.set("\nNessun autore in libreria.\n".to_string());
+        }
+        let labels: Vec<String> = authors
+            .iter()
+            .map(|a| {
+                format!(
+                    "{}  {}",
+                    a.author.display_name(),
+                    style(format!("({} video, {} scaricati)", a.total, a.downloaded)).dim()
+                )
+            })
+            .collect();
+        let Some(i) = select_back("Autori", labels) else { return };
+
+        let key = authors[i].author.key().to_string();
+        let name = authors[i].author.display_name();
+        let videos: Vec<Video> = query::videos(&st, &query::Filter::new().author(&key))
+            .into_iter()
+            .cloned()
+            .collect();
+        browse(screen, videos, &name);
+    }
+}
+
+// ── 4. Download rapido ──────────────────────────────────────────────────────
+
+fn menu_quick(screen: &mut Screen) {
     screen.clear();
     println!(
         "{}",
-        style("Incolla il link di un video (YouTube o qualunque sito supportato da yt-dlp),\noppure un id YouTube di 11 caratteri.").dim()
+        style(
+            "Download rapido — incolla un link:\n  · un video YouTube (o un id di 11 caratteri)\n  \
+             · un video di un altro sito supportato da yt-dlp (Rumble, …)\n  · una playlist YouTube\n\n\
+             Nota: NON crea una sorgente. Questi video non verranno sincronizzati,\n\
+             quindi non sapranno mai di essere stati rimossi da YouTube."
+        )
+        .dim()
     );
-    let Some(input) = ask_text("Link") else { return };
+    let Some(input) = ask("Link") else { return };
 
     screen.clear();
     println!("{}", style("Risoluzione del link…").dim());
-    match sources::prepare_single_video(&input) {
-        Ok(sources::SinglePrepared::AlreadyDownloaded { id, title }) => screen.set(format!(
-            "\nGià in archivio: «{}» ({id}).\n",
-            title.unwrap_or_else(|| id.clone())
-        )),
-        Ok(sources::SinglePrepared::Ready { id, title, formats, .. }) => {
-            println!("\n{}", style(title.unwrap_or_else(|| id.clone())).bold());
-            let Some((strategy, max_height)) = ask_quality(&formats) else { return };
-            run_download(screen, &[id], strategy, max_height);
+    match ops::quick_download_target(&input) {
+        Ok(ops::QuickTarget::AlreadyDownloaded { id, title }) => {
+            screen.warn(format!("Già in archivio: «{title}» ({id})."))
+        }
+        Ok(ops::QuickTarget::Video { id, title, formats }) => {
+            println!("\n{}", style(title).bold());
+            if let Some((s, h)) = ask_quality(&formats) {
+                run_download(screen, &[id], s, h);
+            }
+        }
+        Ok(ops::QuickTarget::Playlist { title, ids, already_downloaded }) => {
+            println!("\n{}", style(&title).bold());
+            println!(
+                "  {} da scaricare, {} già presenti\n",
+                ids.len(),
+                already_downloaded
+            );
+            if ids.is_empty() {
+                screen.warn("Tutti i video della playlist sono già in archivio.");
+            } else if confirm(&format!("Scaricare {} video?", ids.len()), true) {
+                // In blocco si va alla massima risoluzione: chiedere per ognuno di N
+                // video sarebbe insostenibile.
+                run_download(screen, &ids, AudioStrategy::Auto, Some(None));
+            }
         }
         Err(e) => screen.err(e),
     }
 }
 
-// ── Menu: Manutenzione ──────────────────────────────────────────────────────
+// ── 5. Impostazioni ─────────────────────────────────────────────────────────
 
-fn menu_maintenance(screen: &mut Screen) {
+fn menu_settings(screen: &mut Screen) {
     loop {
         screen.clear();
         let labels = vec![
-            "📁 Riorganizza l'archivio per creator".to_string(),
-            "🖼 Aggiorna le foto dei creator".to_string(),
-            "🕘 Storico delle esecuzioni".to_string(),
-            "🧹 Svuota lo storico".to_string(),
+            "Stato e percorsi".to_string(),
+            "📁 Riorganizza l'archivio per autore".into(),
+            "🖼 Aggiorna le foto dei creator".into(),
+            "🕘 Storico delle operazioni".into(),
+            "🧹 Svuota lo storico".into(),
+            "⇪ Migra dal vecchio formato".into(),
         ];
-        let Some(choice) = select_with_back("Manutenzione", labels) else {
-            return;
-        };
+        let Some(i) = select_back("Impostazioni", labels) else { return };
 
-        match choice {
-            0 => {
+        match i {
+            0 => show_status(screen),
+            1 => {
                 screen.clear();
                 println!("{}", style("Analisi (nessun file viene toccato)…").dim());
-                match library::reorganize_library(true) {
-                    Ok(plan) => {
+                match ops::reorganize_library(true) {
+                    Ok(p) => {
                         println!(
                             "\n  già a posto: {}   da spostare: {}   file mancanti: {}\n",
-                            plan.already_ok,
-                            plan.planned.len(),
-                            plan.missing.len()
+                            p.already_ok,
+                            p.planned.len(),
+                            p.missing.len()
                         );
-                        for m in plan.planned.iter().take(15) {
+                        for m in p.planned.iter().take(15) {
                             println!("  {}\n    → {}", style(&m.from).dim(), m.to);
                         }
-                        if plan.planned.len() > 15 {
-                            println!("  … e altri {}", plan.planned.len() - 15);
+                        if p.planned.len() > 15 {
+                            println!("  … e altri {}", p.planned.len() - 15);
                         }
-                        if !plan.planned.is_empty() && confirm("\nEseguire gli spostamenti?", false) {
-                            match library::reorganize_library(false) {
-                                Ok(done) => screen.ok(format!("{} file spostati.", done.moved)),
+                        if !p.planned.is_empty() && confirm("\nEseguire?", false) {
+                            match ops::reorganize_library(false) {
+                                Ok(d) => screen.ok(format!("{} file spostati.", d.moved)),
                                 Err(e) => screen.err(e),
                             }
                         }
@@ -831,33 +777,30 @@ fn menu_maintenance(screen: &mut Screen) {
                     Err(e) => screen.err(e),
                 }
             }
-            1 => {
+            2 => {
                 screen.clear();
-                println!("{}\n", style("Aggiornamento foto dei creator…").bold());
-                let reporter = TerminalReporter::new(true);
-                match tasks::sync_channel_avatars(false, &reporter) {
-                    Ok(r) => screen.ok(format!(
-                        "{} aggiornate, {} già presenti, {} non trovate.",
-                        r.fetched, r.skipped, r.failed
+                println!("{}\n", style("Foto dei creator…").bold());
+                let r = TermReporter::new(true);
+                match ops::sync_author_avatars(false, &r) {
+                    Ok(rep) => screen.ok(format!(
+                        "{} risolte, {} già presenti, {} non trovate. \
+                         (Nota: viene registrato l'URL, l'immagine non è ancora scaricata.)",
+                        rep.resolved, rep.skipped, rep.failed
                     )),
                     Err(e) => screen.err(e),
                 }
                 pause();
             }
-            2 => {
+            3 => {
                 screen.clear();
-                match tasks::list_runs(30) {
-                    Ok(runs) if runs.is_empty() => println!("Nessuna esecuzione registrata."),
+                match ops::list_runs(30) {
+                    Ok(runs) if runs.is_empty() => println!("Nessuna operazione registrata."),
                     Ok(runs) => {
-                        println!("{}\n", style("Storico delle esecuzioni").bold());
+                        println!("{}\n", style("Storico").bold());
                         for r in runs {
-                            let icon = if r.status == "success" {
-                                style("✔").green()
-                            } else {
-                                style("✘").red()
-                            };
+                            let icon = if r.status == "success" { style("✔").green() } else { style("✘").red() };
                             println!(
-                                "  {icon} {}  {}  {}",
+                                "  {icon} {}  {:<10}  {}",
                                 r.finished_at.unwrap_or_default(),
                                 r.kind,
                                 style(r.summary.to_string()).dim()
@@ -868,10 +811,38 @@ fn menu_maintenance(screen: &mut Screen) {
                 }
                 pause();
             }
-            3 => {
-                if confirm("Svuotare lo storico delle esecuzioni?", false) {
-                    match tasks::clear_runs() {
+            4 => {
+                if confirm("Svuotare lo storico?", false) {
+                    match ops::clear_runs() {
                         Ok(n) => screen.ok(format!("{n} voci rimosse.")),
+                        Err(e) => screen.err(e),
+                    }
+                }
+            }
+            5 => {
+                screen.clear();
+                println!(
+                    "{}",
+                    style(
+                        "Migra catalog.json + metadata.json al nuovo formato\n\
+                         (library.json + sources.json + metadata/<id>.json).\n\n\
+                         I file vecchi NON vengono cancellati: sono rinominati .pre-v2."
+                    )
+                    .dim()
+                );
+                if confirm("\nProcedere?", false) {
+                    match ops::migrate_all() {
+                        Ok(r) => {
+                            let mut m = String::new();
+                            if let Some(s) = &r.state {
+                                m.push_str(&format!(
+                                    "{} video, {} autori, {} sorgenti, {} avatar. ",
+                                    s.videos, s.authors, s.sources, s.avatars
+                                ));
+                            }
+                            m.push_str(&format!("{} file di metadati.", r.metadata_files));
+                            screen.ok(m);
+                        }
                         Err(e) => screen.err(e),
                     }
                 }
@@ -881,49 +852,48 @@ fn menu_maintenance(screen: &mut Screen) {
     }
 }
 
-// ── Menu: Stato ─────────────────────────────────────────────────────────────
-
-fn menu_status(screen: &mut Screen) {
+fn show_status(screen: &mut Screen) {
     screen.clear();
     let paths = match get_paths() {
         Ok(p) => p,
         Err(e) => return screen.err(e),
     };
 
-    println!("{}", style("Stato dell'installazione").bold());
-    println!("  progetto     {}", paths.project_root.display());
-    println!("  catalogo     {}", paths.catalog_path.display());
-    println!("  video        {}", paths.videos_dir.display());
-    println!("  strumenti    {}", paths.tools_dir.display());
+    println!("{}", style("Percorsi").bold());
+    println!("  progetto   {}", paths.project_root.display());
+    println!("  stato      {}", paths.data_dir.display());
+    println!("  video      {}", paths.videos_dir.display());
+    println!("  copertine  {}", paths.covers_dir.display());
+    println!("  autori     {}", paths.authors_dir.display());
+    println!("  strumenti  {}", paths.tools_dir.display());
     println!(
-        "  cookie       {}",
+        "  cookie     {}",
         paths.cookies_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "assenti".into())
     );
 
-    if let Ok(catalog) = store::read_catalog() {
-        let all = query::list_videos_in(&catalog, &query::VideoFilter::new());
-        let downloaded = all.iter().filter(|v| v.is_downloaded()).count();
-        let bytes: u64 = all
-            .iter()
-            .filter_map(|v| v.0.get("video").and_then(|x| x.get("sizeBytes")).and_then(serde_json::Value::as_u64))
-            .sum();
+    if let Ok(st) = state::read() {
+        let c = query::counts(&st);
         println!(
-            "\n  {} video in catalogo, {} scaricati ({})",
-            all.len(),
-            downloaded,
-            format_size(Some(bytes))
+            "\n{}\n  {} video · {} autori · {} sorgenti",
+            style("Libreria").bold(),
+            c.total,
+            st.authors.len(),
+            st.sources.len()
         );
-        if let Ok(n) = metadata::count() {
-            println!("  {n} con metadati grezzi salvati");
+        println!("  {} scaricati ({})", c.downloaded, size(Some(c.bytes)));
+        println!(
+            "  {} da scaricare · {} archiviati · {} rimossi · {} falliti",
+            c.available, c.hidden, c.removed, c.failed
+        );
+        if let Ok((n, bytes)) = metadata::stats() {
+            println!("  {n} con metadati grezzi ({})", size(Some(bytes)));
         }
     }
 
     match check_tools() {
         Ok(s) if s.ok => {
-            println!("\n  {} yt-dlp  {}", style("✔").green(), s.ytdlp_path.display());
-            if let Ok(v) = ondo_core::ytdlp::get_ytdlp_version() {
-                println!("           versione {v}");
-            }
+            println!("\n{}", style("Strumenti").bold());
+            println!("  {} yt-dlp  {}", style("✔").green(), ondo_core::downloader::get_ytdlp_version().unwrap_or_default());
             println!("  {} ffmpeg  {}", style("✔").green(), s.ffmpeg_source.unwrap_or_default());
         }
         Ok(s) => {
@@ -931,11 +901,10 @@ fn menu_status(screen: &mut Screen) {
             for m in &s.messages {
                 println!("  • {m}");
             }
-            println!("\n  Rimedio: esegui  npm run setup");
+            println!("\n  Rimedio: npm run setup");
         }
         Err(e) => println!("\n{} {e}", style("✘").red()),
     }
-
     println!("\n  ondo-core {}\n", ondo_core::VERSION);
     pause();
 }
@@ -945,82 +914,79 @@ fn menu_status(screen: &mut Screen) {
 fn main() {
     let mut screen = Screen::new();
 
-    // Prerequisiti esterni: l'avviso passa da un messaggio in sospeso e non da una
-    // stampa diretta, che il primo clear cancellerebbe.
-    if let Ok(status) = check_tools() {
+    // Migrazione: si segnala, non si esegue di nascosto. Toccare i dati dell'utente
+    // senza che lo abbia chiesto non è mai la scelta giusta.
+    if library::migration_pending().unwrap_or(false) {
+        screen.set(format!(
+            "\n{}\n  Vai in Impostazioni → «Migra dal vecchio formato».\n  \
+             I file attuali non vengono cancellati.\n",
+            style("⇪  Trovato un catalog.json nel formato vecchio.").cyan()
+        ));
+    } else if let Ok(status) = check_tools() {
         if !status.ok {
             screen.set(format!(
-                "\n{}\n\n{}\n\n  Rimedio: esegui  npm run setup\n",
+                "\n{}\n\n{}\n\n  Rimedio: npm run setup\n",
                 style("⚠  Installazione incompleta — i download NON funzioneranno.").yellow(),
                 status.messages.iter().map(|m| format!("  • {m}")).collect::<Vec<_>>().join("\n\n")
             ));
         }
     }
 
-    let entries: [(&str, fn(&mut Screen)); 7] = [
-        ("Catalogo", menu_catalog),
+    let entries: [(&str, fn(&mut Screen)); 5] = [
         ("Cerca", menu_search),
-        ("Guarda", menu_watch),
-        ("Gestisci fonti", menu_sources),
-        ("Scarica un video singolo", menu_single),
-        ("Manutenzione", menu_maintenance),
-        ("Stato installazione", menu_status),
+        ("Sorgenti", menu_sources),
+        ("Libreria", menu_library),
+        ("Download rapido", menu_quick),
+        ("Impostazioni", menu_settings),
     ];
 
     loop {
         screen.clear();
         let mut labels: Vec<String> = entries.iter().map(|(n, _)| n.to_string()).collect();
-        labels.push("Esci".to_string());
-
+        labels.push("Esci".into());
         match Select::with_theme(&theme())
-            .with_prompt("Ondo — cosa vuoi fare?")
+            .with_prompt("Ondo")
             .items(&labels)
             .default(0)
             .interact_opt()
         {
             Ok(Some(i)) if i < entries.len() => entries[i].1(&mut screen),
-            _ => break, // "Esci", ESC o Ctrl-C
+            _ => break,
         }
     }
-
     println!("Ciao!");
 }
 
-// I test di comportamento vivono in ondo-core; qui si verifica solo la
-// presentazione, che è l'unica logica propria di questo adapter.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn durations_are_formatted_like_the_js_cli() {
-        assert_eq!(format_duration(None), "--:--");
-        assert_eq!(format_duration(Some(0.0)), "--:--");
-        assert_eq!(format_duration(Some(59.0)), "0:59");
-        assert_eq!(format_duration(Some(212.0)), "3:32");
-        assert_eq!(format_duration(Some(3600.0)), "1:00:00");
-        assert_eq!(format_duration(Some(3725.0)), "1:02:05");
+    fn durations() {
+        assert_eq!(dur(None), "--:--");
+        assert_eq!(dur(Some(0.0)), "--:--");
+        assert_eq!(dur(Some(59.0)), "0:59");
+        assert_eq!(dur(Some(212.0)), "3:32");
+        assert_eq!(dur(Some(3725.0)), "1:02:05");
     }
 
     #[test]
     fn sizes_switch_unit_at_one_gigabyte() {
-        assert_eq!(format_size(None), "—");
-        assert_eq!(format_size(Some(0)), "—");
-        assert_eq!(format_size(Some(343 * 1_048_576)), "343 MB");
-        assert_eq!(format_size(Some(2 * 1_073_741_824)), "2.0 GB");
+        assert_eq!(size(None), "—");
+        assert_eq!(size(Some(343 * 1_048_576)), "343 MB");
+        assert_eq!(size(Some(2 * 1_073_741_824)), "2.0 GB");
     }
 
     #[test]
-    fn video_line_shows_state_and_favourite_marker() {
+    fn video_line_shows_state_favourite_author_and_duration() {
         let v = Video::from_value(serde_json::json!({
-            "id": "abc", "title": "Titolo", "presence": "present",
-            "download": "downloaded", "hidden": false, "favorite": true,
-            "channel": { "name": "Creator" }, "durationSeconds": 212
+            "id": "abc", "title": "Titolo", "presence": "present", "download": "downloaded",
+            "hidden": false, "favorite": true, "channel": { "name": "Creator" },
+            "durationSeconds": 212
         }))
         .unwrap();
-        let line = console::strip_ansi_codes(&video_line(&v)).to_string();
-        assert!(line.contains("scaricato"), "{line}");
-        assert!(line.contains('★'), "{line}");
-        assert!(line.contains("Titolo") && line.contains("Creator") && line.contains("3:32"));
+        let l = console::strip_ansi_codes(&video_line(&v)).to_string();
+        assert!(l.contains("scaricato") && l.contains('★') && l.contains("Titolo"));
+        assert!(l.contains("Creator") && l.contains("3:32"));
     }
 }

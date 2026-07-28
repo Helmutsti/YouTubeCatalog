@@ -24,9 +24,19 @@ use sha2::{Digest, Sha256};
 
 use crate::config::{get_paths, load_config, Paths};
 use crate::error::{ErrorKind, OndoError, Result};
-use crate::library::remove_from_download_archive;
-use crate::metadata::set_metadata;
 use crate::time::now_iso8601;
+
+/// Esito di un'operazione che ha estratto metadati: i **campi curati** da fondere
+/// nella entry di catalogo e l'**info.json grezzo** da archiviare.
+///
+/// Restituire il grezzo invece di salvarlo è ciò che rende questo layer puro: la
+/// prima stesura chiamava `set_metadata()` da qui, creando il ciclo
+/// `library → downloader → library`. Ora decide `ops`.
+#[derive(Debug, Clone)]
+pub struct Extracted {
+    pub fields: Value,
+    pub raw_info: Value,
+}
 
 // ── Argomenti non negoziabili ───────────────────────────────────────────────
 
@@ -576,7 +586,7 @@ fn find_downloaded_files(paths: &Paths, video_id: &str) -> DownloadedFiles {
         .find(|p| p.to_string_lossy().ends_with(".info.json"))
         .and_then(|p| to_rel(p));
 
-    let thumbnail_file = std::fs::read_dir(&paths.thumbnails_dir)
+    let thumbnail_file = std::fs::read_dir(&paths.covers_dir)
         .ok()
         .and_then(|entries| {
             entries
@@ -613,7 +623,7 @@ fn cleanup_failed_artifacts(paths: &Paths, video_id: &str) {
         }
         let _ = std::fs::remove_file(&path);
     }
-    if let Ok(entries) = std::fs::read_dir(&paths.thumbnails_dir) {
+    if let Ok(entries) = std::fs::read_dir(&paths.covers_dir) {
         for entry in entries.flatten() {
             if entry
                 .file_name()
@@ -818,7 +828,7 @@ fn build_download_args(
     args.push("-o".into());
     args.push(format!(
         "thumbnail:{}",
-        paths.thumbnails_dir.join("%(id)s.%(ext)s").display()
+        paths.covers_dir.join("%(id)s.%(ext)s").display()
     ));
     args.push("--download-archive".into());
     args.push(paths.download_archive_path.display().to_string());
@@ -896,13 +906,17 @@ fn run_with_cookie_fallback(
 /// playlist), usato **solo** per ritrovare i file scritti da yt-dlp. `url` è il
 /// link reale da cui scaricare — qualunque sito, non solo YouTube: passare un URL
 /// YouTube ricostruito dall'id era un bug vero, trovato su un video Rumble.
+/// ⚠️ **Il chiamante deve aver già togliato l'id da `--download-archive`.** Una riga
+/// residua fa *saltare* il download a yt-dlp, che esce con successo senza scrivere
+/// l'`.info.json` → "file mancanti" → il video finisce `failed` pur avendo un file.
+/// La pulizia sta in `ops` perché tocca lo stato su disco, non qui.
 pub fn download_video(
     video_id: &str,
     url: &str,
     strategy: AudioStrategy,
     max_height: Option<Option<u64>>,
     reporter: &dyn Reporter,
-) -> Result<Value> {
+) -> Result<Extracted> {
     let paths = get_paths()?;
     let config = load_config()?;
 
@@ -922,14 +936,6 @@ pub fn download_video(
         .and_then(Value::as_str)
         .unwrap_or("bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b")
         .to_string();
-
-    // Root-fix del "restart distruttivo": una riga residua in --download-archive
-    // faceva SALTARE il download a yt-dlp (esce ok, non scrive l'.info.json) →
-    // "file mancanti" → il video finiva 'failed' pur avendo un file su disco.
-    // Ogni download di un singolo video è una richiesta esplicita di scaricare
-    // QUEL video: si toglie la sua riga prima. L'archivio resta come ledger
-    // ridondante per le sync, ma non blocca mai un download esplicito.
-    remove_from_download_archive(&paths, video_id)?;
 
     let result = if strategy == AudioStrategy::Merged {
         download_merged(video_id, url, &paths, &merge_format, effective_max_height, reporter)
@@ -965,14 +971,14 @@ fn download_merged(
     merge_format: &str,
     max_height: Option<u64>,
     reporter: &dyn Reporter,
-) -> Result<Value> {
+) -> Result<Extracted> {
     let audio_template = paths
-        .thumbnails_dir
+        .covers_dir
         .join(format!("__mux_{video_id}_audio.%(ext)s"))
         .display()
         .to_string();
 
-    let outcome = (|| -> Result<Value> {
+    let outcome = (|| -> Result<Extracted> {
         reporter.log("Strategia \"fusione\": scarico il flusso video alla massima risoluzione...");
         let selector = video_only_selector(max_height);
         run_with_cookie_fallback(paths, video_id, reporter, |use_cookies| {
@@ -1019,7 +1025,7 @@ fn download_merged(
 
 fn find_temp_audio_file(paths: &Paths, video_id: &str) -> Option<PathBuf> {
     let prefix = format!("__mux_{video_id}_audio.");
-    std::fs::read_dir(&paths.thumbnails_dir).ok().and_then(|entries| {
+    std::fs::read_dir(&paths.covers_dir).ok().and_then(|entries| {
         entries
             .flatten()
             .find(|e| {
@@ -1090,9 +1096,9 @@ fn mux_video_audio(paths: &Paths, video_abs: &Path, audio_abs: &Path, reporter: 
 }
 
 /// Passi comuni post-download: individua i file scritti da yt-dlp, legge
-/// l'`.info.json`, calcola size/sha, consolida i metadati grezzi e mappa i campi
-/// curati, aggiungendo la nota di qualità.
-fn finalize_download(paths: &Paths, video_id: &str) -> Result<Value> {
+/// l'`.info.json`, calcola size/sha, mappa i campi curati e aggiunge la nota di
+/// qualità. **Restituisce** anche il grezzo: archiviarlo tocca a `ops`.
+fn finalize_download(paths: &Paths, video_id: &str) -> Result<Extracted> {
     let found = find_downloaded_files(paths, video_id);
     let (Some(video_rel), Some(info_rel)) = (found.video_file.as_ref(), found.info_file.as_ref()) else {
         return Err(OndoError::new(
@@ -1111,9 +1117,9 @@ fn finalize_download(paths: &Paths, video_id: &str) -> Result<Value> {
     let sha256 = hash_file_sha256(&video_abs)?;
     let version = get_ytdlp_version().unwrap_or_default();
 
-    // Salva il grezzo in data/metadata.json e cancella il sidecar: nessun file
-    // resta sparso accanto ai video.
-    set_metadata(video_id, &info)?;
+    // Il sidecar si cancella qui (è un file che abbiamo prodotto noi, e non lasciarne
+    // in giro fa parte del contratto di questo layer); il suo *contenuto* torna al
+    // chiamante, che decide dove archiviarlo.
     let _ = std::fs::remove_file(&info_abs);
 
     let mut fields = map_info_json_to_video_fields(
@@ -1129,7 +1135,7 @@ fn finalize_download(paths: &Paths, video_id: &str) -> Result<Value> {
     if let Some(video) = fields.get_mut("video").and_then(Value::as_object_mut) {
         video.insert("qualityNote".into(), detect_quality_note(&info));
     }
-    Ok(fields)
+    Ok(Extracted { fields, raw_info: info })
 }
 
 /// Arricchimento metadati: estrae i metadati **completi** di un video senza
@@ -1137,7 +1143,7 @@ fn finalize_download(paths: &Paths, video_id: &str) -> Result<Value> {
 /// libreria si popola di schede ricche subito dopo aver aggiunto una fonte, e un
 /// video poi "rimosso" conserva la copertina anche quando l'URL YouTube muore —
 /// che è il punto dell'intero progetto.
-pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) -> Result<Value> {
+pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) -> Result<Extracted> {
     let paths = get_paths()?;
     let mut args = base_args();
     args.extend(owned(&[
@@ -1148,7 +1154,7 @@ pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) 
         "jpg",
     ]));
     args.push("-o".into());
-    args.push(paths.thumbnails_dir.join("%(id)s.%(ext)s").display().to_string());
+    args.push(paths.covers_dir.join("%(id)s.%(ext)s").display().to_string());
     if let Some(loc) = &paths.ffmpeg_location {
         args.push("--ffmpeg-location".into());
         args.push(loc.display().to_string());
@@ -1163,7 +1169,7 @@ pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) 
 
     run_ytdlp(&paths, &args, reporter)?;
 
-    let info_path = paths.thumbnails_dir.join(format!("{video_id}.info.json"));
+    let info_path = paths.covers_dir.join(format!("{video_id}.info.json"));
     if !info_path.is_file() {
         return Err(OndoError::new(
             ErrorKind::Io,
@@ -1174,7 +1180,7 @@ pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) 
 
     // Pulisce le thumbnail intermedie (es. .webp prima della conversione a jpg)
     // per non lasciare orfani accanto alla copertina definitiva.
-    if let Ok(entries) = std::fs::read_dir(&paths.thumbnails_dir) {
+    if let Ok(entries) = std::fs::read_dir(&paths.covers_dir) {
         for entry in entries.flatten() {
             let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
             if name.starts_with(&format!("{video_id}."))
@@ -1185,7 +1191,7 @@ pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) 
             }
         }
     }
-    let thumb = paths.thumbnails_dir.join(format!("{video_id}.jpg"));
+    let thumb = paths.covers_dir.join(format!("{video_id}.jpg"));
     let thumbnail_file = thumb.is_file().then(|| format!("{video_id}.jpg"));
 
     let fields = map_info_json_to_video_fields(
@@ -1198,9 +1204,8 @@ pub fn fetch_video_metadata(video_id: &str, url: &str, reporter: &dyn Reporter) 
             ytdlp_version: None,
         },
     );
-    set_metadata(video_id, &info)?;
     let _ = std::fs::remove_file(&info_path);
-    Ok(fields)
+    Ok(Extracted { fields, raw_info: info })
 }
 
 #[cfg(test)]

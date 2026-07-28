@@ -12,7 +12,6 @@
     "cli:rust": "cargo run --release --manifest-path rust/Cargo.toml -p ondo-cli",
     "rust:build": "cargo build --release --manifest-path rust/Cargo.toml",
     "rust:test": "cargo test --manifest-path rust/Cargo.toml",
-    "rust:difftest": "node rust/difftest.mjs --fixture",
     "server": "node packages/server/src/index.js",
     "server:local": "node packages/server/src/index.js --local",
     "web": "npm run dev --workspace=packages/web",

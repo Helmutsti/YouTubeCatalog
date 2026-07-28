@@ -184,18 +184,33 @@ pub fn expected_tool_names() -> ToolNames {
 
 // ── Percorsi risolti ────────────────────────────────────────────────────────
 
+/// Percorsi risolti.
+///
+/// ## Le tre radici restano separate, di proposito
+///
+/// `data_dir` (piccolo: json, copertine, foto profilo) e `videos_dir` (decine di GB,
+/// tipicamente su un altro disco) sono **configurabili indipendentemente**. Unirli
+/// sotto una cartella sola sarebbe una regressione: riporterebbe i video sul disco
+/// di sistema. `covers_dir` e `authors_dir` stanno sotto `data_dir` perché sono
+/// piccoli e vanno insieme allo stato, non ai video.
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub project_root: PathBuf,
     pub core_dir: PathBuf,
-    pub media_root: PathBuf,
-    pub videos_dir: PathBuf,
-    pub thumbnails_dir: PathBuf,
-    pub avatars_dir: PathBuf,
     pub data_dir: PathBuf,
-    pub catalog_path: PathBuf,
-    pub metadata_path: PathBuf,
-    pub jobs_path: PathBuf,
+    /// Video, grandi: `<Autore>/<Titolo> [<id>].<ext>`.
+    pub videos_dir: PathBuf,
+    /// Copertine dei video, `<id>.jpg`.
+    pub covers_dir: PathBuf,
+    /// Foto profilo degli autori, `<key>.jpg`.
+    pub authors_dir: PathBuf,
+    /// Metadati grezzi, **un file per video**: `<id>.json`.
+    pub metadata_dir: PathBuf,
+    pub sources_path: PathBuf,
+    pub library_path: PathBuf,
+    /// Il vecchio file monolitico: esiste solo finché la migrazione non è stata fatta.
+    pub legacy_catalog_path: PathBuf,
+    pub runs_path: PathBuf,
     pub tools_dir: PathBuf,
     pub ytdlp_binary_path: PathBuf,
     pub download_archive_path: PathBuf,
@@ -218,25 +233,33 @@ pub fn get_paths() -> Result<Paths> {
     let config = load_config()?;
     let root = project_root().to_path_buf();
 
-    let media_root = resolve_from_root(
-        &root,
-        config.get("mediaRoot").and_then(Value::as_str).unwrap_or("./media"),
-    );
-    let data_dir = root.join("data");
-
-    // I video possono vivere in un percorso dedicato (videosRoot), separato dalle
-    // copertine/avatar che restano sotto mediaRoot. video.localPath resta relativo
-    // a questa cartella, qualunque sia la sua posizione.
+    // `dataRoot` ospita lo stato e i file piccoli; `videosRoot` i video, che possono
+    // stare su un altro disco. `video.localPath` resta relativo a videos_dir,
+    // qualunque sia la sua posizione: spostare l'archivio richiede solo cambiare la
+    // config, non riscrivere lo stato.
+    let data_dir = match config.get("dataRoot").and_then(Value::as_str) {
+        Some(v) if !v.is_empty() => resolve_from_root(&root, v),
+        // Retrocompatibilità: `mediaRoot` era la vecchia chiave, ma ospitava i media,
+        // non lo stato — quindi non la si riusa come dataRoot. Default: ./data.
+        _ => root.join("data"),
+    };
     let videos_dir = match config.get("videosRoot").and_then(Value::as_str) {
         Some(v) if !v.is_empty() => resolve_from_root(&root, v),
-        _ => media_root.join("videos"),
+        _ => match config.get("mediaRoot").and_then(Value::as_str) {
+            // Se esiste ancora la vecchia mediaRoot, i video stavano in mediaRoot/videos.
+            Some(m) if !m.is_empty() => resolve_from_root(&root, m).join("videos"),
+            _ => root.join("videos"),
+        },
     };
-    let thumbnails_dir = media_root.join("thumbnails");
-    let avatars_dir = media_root.join("avatars");
+    let covers_dir = data_dir.join("covers");
+    let authors_dir = data_dir.join("authors");
+    let metadata_dir = data_dir.join("metadata");
 
+    fs::create_dir_all(&data_dir)?;
     fs::create_dir_all(&videos_dir)?;
-    fs::create_dir_all(&thumbnails_dir)?;
-    fs::create_dir_all(&avatars_dir)?;
+    fs::create_dir_all(&covers_dir)?;
+    fs::create_dir_all(&authors_dir)?;
+    fs::create_dir_all(&metadata_dir)?;
 
     // Cookie: un percorso esplicito in config vince; altrimenti core/cookies.txt
     // se esiste. Rilevato a ogni chiamata, quindi non serve riavviare dopo un
@@ -267,10 +290,11 @@ pub fn get_paths() -> Result<Paths> {
     };
 
     Ok(Paths {
-        catalog_path: data_dir.join("catalog.json"),
-        metadata_path: data_dir.join("metadata.json"),
-        jobs_path: data_dir.join("jobs.json"),
-        download_archive_path: media_root.join(".ytdlp-archive.txt"),
+        sources_path: data_dir.join("sources.json"),
+        library_path: data_dir.join("library.json"),
+        legacy_catalog_path: data_dir.join("catalog.json"),
+        runs_path: data_dir.join("jobs.json"),
+        download_archive_path: data_dir.join(".ytdlp-archive.txt"),
         vlc_path: config
             .pointer("/playback/vlcPath")
             .and_then(Value::as_str)
@@ -278,10 +302,10 @@ pub fn get_paths() -> Result<Paths> {
             .to_string(),
         project_root: root,
         core_dir: core_dir(),
-        media_root,
         videos_dir,
-        thumbnails_dir,
-        avatars_dir,
+        covers_dir,
+        authors_dir,
+        metadata_dir,
         data_dir,
         tools_dir,
         ytdlp_binary_path,
