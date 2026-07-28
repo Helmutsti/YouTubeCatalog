@@ -844,23 +844,13 @@ fn download_console(screen: &mut Screen) {
         return menu_quick(screen);
     }
 
-    // `Term::read_key()` blocca per davvero: senza un thread dedicato, se l'utente
-    // non tocca la tastiera lo schermo non si ridisegna MAI da solo, anche se la
-    // risoluzione/il download stanno progredendo in sottofondo — sembra bloccato
-    // anche quando non lo è. Un thread a parte legge i tasti e li spedisce su un
-    // canale; il ciclo principale usa `recv_timeout` per avere un vero timeout.
-    let (key_tx, key_rx) = std::sync::mpsc::channel::<Key>();
-    {
-        let term_lettore = Term::stdout();
-        std::thread::spawn(move || {
-            while let Ok(k) = term_lettore.read_key() {
-                if key_tx.send(k).is_err() {
-                    return;
-                }
-            }
-        });
-    }
-
+    // Niente thread dedicato alla lettura tasti: un thread lanciato per la sola
+    // durata di questa funzione non ha modo di essere interrotto a metà di un
+    // `read_key()` bloccante quando si esce (nessuna cancellazione in questa
+    // versione di `console`). Restava vivo dopo l'uscita e rubava il primo tasto
+    // premuto altrove nella CLI (es. "Metadati grezzi"), bloccandolo — bug reale,
+    // trovato dall'utente. Si torna alla lettura diretta: niente animazione senza
+    // tasti premuti, ma niente thread orfani che rompono il resto della CLI.
     const SPINNER: [char; 4] = ['-', '\\', '|', '/'];
     let mut input = String::new();
     let mut spin_frame = 0usize;
@@ -961,23 +951,12 @@ fn download_console(screen: &mut Screen) {
         println!("  {} {input}{}", style("Scarica:").cyan().bold(), style("█").cyan());
         spin_frame = spin_frame.wrapping_add(1);
 
-        // ── input, con ridisegno periodico mentre non si digita ──────────────
+        // ── input ────────────────────────────────────────────────────────────
         //
-        // Il tasto arriva dal thread di lettura dedicato sopra; `recv_timeout` è un
-        // timeout VERO (a differenza di un `read_key()` diretto, che blocca finché
-        // non arriva un tasto) — è quello che tiene viva l'animazione.
-        //
-        // Un link incollato arriva come una raffica di caratteri tutti insieme:
-        // ridisegnare l'intera schermata a ognuno (come prima) li fa assorbire uno
-        // alla volta a passo di redraw, che sembra un blocco. Si drena qui tutto
-        // ciò che è già arrivato e si ridisegna una volta sola al giro successivo.
-        let primo = key_rx.recv_timeout(std::time::Duration::from_millis(300)).ok();
-        let mut tasti: std::collections::VecDeque<Key> = primo.into_iter().collect();
-        while let Ok(k) = key_rx.try_recv() {
-            tasti.push_back(k);
-        }
-
-        for tasto in tasti {
+        // Lettura diretta e bloccante: senza un tasto premuto lo schermo non si
+        // ridisegna da solo (la coda e la risoluzione continuano comunque a
+        // lavorare in sottofondo, si vedono aggiornate al prossimo tasto).
+        if let Ok(tasto) = term.read_key() {
             match tasto {
                 Key::Escape => {
                     if rimasti > 0 {
