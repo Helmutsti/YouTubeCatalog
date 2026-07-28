@@ -158,7 +158,7 @@ fn video_line(v: &Video) -> String {
     };
     format!(
         "{icon}  {}{}  {}  [{}]",
-        if v.favorite() { "★ " } else { "" },
+        if v.favorite() { "[preferito] " } else { "" },
         v.display_title(),
         style(v.channel_name().unwrap_or("—")).dim(),
         dur(v.duration_seconds())
@@ -293,7 +293,7 @@ fn browse(screen: &mut Screen, videos: Vec<Video>, title: &str) {
 
         let mut labels = Vec::new();
         if !pending.is_empty() {
-            labels.push(format!("▶ Scarica tutti i {} non scaricati", pending.len()));
+            labels.push(format!("Scarica tutti i {} non scaricati", pending.len()));
         }
         labels.extend(videos.iter().map(video_line));
 
@@ -359,18 +359,18 @@ fn detail(screen: &mut Screen, id: &str) {
 
         let mut actions: Vec<(&str, String)> = Vec::new();
         if v.is_downloaded() {
-            actions.push(("play", "▶ Riproduci con VLC".into()));
-            actions.push(("re", "⟳ Elimina e ri-scarica".into()));
-            actions.push(("delfile", "🗑 Cancella il file (tieni la scheda)".into()));
+            actions.push(("play", "Riproduci con VLC".into()));
+            actions.push(("re", "Elimina e ri-scarica".into()));
+            actions.push(("delfile", "Cancella il file (tieni la scheda)".into()));
         } else {
-            actions.push(("dl", "⬇ Scarica".into()));
+            actions.push(("dl", "Scarica".into()));
         }
-        actions.push(if v.favorite() { ("unfav", "☆ Togli dai preferiti".into()) } else { ("fav", "★ Preferito".into()) });
-        actions.push(if v.hidden() { ("unhide", "◉ Ripristina".into()) } else { ("hide", "◌ Archivia".into()) });
+        actions.push(if v.favorite() { ("unfav", "Togli dai preferiti".into()) } else { ("fav", "Preferito".into()) });
+        actions.push(if v.hidden() { ("unhide", "Ripristina".into()) } else { ("hide", "Archivia".into()) });
         if v.hidden() {
-            actions.push(("purge", "⚠ Cancella per sempre".into()));
+            actions.push(("purge", "Cancella per sempre".into()));
         }
-        actions.push(("meta", "ℹ Metadati grezzi".into()));
+        actions.push(("meta", "Metadati grezzi".into()));
 
         let Some(i) = select_back("Azione", actions.iter().map(|(_, l)| l.clone()).collect()) else {
             return;
@@ -534,13 +534,13 @@ fn menu_sources(screen: &mut Screen) {
             println!();
         }
 
-        let mut labels = vec!["＋ Aggiungi una playlist".to_string()];
+        let mut labels = vec!["Aggiungi una playlist".to_string()];
         if !sources.is_empty() {
-            labels.push("⟳ Aggiorna tutto — sincronizza, schede, foto".into());
-            labels.push("↻ Solo sincronizza (veloce)".into());
-            labels.push("⟳ Sincronizza una…".into());
-            labels.push("✎ Completa metadati e copertine".into());
-            labels.push("－ Rimuovi una sorgente…".into());
+            labels.push("Aggiorna tutto — sincronizza, schede, foto".into());
+            labels.push("Solo sincronizza (veloce)".into());
+            labels.push("Sincronizza una…".into());
+            labels.push("Completa metadati e copertine".into());
+            labels.push("Rimuovi una sorgente…".into());
         }
         let Some(i) = select_back("Sorgenti", labels) else { return };
 
@@ -691,11 +691,11 @@ fn menu_library(screen: &mut Screen) {
         let labels = vec![
             format!("Autori ({})", st.authors.len()),
             format!("Tutti i video ({}) — dall'ultimo aggiunto", c.total),
-            format!("★ Preferiti ({})", c.favorite),
+            format!("Preferiti ({})", c.favorite),
             format!("Da scaricare ({})", c.available),
-            format!("◌ Archiviati ({})", c.hidden),
-            format!("✖ Rimossi da YouTube ({})", c.removed),
-            format!("⚠ Falliti ({})", c.failed),
+            format!("Archiviati ({})", c.hidden),
+            format!("Rimossi da YouTube ({})", c.removed),
+            format!("Falliti ({})", c.failed),
         ];
         let Some(i) = select_back("Libreria", labels) else { return };
 
@@ -766,6 +766,39 @@ fn menu_authors(screen: &mut Screen) {
 /// ciclo. I worker non stampano niente — riportano nello stato condiviso della coda, e
 /// qui si legge lo snapshot. Senza questa regola due thread che stampano insieme
 /// distruggerebbero la riga che stai scrivendo.
+/// Una riga della coda — un video singolo, oppure un membro di una playlist mostrato
+/// come sottovoce indentata sotto la sua voce padre.
+fn job_row(s: &ondo_core::ops::JobStatus, title_len: usize) -> String {
+    use ondo_core::ops::JobState;
+    let titolo: String = s.title.chars().take(title_len).collect();
+    match &s.state {
+        JobState::Queued => format!("{}  {titolo}", style("⋯ in attesa").dim()),
+        JobState::Running { percent } => {
+            let p = percent.round().clamp(0.0, 100.0) as usize;
+            let barra = "█".repeat(p * 18 / 100) + &"░".repeat(18 - p * 18 / 100);
+            format!("{} {p:>3}%  {titolo}", style(barra).cyan())
+        }
+        JobState::Done => format!("{}  {titolo}", style("✔ fatto    ").green()),
+        JobState::Skipped => format!("{}  {titolo}", style("↷ saltato  ").dim()),
+        JobState::Failed { message } => format!(
+            "{}  {titolo}\n              {}",
+            style("✘ fallito  ").red(),
+            style(message.chars().take(60).collect::<String>()).red()
+        ),
+    }
+}
+
+/// Intestazione condivisa fra il disegno principale della console e la fase di
+/// risoluzione dei link (`accoda`) — stessa posizione, mai sotto il prompt "Scarica:".
+fn intestazione_download() {
+    println!("{}", style("Download rapido — la coda continua mentre incolli").bold());
+    println!(
+        "{}",
+        style("link separati da virgola · invio per accodare · ESC per uscire").dim()
+    );
+    println!("{}", style("─".repeat(66)).dim());
+}
+
 fn download_console(screen: &mut Screen) {
     use console::Key;
     use ondo_core::ops::{DownloadQueue, JobState};
@@ -780,47 +813,65 @@ fn download_console(screen: &mut Screen) {
         return menu_quick(screen);
     }
 
+    const SPINNER: [char; 4] = ['-', '\\', '|', '/'];
     let mut input = String::new();
-    let mut messaggio = String::new();
-    let mut ultime_righe = 0usize;
+    let mut spin_frame = 0usize;
 
     loop {
         // ── disegno ──────────────────────────────────────────────────────────
+        //
+        // I download si accumulano SOPRA, il prompt di digitazione resta ancorato
+        // in fondo — come una console/chat, non come un modulo con l'input in cima.
         let _ = term.clear_screen();
-        println!("{}", style("Download rapido — la coda continua mentre incolli").bold());
-        println!(
-            "{}",
-            style("link separati da virgola · invio per accodare · ESC per uscire").dim()
-        );
-        println!();
-        println!("  {} {}", style("Scarica ▸").cyan().bold(), input);
-        println!("{}", style("─".repeat(66)).dim());
+        intestazione_download();
 
         let snapshot = queue.snapshot();
         if snapshot.is_empty() {
             println!("{}", style("  (nessun download)").dim());
         } else {
-            for s in snapshot.iter().take(15) {
-                let titolo: String = s.title.chars().take(44).collect();
-                let riga = match &s.state {
-                    JobState::Queued => format!("{}  {titolo}", style("⋯ in attesa").dim()),
-                    JobState::Running { percent } => {
-                        let p = percent.round().clamp(0.0, 100.0) as usize;
-                        let barra = "█".repeat(p * 18 / 100) + &"░".repeat(18 - p * 18 / 100);
-                        format!("{} {p:>3}%  {titolo}", style(barra).cyan())
+            let mut i = 0usize;
+            let mut mostrate = 0usize;
+            while i < snapshot.len() && mostrate < 15 {
+                let s = &snapshot[i];
+                // Una playlist è stata accodata in blocco con lo stesso `group`: i suoi
+                // membri restano contigui nello snapshot, quindi basta guardare avanti
+                // per trovare dove finisce il gruppo — nessun raggruppamento globale.
+                let gruppo = s.group.clone().filter(|_| {
+                    i + 1 < snapshot.len() && snapshot[i + 1].group.as_deref() == s.group.as_deref()
+                });
+                if let Some(nome_gruppo) = gruppo {
+                    let mut j = i;
+                    while j < snapshot.len() && snapshot[j].group.as_deref() == Some(nome_gruppo.as_str()) {
+                        j += 1;
                     }
-                    JobState::Done => format!("{}  {titolo}", style("✔ fatto    ").green()),
-                    JobState::Skipped => format!("{}  {titolo}", style("↷ saltato  ").dim()),
-                    JobState::Failed { message } => format!(
-                        "{}  {titolo}\n              {}",
-                        style("✘ fallito  ").red(),
-                        style(message.chars().take(60).collect::<String>()).red()
-                    ),
-                };
-                println!("  {riga}");
+                    let membri = &snapshot[i..j];
+                    let totale = membri.len();
+                    let conclusi = membri
+                        .iter()
+                        .filter(|m| matches!(m.state, JobState::Done | JobState::Failed { .. } | JobState::Skipped))
+                        .count();
+                    let p = if totale > 0 { conclusi * 100 / totale } else { 0 };
+                    let barra = "█".repeat(p * 18 / 100) + &"░".repeat(18 - p * 18 / 100);
+                    let nome: String = nome_gruppo.chars().take(40).collect();
+                    println!("  {} {conclusi:>3}/{totale:<3}  {}", style(barra).cyan(), style(nome).bold());
+                    // Sottovoci: solo quelle ancora da concludere, altrimenti un elenco di
+                    // 200 righe "✔ fatto" renderebbe inutile la barra riassuntiva sopra.
+                    for m in membri
+                        .iter()
+                        .filter(|m| matches!(m.state, JobState::Running { .. } | JobState::Queued | JobState::Failed { .. }))
+                        .take(5)
+                    {
+                        println!("        {}", job_row(m, 40));
+                    }
+                    i = j;
+                } else {
+                    println!("  {}", job_row(s, 44));
+                    i += 1;
+                }
+                mostrate += 1;
             }
-            if snapshot.len() > 15 {
-                println!("  {}", style(format!("… e altri {}", snapshot.len() - 15)).dim());
+            if i < snapshot.len() {
+                println!("  {}", style(format!("… e altri {}", snapshot.len() - i)).dim());
             }
         }
 
@@ -833,10 +884,41 @@ fn download_console(screen: &mut Screen) {
             ))
             .dim()
         );
-        if !messaggio.is_empty() {
-            println!("\n  {messaggio}");
+
+        // Risoluzione dei link in corso in sottofondo: non blocca la digitazione, per
+        // questo vive su un thread proprio dentro la coda (`enqueue_links`) invece che
+        // qui — si può continuare a incollare altri link mentre uno risolve.
+        let rs = queue.resolve_status();
+        if let Some(link) = &rs.resolving {
+            let coda = if rs.in_coda > 0 { format!("  (+{} in coda)", rs.in_coda) } else { String::new() };
+            println!(
+                "  {}  risolvo: {}{coda}",
+                style(SPINNER[spin_frame % SPINNER.len()]).cyan(),
+                link.chars().take(50).collect::<String>()
+            );
+        } else if rs.in_coda > 0 {
+            println!("  {}", style(format!("{} link in coda da risolvere", rs.in_coda)).dim());
         }
-        ultime_righe = ultime_righe.max(1);
+        if rs.accodati + rs.gia_in_archivio + rs.non_risolti > 0 {
+            let mut riepilogo = format!("{} accodati", rs.accodati);
+            if rs.gia_in_archivio > 0 {
+                riepilogo.push_str(&format!(", {} già in archivio", rs.gia_in_archivio));
+            }
+            if rs.non_risolti > 0 {
+                riepilogo.push_str(&format!(", {} non risolti", rs.non_risolti));
+                if let Some(e) = &rs.ultimo_errore {
+                    riepilogo.push_str(&format!(" ({})", e.chars().take(60).collect::<String>()));
+                }
+            }
+            println!("  {}", style(riepilogo).dim());
+        }
+        if ondo_core::config::default_quality().map(|q| q == ondo_core::config::QualityPref::Ask).unwrap_or(false) {
+            println!("  {}", style("(massima qualità — impostane una predefinita per cambiarla)").dim());
+        }
+
+        println!();
+        println!("  {} {input}{}", style("Scarica:").cyan().bold(), style("█").cyan());
+        spin_frame = spin_frame.wrapping_add(1);
 
         // ── input, con ridisegno periodico mentre non si digita ──────────────
         //
@@ -881,10 +963,14 @@ fn download_console(screen: &mut Screen) {
                 let testo = std::mem::take(&mut input);
                 let links = ops::sources::split_links(&testo);
                 if links.is_empty() {
-                    messaggio.clear();
                     continue;
                 }
-                messaggio = accoda(&queue, &links);
+                // Nella console non si può chiedere la risoluzione per ogni video senza
+                // rompere il flusso: senza una qualità predefinita si va al massimo (si
+                // vede il promemoria sotto lo stato).
+                let (strategy, max_height) =
+                    quality_without_asking().unwrap_or((AudioStrategy::Auto, Some(None)));
+                queue.enqueue_links(&links, strategy, max_height);
             }
             Some(Key::Backspace) => {
                 input.pop();
@@ -900,44 +986,6 @@ fn download_console(screen: &mut Screen) {
             _ => {}
         }
     }
-}
-
-/// Risolve i link e li accoda. La risoluzione tocca la rete, quindi si dichiara a
-/// schermo cosa sta succedendo invece di sembrare bloccati.
-fn accoda(queue: &ondo_core::ops::DownloadQueue, links: &[String]) -> String {
-    let (strategy, max_height) = quality_without_asking()
-        // Nella console non si può chiedere la risoluzione per ogni video senza
-        // rompere il flusso: senza una qualità predefinita si va al massimo, e lo si
-        // dice nel messaggio di ritorno.
-        .unwrap_or((AudioStrategy::Auto, Some(None)));
-
-    let mut ids = Vec::new();
-    let mut errori = 0;
-    let mut gia = 0;
-
-    for link in links {
-        print!("\r  {} {}", style("risolvo…").dim(), link.chars().take(50).collect::<String>());
-        let _ = std::io::stdout().flush();
-        match ops::quick_download_target(link) {
-            Ok(ops::QuickTarget::Video { id, .. }) => ids.push(id),
-            Ok(ops::QuickTarget::Playlist { ids: pl, .. }) => ids.extend(pl),
-            Ok(ops::QuickTarget::AlreadyDownloaded { .. }) => gia += 1,
-            Err(_) => errori += 1,
-        }
-    }
-
-    let accodati = queue.enqueue(&ids, strategy, max_height);
-    let mut m = format!("{} accodati", accodati);
-    if gia > 0 {
-        m.push_str(&format!(", {gia} già in archivio"));
-    }
-    if errori > 0 {
-        m.push_str(&format!(", {errori} non risolti"));
-    }
-    if ondo_core::config::default_quality().map(|q| q == ondo_core::config::QualityPref::Ask).unwrap_or(false) {
-        m.push_str("  (massima qualità — impostane una predefinita per cambiarla)");
-    }
-    m
 }
 
 fn menu_quick(screen: &mut Screen) {
@@ -1123,19 +1171,18 @@ fn menu_settings(screen: &mut Screen) {
 
         let labels = vec![
             "Stato e percorsi".to_string(),
-            format!("🎚 Qualità predefinita: {attuale}"),
+            format!("Qualità predefinita: {attuale}"),
             format!(
-                "⇉ Download in parallelo: {paralleli}{}",
+                "Download in parallelo: {paralleli}{}",
                 if paralleli == 1 { " (uno alla volta)" } else { "" }
             ),
-            format!("🎬 Percorso di VLC: {vlc}"),
-            "💾 Salva un backup…".into(),
-            "⇩ Ripristina da un backup…".into(),
-            "📁 Riorganizza l'archivio per autore".into(),
-            "🖼 Aggiorna le foto dei creator".into(),
-            "🕘 Storico delle operazioni".into(),
-            "🧹 Svuota lo storico".into(),
-            "⇪ Migra dal vecchio formato".into(),
+            format!("Percorso di VLC: {vlc}"),
+            "Salva un backup…".into(),
+            "Ripristina da un backup…".into(),
+            "Aggiorna le foto dei creator".into(),
+            "Storico delle operazioni".into(),
+            "Svuota lo storico".into(),
+            "Migra dal vecchio formato".into(),
         ];
         let Some(i) = select_back("Impostazioni", labels) else { return };
 
@@ -1147,33 +1194,6 @@ fn menu_settings(screen: &mut Screen) {
             4 => backup_save(screen),
             5 => backup_restore(screen),
             6 => {
-                screen.clear();
-                println!("{}", style("Analisi (nessun file viene toccato)…").dim());
-                match ops::reorganize_library(true) {
-                    Ok(p) => {
-                        println!(
-                            "\n  già a posto: {}   da spostare: {}   file mancanti: {}\n",
-                            p.already_ok,
-                            p.planned.len(),
-                            p.missing.len()
-                        );
-                        for m in p.planned.iter().take(15) {
-                            println!("  {}\n    → {}", style(&m.from).dim(), m.to);
-                        }
-                        if p.planned.len() > 15 {
-                            println!("  … e altri {}", p.planned.len() - 15);
-                        }
-                        if !p.planned.is_empty() && confirm("\nEseguire?", false) {
-                            match ops::reorganize_library(false) {
-                                Ok(d) => screen.ok(format!("{} file spostati.", d.moved)),
-                                Err(e) => screen.err(e),
-                            }
-                        }
-                    }
-                    Err(e) => screen.err(e),
-                }
-            }
-            7 => {
                 screen.clear();
                 println!("{}\n", style("Foto dei creator…").bold());
                 let force = confirm("Ri-scaricare anche quelle già salvate?", false);
@@ -1194,7 +1214,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            8 => {
+            7 => {
                 screen.clear();
                 match ops::list_runs(30) {
                     Ok(runs) if runs.is_empty() => println!("Nessuna operazione registrata."),
@@ -1214,7 +1234,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            9 => {
+            8 => {
                 if confirm("Svuotare lo storico?", false) {
                     match ops::clear_runs() {
                         Ok(n) => screen.ok(format!("{n} voci rimosse.")),
@@ -1222,7 +1242,7 @@ fn menu_settings(screen: &mut Screen) {
                     }
                 }
             }
-            10 => {
+            9 => {
                 screen.clear();
                 println!(
                     "{}",
@@ -1711,7 +1731,7 @@ mod tests {
         }))
         .unwrap();
         let l = console::strip_ansi_codes(&video_line(&v)).to_string();
-        assert!(l.contains("scaricato") && l.contains('★') && l.contains("Titolo"));
+        assert!(l.contains("scaricato") && l.contains("preferito") && l.contains("Titolo"));
         assert!(l.contains("Creator") && l.contains("3:32"));
     }
 }
