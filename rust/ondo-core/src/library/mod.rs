@@ -35,6 +35,7 @@
 //! (vedi [`commit`]): o entrambi nuovi, o entrambi vecchi, mai un miscuglio.
 
 pub mod commit;
+pub mod zip;
 pub mod files;
 pub mod metadata;
 pub mod query;

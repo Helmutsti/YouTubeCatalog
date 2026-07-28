@@ -740,6 +740,8 @@ fn menu_settings(screen: &mut Screen) {
         screen.clear();
         let labels = vec![
             "Stato e percorsi".to_string(),
+            "💾 Salva un backup…".into(),
+            "⇩ Ripristina da un backup…".into(),
             "📁 Riorganizza l'archivio per autore".into(),
             "🖼 Aggiorna le foto dei creator".into(),
             "🕘 Storico delle operazioni".into(),
@@ -750,7 +752,9 @@ fn menu_settings(screen: &mut Screen) {
 
         match i {
             0 => show_status(screen),
-            1 => {
+            1 => backup_save(screen),
+            2 => backup_restore(screen),
+            3 => {
                 screen.clear();
                 println!("{}", style("Analisi (nessun file viene toccato)…").dim());
                 match ops::reorganize_library(true) {
@@ -777,7 +781,7 @@ fn menu_settings(screen: &mut Screen) {
                     Err(e) => screen.err(e),
                 }
             }
-            2 => {
+            4 => {
                 screen.clear();
                 println!("{}\n", style("Foto dei creator…").bold());
                 let r = TermReporter::new(true);
@@ -791,7 +795,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            3 => {
+            5 => {
                 screen.clear();
                 match ops::list_runs(30) {
                     Ok(runs) if runs.is_empty() => println!("Nessuna operazione registrata."),
@@ -811,7 +815,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            4 => {
+            6 => {
                 if confirm("Svuotare lo storico?", false) {
                     match ops::clear_runs() {
                         Ok(n) => screen.ok(format!("{n} voci rimosse.")),
@@ -819,7 +823,7 @@ fn menu_settings(screen: &mut Screen) {
                     }
                 }
             }
-            5 => {
+            7 => {
                 screen.clear();
                 println!(
                     "{}",
@@ -850,6 +854,130 @@ fn menu_settings(screen: &mut Screen) {
             _ => {}
         }
     }
+}
+
+// ── Backup ──────────────────────────────────────────────────────────────────
+
+fn backup_save(screen: &mut Screen) {
+    screen.clear();
+    let stima = ops::backup::estimate_size().unwrap_or(0) as u64;
+    println!("{}", style("Salva un backup").bold());
+    println!(
+        "{}",
+        style(
+            "Contiene tutto lo stato TRANNE i file video (ri-scaricabili) e i cookie\n\
+             (sono una credenziale, non vanno in un file che si copia in giro).\n\
+             Le copertine sì: per un video rimosso da YouTube sono l'unica cosa\n\
+             che non si può più recuperare."
+        )
+        .dim()
+    );
+    println!("\n  dimensione stimata: ~{}", size(Some(stima)));
+    println!("  {}", style("(senza compressione: lo ZIP pesa quanto la somma dei file)").dim());
+
+    let default = ops::suggested_filename();
+    println!("\n  invio = «{default}» nella cartella del progetto\n");
+    let raw: String = match Input::with_theme(&theme())
+        .with_prompt("Percorso del file")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let target = if raw.trim().is_empty() {
+        get_paths().map(|p| p.project_root.join(&default)).unwrap_or_else(|_| default.clone().into())
+    } else {
+        std::path::PathBuf::from(raw.trim())
+    };
+
+    if target.exists() && !confirm(&format!("«{}» esiste già: sovrascrivere?", target.display()), false) {
+        return;
+    }
+
+    println!("\n{}", style("Creazione dell'archivio…").dim());
+    match ops::write_backup_to(&target) {
+        Ok(r) => screen.ok(format!(
+            "Backup salvato in {}\n  {} ({} video, {} autori, {} sorgenti, {} metadati, {} copertine)",
+            target.display(),
+            size(Some(r.bytes as u64)),
+            r.videos,
+            r.authors,
+            r.sources,
+            r.metadata_files,
+            r.covers
+        )),
+        Err(e) => screen.err(e),
+    }
+    pause();
+}
+
+fn backup_restore(screen: &mut Screen) {
+    screen.clear();
+    println!("{}", style("Ripristina da un backup").bold());
+    println!(
+        "{}",
+        style(
+            "Lo stato attuale viene prima COPIATO in data/pre-restore-<data-ora>/:\n\
+             se il ripristino si rivela un errore, la strada indietro esiste ancora.\n\
+             I file che nell'archivio non ci sono NON vengono cancellati."
+        )
+        .dim()
+    );
+
+    let Some(raw) = ask("\nPercorso del file .zip") else { return };
+    let path = std::path::PathBuf::from(raw.trim().trim_matches('"'));
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => return screen.err(format!("Impossibile leggere {}: {e}", path.display())),
+    };
+
+    // Si mostra cosa c'è dentro PRIMA di sovrascrivere qualunque cosa.
+    match ops::inspect_backup(&bytes) {
+        Ok((manifest, files, total)) => {
+            println!("\n  {files} file, {} in tutto", size(Some(total as u64)));
+            if let Some(m) = manifest {
+                if let Some(created) = m.get("createdAt").and_then(|v| v.as_str()) {
+                    println!("  creato il {created}");
+                }
+                if let Some(c) = m.get("counts") {
+                    println!(
+                        "  {} video · {} autori · {} sorgenti",
+                        c.get("videos").and_then(|v| v.as_u64()).unwrap_or(0),
+                        c.get("authors").and_then(|v| v.as_u64()).unwrap_or(0),
+                        c.get("sources").and_then(|v| v.as_u64()).unwrap_or(0)
+                    );
+                }
+            } else {
+                println!("  {}", style("(nessun manifesto: forse un backup della versione JavaScript)").dim());
+            }
+        }
+        Err(e) => return screen.err(e),
+    }
+
+    if !confirm("\nRipristinare, sostituendo lo stato attuale?", false) {
+        return;
+    }
+
+    match ops::restore_backup(&bytes) {
+        Ok(r) => {
+            let mut m = format!("{} file ripristinati.", r.restored_files);
+            if let Some(dir) = &r.safety_copy {
+                m.push_str(&format!("\n  Copia di sicurezza in {}", dir.display()));
+            }
+            if !r.skipped.is_empty() {
+                m.push_str(&format!(
+                    "\n  {} voci ignorate perché fuori dalle cartelle previste: {}",
+                    r.skipped.len(),
+                    r.skipped.join(", ")
+                ));
+            }
+            m.push_str("\n\n  ⚠ RIAVVIA il programma: lo stato in memoria è ormai vecchio.");
+            screen.ok(m);
+        }
+        Err(e) => screen.err(e),
+    }
+    pause();
 }
 
 fn show_status(screen: &mut Screen) {

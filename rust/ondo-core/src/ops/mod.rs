@@ -22,12 +22,14 @@
 //!
 //! Lo **storico** resta: [`runs`] registra l'esito di ogni operazione lunga.
 
+pub mod backup;
 pub mod download;
 pub mod maintain;
 pub mod runs;
 pub mod sources;
 pub mod sync;
 
+pub use backup::{create_backup, inspect_backup, restore_backup, suggested_filename, write_backup_to, BackupReport, RestoreReport};
 pub use download::{download_many, enrich, DownloadReport, EnrichReport};
 pub use maintain::{
     delete_video_completely, delete_video_file, migrate_all, reorganize_library, set_favorite,
