@@ -17,13 +17,15 @@
 
 | # | Cosa | Stato spedibile a fine milestone |
 |---|---|---|
-| M67 | Fondamenta + spike verticale: workspace Cargo, 2 simboli ABI, napi-rs, CI multi-target, runner differenziale. Unico modulo portato: `searchVideos`. | Ricerca in Rust da CLI e server, risultati identici al JS sul catalogo reale; `npm install` invariato. |
-| M68 | `schema` + `query`: flag ortogonali, `videoCategory()`, migrazioni, filtri. | Derivazioni di stato da Rust; badge e filtri identici nella web. |
-| M69 | ⚠️ `store` + `config`: lettura/scrittura atomica, mutex, reconciliation. **Da qui Rust possiede il catalogo su disco.** | Catalogo letto/scritto da Rust, con backup prima del passaggio. |
-| M70 | `library` + `backup`: layout path, riorganizzazione, zip. È dove vive il rischio Unicode. | Riorganizzazione e backup da Rust, verificati sui file veri. |
+| M67 | 🟡 Fondamenta + banco differenziale: workspace Cargo, runner differenziale JS↔Rust, `searchVideos`. **Fatti**: workspace, banco (validato al negativo), search. **Mancano**: ABI C a 2 simboli, binding napi-rs, CI multi-target. | Ricerca in Rust da CLI e server, risultati identici al JS sul catalogo reale; `npm install` invariato. |
+| M68 | ✅ `schema` + `query`: flag ortogonali, `videoCategory()`, migrazioni, filtri. | Derivazioni di stato da Rust; badge e filtri identici nella web. |
+| M69 | 🟡 `store` + `config`: lettura/scrittura atomica, mutex, reconciliation. **Fatti** entrambi, ma il server/web usano ancora il JS: Rust non "possiede" ancora il catalogo. | Catalogo letto/scritto da Rust, con backup prima del passaggio. |
+| M70 | 🟡 `library` + `backup`. **Fatti**: `sanitizeName`/`targetRelPath`/risoluzione file, con la copertura Unicode nel banco. **Mancano**: `reorganizeLibrary`, cancellazioni, `zip`/backup. | Riorganizzazione e backup da Rust, verificati sui file veri. |
 | M71 | `ytdlp` + `jobs`: spawn, parsing progresso, coda, API a **polling**; l'adapter Node ricostruisce l'`EventEmitter` per l'SSE. | Download attraverso Rust; SSE e barra di avanzamento invariati. |
 | M72 | `ondo-server`: binario HTTP standalone, immagine Docker senza Node. **Qui si incassano gli obiettivi 2 e 4.** | Il NAS gira senza runtime Node; la web non se ne accorge. |
 | M73 | Ritiro del core JS + binding di riferimento per un secondo linguaggio (obiettivo 1). | Una sola implementazione della logica. CLI Node resta, via napi-rs. |
+
+**Avanzamento reale** (branch `rust-core`, 2026-07-28): `schema`/`store`/`config`/`search`/`query` portati e verdi al banco differenziale; `library` parziale; **`ytdlp` + `jobs` + i service di sync/backup non ancora iniziati** (è M71, la fetta più grossa). Il CLI Rust legge il catalogo e muta `hidden`/`favorite`, **non scarica**: l'area download resta di proprietà del JS, come impone la Regola (a). Stato di dettaglio in `rust-core.md` §11 e `rust/README.md`.
 
 **Le tre regole che valgono per tutte:** (a) un solo proprietario per modulo — mai la stessa logica viva in JS *e* Rust; (b) il formato su disco non cambia durante la migrazione; (c) ogni milestone chiude in uno stato spedibile.
 

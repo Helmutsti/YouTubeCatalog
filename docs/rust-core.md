@@ -1,8 +1,10 @@
 # rust-core.md — progetto di `ondo-core` in Rust (libreria + ABI C)
 
-> **Stato: progetto su carta. Nessun codice scritto.** Documento di design richiesto
-> dall'utente prima di iniziare. Le milestone operative che ne derivano (M67-M73) sono
-> elencate in `PIANO.md`, che rimanda qui per il dettaglio.
+> **Stato: implementazione avviata sul branch `rust-core`.** Il documento nasce come
+> progetto su carta; la parte già realizzata è tracciata in §12 in fondo e nel
+> [`rust/README.md`](../rust/README.md). Il ramo `main` resta l'implementazione
+> JavaScript funzionante. Le milestone operative (M67-M73) sono elencate in
+> `PIANO.md`, che rimanda qui per il dettaglio.
 >
 > Da leggere **dopo** la voce "Riscrittura del core in C/C++/Rust" negli **Scartati** di
 > `PIANO.md`: quella registra il rifiuto della riscrittura **per motivi di prestazioni**,
@@ -308,7 +310,55 @@ curiosità del momento.
 
 ---
 
-## 11. Cosa non cambia, mai
+## 11. Stato reale dell'implementazione (branch `rust-core`)
+
+Aggiornato al 2026-07-28. Dettaglio operativo e comandi: [`rust/README.md`](../rust/README.md).
+
+**Fatto e verificato:**
+
+| Modulo JS | Rust | Note |
+|---|---|---|
+| `catalog/catalogSchema.js` | `schema.rs` | flag ortogonali, `videoCategory`, migrazioni M25/M41 |
+| `catalog/catalogStore.js` | `store.rs` | mutex + scrittura atomica + reconciliation |
+| `config.js` + `preflight.js` | `config.rs` | include `expectedToolNames` (M64) |
+| `services/searchService.js` | `search.rs` | porting fedele, su unità UTF-16 |
+| `services/videoService.js` + assi hidden/favorite | `query.rs` | filtri, canali, mutazioni |
+| `services/libraryService.js` | `library.rs` | **solo** nomi/percorsi + risoluzione file |
+| — | `time.rs` | ISO-8601 identico a `toISOString()`, senza `chrono` |
+
+**Non ancora portato**: `ytdlpWrapper.js` (731 righe), `jobManager.js` + i job,
+`sync`/`source`/`single`/`metadata`/`channelAvatar`/`backup` service, `lib/zip.js`.
+Sono l'area "download e orchestrazione", cioè M71 nel piano — la più grossa.
+
+**Conseguenza pratica, e come si rispetta la Regola 1** ("un solo proprietario per
+modulo"): il CLI in Rust **legge** il catalogo e muta i soli assi `hidden`/`favorite`;
+non scarica nulla e non tocca `jobs.json`. L'implementazione JS resta l'unica
+proprietaria dell'area download. I due CLI convivono sullo stesso `catalog.json`.
+
+**Verificato:**
+- 39 test unitari verdi (`npm run rust:test`);
+- **banco differenziale JS ↔ Rust verde** su una fixture di 14 video che include
+  emoji/accenti, caratteri invalidi Windows, nomi riservati, titoli da 400 caratteri,
+  assi che coesistono e due entry legacy da migrare — con verifica che `catalog.json`
+  resti **byte-identico** dopo il passaggio di entrambe le implementazioni;
+- banco validato **al negativo**: alterando `MAX_TITLE_LEN` da 150 a 149 il diff
+  segnala la differenza di un solo carattere;
+- binario release 626 KB, avvio pulito.
+
+**Non verificato**: il menu a frecce richiede un TTY reale, che l'ambiente di
+automazione non fornisce — stessa limitazione già dichiarata per il browser in
+`progetto.md`. La prova visiva è a carico dell'utente (`npm run cli:rust`).
+
+**Scostamento dal piano, dichiarato:** §9 raccomandava per M67 uno spike *sottile*
+(solo `searchVideos`) proprio per limitare il rischio. Su richiesta esplicita
+dell'utente ("sviluppa core e cli in rust interamente") si è portata una fetta molto
+più larga in un colpo solo. Il banco differenziale — che era il vero contenuto di
+M67 — è comunque stato costruito **prima** di considerare portato qualunque modulo,
+quindi la garanzia principale è intatta.
+
+---
+
+## 12. Cosa non cambia, mai
 
 Da rileggere ogni volta che si è tentati di allargare lo scope:
 

@@ -13,6 +13,12 @@ data/jobs.json
 # e i nomi di nuove piattaforme senza dover aggiornare questo file.
 /tools/
 core/cookies.txt
+
+# Artefatti di compilazione Rust (rust/target arriva a centinaia di MB).
+# Cargo.lock INVECE è versionato: è un workspace con dei binari, quindi la
+# build deve essere riproducibile.
+/rust/target/
+
 .env
 .env.local
 .env.*.local

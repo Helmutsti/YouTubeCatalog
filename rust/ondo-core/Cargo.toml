@@ -1,0 +1,12 @@
+[package]
+name = "ondo-core"
+description = "Catalogo video locale: logica di dominio condivisa (porting da core/src in JS)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

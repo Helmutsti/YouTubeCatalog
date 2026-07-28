@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["ondo-core", "ondo-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+
+# Dipendenze condivise, deliberatamente poche (vedi docs/rust-core.md §5).
+#
+# `serde_json` è compilato con la feature `preserve_order`: mantiene l'ordine
+# delle chiavi degli oggetti JSON così com'era nel file letto. Non è un vezzo —
+# è ciò che permette di rispettare la Regola 2 della migrazione ("il formato su
+# disco non cambia"): senza, riscrivere catalog.json ne rimescolerebbe le chiavi
+# e ogni diff con l'implementazione JS diventerebbe illeggibile. Tira dentro
+# `indexmap`, che è il prezzo di questa garanzia.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
