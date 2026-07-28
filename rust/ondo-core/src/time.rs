@@ -17,6 +17,20 @@ pub fn now_iso8601() -> String {
     from_epoch_millis(millis)
 }
 
+pub fn now_epoch_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Timestamp di `n` minuti fa. Serve a confrontare "quanto è vecchio" un valore già
+/// salvato: i timestamp sono ISO-8601 UTC a lunghezza fissa, quindi il confronto
+/// lessicografico fra stringhe coincide con quello cronologico.
+pub fn minutes_ago_iso8601(n: i64) -> String {
+    from_epoch_millis(now_epoch_millis() - n * 60_000)
+}
+
 pub fn from_epoch_millis(millis: i64) -> String {
     let (mut secs, mut ms) = (millis.div_euclid(1000), millis.rem_euclid(1000));
     if ms < 0 {

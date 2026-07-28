@@ -31,6 +31,13 @@ use crate::error::{OndoError, Result};
 use crate::lock::FileLock;
 use crate::time::now_iso8601;
 
+/// Quanto può restare ferma una rivendicazione `downloading` prima di essere
+/// considerata abbandonata da un processo morto. Generosa: chi scarica la rinnova a
+/// ogni avanzamento, quindi mezz'ora senza un solo rinnovo significa davvero che quel
+/// processo non c'è più. Il prezzo di sbagliare per eccesso è un video che resta «in
+/// corso» per un po'; sbagliare per difetto significa due istanze sullo stesso file.
+pub const STALE_DOWNLOAD_MINUTES: i64 = 30;
+
 pub const SOURCES_FILE: &str = "sources.json";
 pub const LIBRARY_FILE: &str = "library.json";
 /// Il vecchio file monolitico. Letto solo dalla migrazione.
@@ -208,14 +215,41 @@ fn reconcile(state: &mut State) -> bool {
     let mut changed = false;
     let now = now_iso8601();
 
+    // Soglia oltre la quale una rivendicazione `downloading` è considerata abbandonata.
+    // Vedi la nota su `needs_reset` qui sotto.
+    let cutoff = crate::time::minutes_ago_iso8601(STALE_DOWNLOAD_MINUTES);
+
     let ids: Vec<String> = state.videos.keys().cloned().collect();
     for id in ids {
-        // Un download interrotto a metà (processo morto durante il download) va
-        // riportato a "none" e rifatto da zero al prossimo tentativo.
-        let needs_reset = state.videos.get(&id).map(|v| v.download() == download_state::DOWNLOADING).unwrap_or(false);
+        // Un download interrotto a metà va riportato a "none" e rifatto da zero.
+        //
+        // ⚠️ Ma `downloading` non significa più "processo morto": con più istanze in
+        // parallelo può significare "un'altra istanza ci sta lavorando adesso".
+        // Azzerarlo a ogni caricamento — come faceva la prima versione, ereditando
+        // l'assunzione "un solo processo" del JavaScript — cancella la rivendicazione
+        // di chi sta scaricando, e due istanze finiscono sullo stesso file di output.
+        // (Trovato da una prova reale con due processi, non dai test unitari.)
+        //
+        // Si azzera quindi solo una rivendicazione **scaduta**: chi scarica rinnova la
+        // sua (vedi `ops::download`), quindi una che non si rinnova da mezz'ora è di un
+        // processo che non c'è più.
+        let needs_reset = state
+            .videos
+            .get(&id)
+            .map(|v| {
+                v.download() == download_state::DOWNLOADING
+                    && v.0
+                        .get("downloadingSince")
+                        .and_then(Value::as_str)
+                        // Assente = scritta da una versione precedente: si azzera,
+                        // com'era il comportamento di prima.
+                        .is_none_or(|since| since < cutoff.as_str())
+            })
+            .unwrap_or(false);
         if needs_reset {
             if let Some(v) = state.videos.get_mut(&id) {
                 v.set("download", json!(download_state::NONE));
+                v.set("downloadingSince", Value::Null);
                 v.set("updatedAt", json!(now.clone()));
             }
             changed = true;

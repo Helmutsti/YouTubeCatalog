@@ -89,11 +89,114 @@ pub fn default_config() -> Value {
             "cookiesFile": Value::Null,
             "ffmpegLocation": Value::Null
         },
+        "download": {
+            // Qualità predefinita: decide se il download si ferma a chiedere.
+            //   "ask"  → chiede la risoluzione fra quelle disponibili (default)
+            //   "max"  → parte subito alla massima qualità
+            //   "720p" → parte subito con un tetto (accettati anche 720 e "720")
+            // Con un valore diverso da "ask" il download parte SENZA interruzioni:
+            // è ciò che permette di lanciare più istanze in parallelo senza dover
+            // rispondere a un prompt in ognuna.
+            "defaultQuality": "ask"
+        },
         "playback": {
             "vlcPath": "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe"
         },
         "jobs": { "maxAttempts": 3 }
     })
+}
+
+/// Qualità predefinita per i download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QualityPref {
+    /// Chiede all'utente fra le risoluzioni realmente disponibili.
+    Ask,
+    /// Parte subito, nessun tetto.
+    Max,
+    /// Parte subito con un tetto di altezza. È un **cap** (`height<=N`), non una
+    /// richiesta esatta: se il video non ha quella risoluzione si prende la migliore
+    /// sotto di essa.
+    Cap(u64),
+}
+
+impl QualityPref {
+    /// Come si scrive in `config.json`.
+    pub fn as_config_value(self) -> Value {
+        match self {
+            QualityPref::Ask => json!("ask"),
+            QualityPref::Max => json!("max"),
+            QualityPref::Cap(h) => json!(format!("{h}p")),
+        }
+    }
+
+    pub fn label(self) -> String {
+        match self {
+            QualityPref::Ask => "Chiedi ogni volta".into(),
+            QualityPref::Max => "Massima".into(),
+            QualityPref::Cap(h) => format!("{h}p (o la migliore sotto)"),
+        }
+    }
+
+    /// Valore da passare a `download_video`: `None` = "usa la config"
+    /// (che qui non capita mai, perché la scelta è già stata fatta),
+    /// `Some(None)` = nessun tetto, `Some(Some(h))` = tetto esplicito.
+    pub fn max_height(self) -> Option<Option<u64>> {
+        match self {
+            QualityPref::Ask => None,
+            QualityPref::Max => Some(None),
+            QualityPref::Cap(h) => Some(Some(h)),
+        }
+    }
+
+    /// Accetta `"ask"`, `"max"`, `"720p"`, `"720"` e il numero `720`. Qualunque altra
+    /// cosa ricade su `Ask`: una config scritta male non deve far partire download a
+    /// una risoluzione che l'utente non ha chiesto.
+    pub fn parse(value: Option<&Value>) -> Self {
+        match value {
+            Some(Value::String(s)) => {
+                let s = s.trim().to_lowercase();
+                match s.as_str() {
+                    "ask" | "chiedi" => QualityPref::Ask,
+                    "max" | "massima" | "best" => QualityPref::Max,
+                    other => other
+                        .trim_end_matches('p')
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|h| *h > 0)
+                        .map(QualityPref::Cap)
+                        .unwrap_or(QualityPref::Ask),
+                }
+            }
+            Some(Value::Number(n)) => n
+                .as_u64()
+                .filter(|h| *h > 0)
+                .map(QualityPref::Cap)
+                .unwrap_or(QualityPref::Ask),
+            _ => QualityPref::Ask,
+        }
+    }
+}
+
+/// Le risoluzioni proposte nel menu delle impostazioni. Sono i tagli standard di
+/// YouTube; un valore arbitrario resta scrivibile a mano in `config.json`.
+pub const QUALITY_CHOICES: [QualityPref; 8] = [
+    QualityPref::Ask,
+    QualityPref::Max,
+    QualityPref::Cap(2160),
+    QualityPref::Cap(1440),
+    QualityPref::Cap(1080),
+    QualityPref::Cap(720),
+    QualityPref::Cap(480),
+    QualityPref::Cap(360),
+];
+
+pub fn default_quality() -> Result<QualityPref> {
+    Ok(QualityPref::parse(load_config()?.pointer("/download/defaultQuality")))
+}
+
+pub fn set_default_quality(pref: QualityPref) -> Result<()> {
+    update_config(&json!({ "download": { "defaultQuality": pref.as_config_value() } }))?;
+    Ok(())
 }
 
 fn config_path() -> PathBuf {
@@ -428,6 +531,60 @@ mod tests {
         assert_eq!(
             deep_merge(&d, &o),
             json!({"a": 1, "n": {"x": 1, "y": 9}, "arr": [3]})
+        );
+    }
+
+    #[test]
+    fn quality_preference_accepts_every_reasonable_spelling() {
+        let p = |v: Value| QualityPref::parse(Some(&v));
+        assert_eq!(p(json!("ask")), QualityPref::Ask);
+        assert_eq!(p(json!("chiedi")), QualityPref::Ask);
+        assert_eq!(p(json!("ASK")), QualityPref::Ask);
+        assert_eq!(p(json!("max")), QualityPref::Max);
+        assert_eq!(p(json!("massima")), QualityPref::Max);
+        assert_eq!(p(json!("720p")), QualityPref::Cap(720));
+        assert_eq!(p(json!("720")), QualityPref::Cap(720));
+        assert_eq!(p(json!(720)), QualityPref::Cap(720));
+        assert_eq!(p(json!(" 1080P ")), QualityPref::Cap(1080));
+    }
+
+    #[test]
+    fn a_nonsensical_setting_falls_back_to_asking_never_to_a_silent_quality() {
+        // Il ripiego conta: una config scritta male non deve far partire download a una
+        // risoluzione che l'utente non ha chiesto. Meglio fermarsi e domandare.
+        let p = |v: Value| QualityPref::parse(Some(&v));
+        for bad in [json!("boh"), json!(""), json!("0p"), json!(0), json!(-720), json!(true), json!(null), json!({})] {
+            assert_eq!(p(bad.clone()), QualityPref::Ask, "input: {bad}");
+        }
+        assert_eq!(QualityPref::parse(None), QualityPref::Ask, "chiave assente");
+    }
+
+    #[test]
+    fn quality_round_trips_through_the_config_representation() {
+        for pref in QUALITY_CHOICES {
+            let scritto = pref.as_config_value();
+            assert_eq!(
+                QualityPref::parse(Some(&scritto)),
+                pref,
+                "scritto come {scritto}, riletto diverso"
+            );
+        }
+    }
+
+    #[test]
+    fn only_ask_means_stop_and_prompt() {
+        assert_eq!(QualityPref::Ask.max_height(), None, "None = chiedi");
+        assert_eq!(QualityPref::Max.max_height(), Some(None), "Some(None) = nessun tetto");
+        assert_eq!(QualityPref::Cap(720).max_height(), Some(Some(720)));
+    }
+
+    #[test]
+    fn the_default_config_asks() {
+        // Un utente che non ha mai toccato l'impostazione deve vedere il prompt: è il
+        // comportamento meno sorprendente.
+        assert_eq!(
+            QualityPref::parse(default_config().pointer("/download/defaultQuality")),
+            QualityPref::Ask
         );
     }
 

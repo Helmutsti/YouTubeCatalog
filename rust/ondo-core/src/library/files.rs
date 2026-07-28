@@ -118,6 +118,12 @@ pub fn remove_from_download_archive(paths: &Paths, video_id: &str) -> Result<()>
     if !file.is_file() {
         return Ok(());
     }
+    // Lock dedicato: questa è una lettura-modifica-scrittura, e con più istanze in
+    // parallelo due rimozioni concorrenti si perderebbero a vicenda. È separato dal
+    // lock dello stato e viene sempre preso **dopo** di esso, così l'ordine di
+    // acquisizione resta coerente ovunque e non si può creare un deadlock.
+    let _guard = crate::lock::FileLock::acquire(paths.data_dir.join("archive.lock"))?;
+
     let content = std::fs::read_to_string(file)?;
     let kept: Vec<&str> = content
         .lines()

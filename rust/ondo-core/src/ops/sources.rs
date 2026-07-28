@@ -132,6 +132,31 @@ pub enum QuickTarget {
     },
 }
 
+/// Divide un input che può contenere **più link** in singoli elementi.
+///
+/// Separatori accettati: virgola, punto e virgola e qualunque spazio bianco (a capo
+/// compresi). Nessuno di questi può comparire dentro un URL o dentro un id YouTube,
+/// quindi la divisione è sempre sicura — ed è comoda: si incolla una lista da un file
+/// di testo, da un foglio, o si scrivono i link separati da virgola a mano.
+///
+/// I duplicati vengono tolti **conservando l'ordine**: incollare due volte lo stesso
+/// link non deve provocare due download dello stesso video.
+pub fn split_links(input: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for piece in input.split([',', ';', ' ', '\t', '\n', '\r']) {
+        // Le virgolette compaiono quando si incolla da certi editor o dal copia-percorso
+        // di Windows; le parentesi angolari quando si copia da una mail o da Markdown.
+        let clean = piece.trim().trim_matches(['"', '\'', '<', '>']);
+        if clean.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|x| x == clean) {
+            out.push(clean.to_string());
+        }
+    }
+    out
+}
+
 /// Normalizza l'input. Un id YouTube nudo di 11 caratteri viene espanso — è il solo
 /// caso in cui l'URL si può costruire senza ambiguità; qualunque altra cosa deve già
 /// essere un URL `http(s)`.
@@ -266,6 +291,54 @@ pub fn quick_download_target(input: &str) -> Result<QuickTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multiple_links_are_split_on_commas_semicolons_and_whitespace() {
+        let uno = "https://www.youtube.com/watch?v=aaaaaaaaaaa";
+        let due = "https://www.youtube.com/watch?v=bbbbbbbbbbb";
+        let tre = "ccccccccccc";
+
+        for input in [
+            format!("{uno},{due},{tre}"),
+            format!("{uno}; {due} ;{tre}"),
+            format!("{uno} {due} {tre}"),
+            format!("{uno}\n{due}\r\n{tre}"),
+            // Il caso vero: una lista incollata, con separatori misti e spazi a caso.
+            format!("  {uno} ,\n  {due};;{tre}  \n\n"),
+        ] {
+            assert_eq!(split_links(&input), vec![uno, due, tre], "input: {input:?}");
+        }
+    }
+
+    #[test]
+    fn duplicates_are_removed_keeping_the_order() {
+        let a = "https://y/watch?v=aaaaaaaaaaa";
+        let b = "https://y/watch?v=bbbbbbbbbbb";
+        assert_eq!(split_links(&format!("{b},{a},{b},{a}")), vec![b, a]);
+    }
+
+    #[test]
+    fn quotes_and_angle_brackets_from_pasting_are_stripped() {
+        let u = "https://www.youtube.com/watch?v=aaaaaaaaaaa";
+        assert_eq!(split_links(&format!("\"{u}\"")), vec![u]);
+        assert_eq!(split_links(&format!("<{u}>")), vec![u]);
+        assert_eq!(split_links(&format!("'{u}'")), vec![u]);
+    }
+
+    #[test]
+    fn an_empty_or_separator_only_input_yields_nothing() {
+        assert!(split_links("").is_empty());
+        assert!(split_links("   ").is_empty());
+        assert!(split_links(",,;; \n ;").is_empty());
+    }
+
+    #[test]
+    fn a_single_link_still_comes_out_as_one() {
+        // Il caso normale non deve regredire.
+        let u = "https://www.youtube.com/playlist?list=PLabc";
+        assert_eq!(split_links(u), vec![u]);
+        assert_eq!(split_links("  dQw4w9WgXcQ  "), vec!["dQw4w9WgXcQ"]);
+    }
 
     #[test]
     fn bare_ids_expand_urls_pass_through_garbage_is_refused() {

@@ -23,6 +23,8 @@ pub struct DownloadReport {
     pub downloaded: usize,
     pub failed: usize,
     pub removed: usize,
+    /// Presi da un'altra istanza mentre questa li aveva ancora in lista.
+    pub skipped: usize,
     pub total: usize,
 }
 
@@ -36,6 +38,7 @@ fn apply_downloaded(id: &str, fields: &Value) -> Result<()> {
             }
         }
         video.set("download", json!(download_state::DOWNLOADED));
+        video.set("downloadingSince", Value::Null);
         video.set("error", Value::Null);
         video.touch();
         // Il download porta i metadati completi del canale: è il momento in cui la
@@ -46,10 +49,97 @@ fn apply_downloaded(id: &str, fields: &Value) -> Result<()> {
     })
 }
 
+/// Rivendica un video per il download, in modo **atomico**.
+///
+/// ## Perché serve, e perché il lock da solo non bastava
+///
+/// Il lock di scrittura garantisce che due processi non si sovrascrivano lo stato,
+/// ma non impedisce che due istanze **scelgano lo stesso video**: ognuna fotografa la
+/// lista dei candidati all'inizio, e fra la fotografia e il download passa tempo. Due
+/// istanze lanciate insieme scaricherebbero lo stesso video sullo stesso file.
+///
+/// La soluzione è fare "controlla e prendi" dentro **una sola** transazione: chi
+/// arriva secondo trova già `downloading` e si sposta al prossimo. Senza questo, il
+/// download parallelo non è sicuro.
+///
+/// Ritorna `false` se il video non esiste più o se qualcun altro l'ha già preso.
+fn try_claim(id: &str) -> Result<bool> {
+    state::transaction(|st| {
+        let Ok(video) = st.video(id) else { return Ok(false) };
+        if video.download() == download_state::DOWNLOADING
+            || video.download() == download_state::DOWNLOADED
+        {
+            return Ok(false);
+        }
+        let video = st.video_mut(id)?;
+        video.set("download", json!(download_state::DOWNLOADING));
+        // La rivendicazione ha una **scadenza**: se questo processo muore, dopo
+        // `STALE_DOWNLOAD_MINUTES` il video torna disponibile da sé. Finché è vivo la
+        // rinnova (vedi `LeaseKeeper`).
+        video.set("downloadingSince", json!(now_iso8601()));
+        video.set("error", Value::Null);
+        video.touch();
+        Ok(true)
+    })
+}
+
+/// Rinnova la scadenza della rivendicazione, così un download lungo non viene
+/// scambiato per abbandonato da un'altra istanza.
+fn renew_claim(id: &str) {
+    let _ = state::transaction(|st| {
+        if let Ok(v) = st.video_mut(id) {
+            if v.download() == download_state::DOWNLOADING {
+                v.set("downloadingSince", json!(now_iso8601()));
+            }
+        }
+        Ok(())
+    });
+}
+
+/// Avvolge il reporter dell'interfaccia per rinnovare la rivendicazione mentre il
+/// download procede, **al massimo una volta al minuto**: senza la limitazione ogni
+/// tacca di avanzamento di yt-dlp provocherebbe una scrittura dello stato.
+struct LeaseKeeper<'a> {
+    inner: &'a dyn Reporter,
+    id: String,
+    last: std::sync::Mutex<std::time::Instant>,
+}
+
+impl<'a> LeaseKeeper<'a> {
+    fn new(inner: &'a dyn Reporter, id: &str) -> Self {
+        Self { inner, id: id.to_string(), last: std::sync::Mutex::new(std::time::Instant::now()) }
+    }
+    fn touch_if_due(&self) {
+        let mut last = self.last.lock().unwrap();
+        if last.elapsed() >= std::time::Duration::from_secs(60) {
+            *last = std::time::Instant::now();
+            drop(last);
+            renew_claim(&self.id);
+        }
+    }
+}
+
+impl Reporter for LeaseKeeper<'_> {
+    fn log(&self, line: &str) {
+        self.touch_if_due();
+        self.inner.log(line);
+    }
+    fn progress(&self, percent: f64) {
+        self.touch_if_due();
+        self.inner.progress(percent);
+    }
+    fn cancelled(&self) -> bool {
+        self.inner.cancelled()
+    }
+}
+
 fn mark(id: &str, download: &str, error: Option<&str>) -> Result<()> {
     state::transaction(|st| {
         let Ok(video) = st.video_mut(id) else { return Ok(()) };
         video.set("download", json!(download));
+        // Rilascio della rivendicazione: il download non è più in corso, qualunque sia
+        // stato l'esito. Senza, il video resterebbe "preso" fino alla scadenza.
+        video.set("downloadingSince", Value::Null);
         if let Some(msg) = error {
             let attempts = video.0.get("attempts").and_then(Value::as_u64).unwrap_or(0) + 1;
             video.set("attempts", json!(attempts));
@@ -112,13 +202,23 @@ pub fn download_many(
             continue;
         };
 
+        // Rivendicazione atomica: se un'altra istanza ha già preso questo video, si
+        // passa oltre invece di scaricarlo due volte sullo stesso file.
+        if !try_claim(&id)? {
+            report.skipped += 1;
+            reporter.log(&format!("↷ {id}: già in corso o già scaricato altrove, salto."));
+            continue;
+        }
+
         // La pulizia dell'archivio sta QUI e non nel downloader: tocca lo stato su
         // disco. Ogni download è una richiesta esplicita di scaricare quel video,
         // quindi la riga residua va tolta o yt-dlp salterebbe il lavoro in silenzio.
         remove_from_download_archive(&paths, &id)?;
-        mark(&id, download_state::DOWNLOADING, None)?;
 
-        match download_video(&id, &url, strategy, max_height, reporter) {
+        // Il reporter passato al downloader rinnova la scadenza della rivendicazione
+        // mentre il download procede.
+        let keeper = LeaseKeeper::new(reporter, &id);
+        match download_video(&id, &url, strategy, max_height, &keeper) {
             Ok(extracted) => {
                 metadata::set(&id, &extracted.raw_info)?;
                 apply_downloaded(&id, &extracted.fields)?;

@@ -211,6 +211,27 @@ fn pause() {
 
 // ── Qualità ─────────────────────────────────────────────────────────────────
 
+/// Decide qualità e strategia audio **senza chiedere nulla**, quando l'impostazione
+/// `download.defaultQuality` è diversa da "chiedi".
+///
+/// Restituisce `None` se l'impostazione è "chiedi", nel qual caso si passa da
+/// [`ask_quality`] — che però richiede prima un'interrogazione di rete per sapere
+/// quali risoluzioni esistono. Saltarla è ciò che fa partire il download **subito**.
+///
+/// Contropartita dichiarata: senza quell'interrogazione non si può sapere in anticipo
+/// se al video manca la traccia audio separata (il caso in cui yt-dlp ripiegherebbe in
+/// silenzio su 360p). Resta però la rete di sicurezza a posteriori: un download ≤360p
+/// viene marcato con una nota di qualità, visibile nel dettaglio del video.
+fn quality_without_asking() -> Option<(AudioStrategy, Option<Option<u64>>)> {
+    let pref = ondo_core::config::default_quality().ok()?;
+    // Due livelli di Option con significati diversi, che è facile confondere:
+    //   `max_height()`      → None = «chiedi»,  Some(cap) = «parti con questo tetto»
+    //   il parametro passato → None = «usa la config», Some(cap) = tetto esplicito
+    // Qui la scelta è già stata fatta, quindi il tetto va passato sempre esplicito.
+    let cap = pref.max_height()?;
+    Some((AudioStrategy::Auto, Some(cap)))
+}
+
 /// Chiede la risoluzione fra quelle **realmente disponibili** per questo video, e la
 /// strategia audio quando serve.
 fn ask_quality(f: &FormatsSummary) -> Option<(AudioStrategy, Option<Option<u64>>)> {
@@ -412,6 +433,13 @@ fn download_one(screen: &mut Screen, v: &Video) {
     let Some(url) = v.webpage_url().map(str::to_string) else {
         return screen.err("Nessun URL registrato.");
     };
+
+    // Qualità predefinita impostata: si parte subito, senza interrogare i formati e
+    // senza chiedere nulla.
+    if let Some((s, h)) = quality_without_asking() {
+        return run_download(screen, &[v.id().to_string()], s, h);
+    }
+
     screen.clear();
     println!("{}", style("Analisi dei formati disponibili…").dim());
     match ondo_core::downloader::resolve_video_info(&url) {
@@ -693,8 +721,9 @@ fn menu_quick(screen: &mut Screen) {
     println!(
         "{}",
         style(
-            "Download rapido — incolla un link:\n  · un video YouTube (o un id di 11 caratteri)\n  \
-             · un video di un altro sito supportato da yt-dlp (Rumble, …)\n  · una playlist YouTube\n\n\
+            "Download rapido — incolla uno o più link:\n  · video YouTube (o id di 11 caratteri)\n  \
+             · video di altri siti supportati da yt-dlp (Rumble, …)\n  · playlist YouTube\n\n\
+             Più link insieme: separali con virgola, punto e virgola o spazio.\n\n\
              Nota: NON crea una sorgente. Questi video non verranno sincronizzati,\n\
              quindi non sapranno mai di essere stati rimossi da YouTube."
         )
@@ -702,16 +731,135 @@ fn menu_quick(screen: &mut Screen) {
     );
     let Some(input) = ask("Link") else { return };
 
+    let links = ops::sources::split_links(&input);
+    match links.len() {
+        0 => return,
+        1 => quick_single(screen, &links[0]),
+        _ => quick_many(screen, &links),
+    }
+}
+
+/// Più link in un colpo solo: si risolvono tutti, si mostra il totale, si scarica in
+/// un'unica passata. La qualità si sceglie **una volta** per l'intero lotto — chiederla
+/// per ognuno di venti video sarebbe insostenibile.
+fn quick_many(screen: &mut Screen, links: &[String]) {
+    screen.clear();
+    println!("{}\n", style(format!("{} link da risolvere…", links.len())).bold());
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut gia_scaricati = 0;
+    let mut errori: Vec<String> = Vec::new();
+
+    for (i, link) in links.iter().enumerate() {
+        let breve: String = link.chars().take(70).collect();
+        print!("  [{}/{}] {breve} … ", i + 1, links.len());
+        let _ = std::io::stdout().flush();
+
+        match ops::quick_download_target(link) {
+            Ok(ops::QuickTarget::AlreadyDownloaded { title, .. }) => {
+                println!("{}", style(format!("già in archivio ({title})")).dim());
+                gia_scaricati += 1;
+            }
+            Ok(ops::QuickTarget::Video { id, title, .. }) => {
+                println!("{}", style(title).green());
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            Ok(ops::QuickTarget::Playlist { title, ids: pl, already_downloaded }) => {
+                println!(
+                    "{}",
+                    style(format!("playlist «{title}»: {} da scaricare, {already_downloaded} già presenti", pl.len())).green()
+                );
+                for id in pl {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("{}", style("errore").red());
+                errori.push(format!("{breve} — {e}"));
+            }
+        }
+    }
+
+    println!("\n{}", style("─".repeat(60)).dim());
+    println!(
+        "  {} video da scaricare · {gia_scaricati} già in archivio · {} link non risolti",
+        ids.len(),
+        errori.len()
+    );
+    for e in &errori {
+        println!("  {} {e}", style("✘").red());
+    }
+
+    if ids.is_empty() {
+        screen.warn("Niente da scaricare.");
+        return pause();
+    }
+
+    // Qualità: se è impostata si parte e basta; altrimenti si chiede una volta sola
+    // per tutto il lotto, senza l'elenco per-video (che sarebbe diverso per ognuno).
+    let scelta = match quality_without_asking() {
+        Some(q) => Some(q),
+        None => {
+            println!();
+            ask_quality_for_batch()
+        }
+    };
+    let Some((strategy, max_height)) = scelta else { return };
+
+    if !confirm(&format!("\nScaricare {} video?", ids.len()), true) {
+        return;
+    }
+    run_download(screen, &ids, strategy, max_height);
+}
+
+/// Scelta della qualità per un lotto: non si può mostrare l'elenco delle risoluzioni
+/// disponibili, perché è diverso da video a video. Si offrono i tagli standard come
+/// **tetto** (`height<=N`): ogni video prende la migliore sotto quella soglia.
+fn ask_quality_for_batch() -> Option<(AudioStrategy, Option<Option<u64>>)> {
+    use ondo_core::config::{QualityPref, QUALITY_CHOICES};
+
+    let scelte: Vec<QualityPref> = QUALITY_CHOICES
+        .iter()
+        .copied()
+        .filter(|q| *q != QualityPref::Ask)
+        .collect();
+    let labels: Vec<String> = scelte.iter().map(|q| q.label()).collect();
+
+    println!(
+        "{}",
+        style("Vale per tutti i video del lotto. Per non chiederlo più: Impostazioni → Qualità predefinita.").dim()
+    );
+    let i = Select::with_theme(&theme())
+        .with_prompt("Qualità")
+        .items(&labels)
+        .default(0)
+        .interact_opt()
+        .ok()??;
+    Some((AudioStrategy::Auto, Some(scelte[i].max_height()?)))
+}
+
+fn quick_single(screen: &mut Screen, input: &str) {
     screen.clear();
     println!("{}", style("Risoluzione del link…").dim());
-    match ops::quick_download_target(&input) {
+    match ops::quick_download_target(input) {
         Ok(ops::QuickTarget::AlreadyDownloaded { id, title }) => {
             screen.warn(format!("Già in archivio: «{title}» ({id})."))
         }
         Ok(ops::QuickTarget::Video { id, title, formats }) => {
             println!("\n{}", style(title).bold());
-            if let Some((s, h)) = ask_quality(&formats) {
-                run_download(screen, &[id], s, h);
+            // Con una qualità predefinita si evita anche il prompt qui: incolli il
+            // link e parte.
+            match quality_without_asking() {
+                Some((s, h)) => run_download(screen, &[id], s, h),
+                None => {
+                    if let Some((s, h)) = ask_quality(&formats) {
+                        run_download(screen, &[id], s, h);
+                    }
+                }
             }
         }
         Ok(ops::QuickTarget::Playlist { title, ids, already_downloaded }) => {
@@ -738,8 +886,13 @@ fn menu_quick(screen: &mut Screen) {
 fn menu_settings(screen: &mut Screen) {
     loop {
         screen.clear();
+        let attuale = ondo_core::config::default_quality()
+            .map(|q| q.label())
+            .unwrap_or_else(|_| "?".into());
+
         let labels = vec![
             "Stato e percorsi".to_string(),
+            format!("🎚 Qualità predefinita: {attuale}"),
             "💾 Salva un backup…".into(),
             "⇩ Ripristina da un backup…".into(),
             "📁 Riorganizza l'archivio per autore".into(),
@@ -752,9 +905,10 @@ fn menu_settings(screen: &mut Screen) {
 
         match i {
             0 => show_status(screen),
-            1 => backup_save(screen),
-            2 => backup_restore(screen),
-            3 => {
+            1 => set_quality(screen),
+            2 => backup_save(screen),
+            3 => backup_restore(screen),
+            4 => {
                 screen.clear();
                 println!("{}", style("Analisi (nessun file viene toccato)…").dim());
                 match ops::reorganize_library(true) {
@@ -781,7 +935,7 @@ fn menu_settings(screen: &mut Screen) {
                     Err(e) => screen.err(e),
                 }
             }
-            4 => {
+            5 => {
                 screen.clear();
                 println!("{}\n", style("Foto dei creator…").bold());
                 let force = confirm("Ri-scaricare anche quelle già salvate?", false);
@@ -802,7 +956,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            5 => {
+            6 => {
                 screen.clear();
                 match ops::list_runs(30) {
                     Ok(runs) if runs.is_empty() => println!("Nessuna operazione registrata."),
@@ -822,7 +976,7 @@ fn menu_settings(screen: &mut Screen) {
                 }
                 pause();
             }
-            6 => {
+            7 => {
                 if confirm("Svuotare lo storico?", false) {
                     match ops::clear_runs() {
                         Ok(n) => screen.ok(format!("{n} voci rimosse.")),
@@ -830,7 +984,7 @@ fn menu_settings(screen: &mut Screen) {
                     }
                 }
             }
-            7 => {
+            8 => {
                 screen.clear();
                 println!(
                     "{}",
@@ -860,6 +1014,66 @@ fn menu_settings(screen: &mut Screen) {
             }
             _ => {}
         }
+    }
+}
+
+// ── Qualità predefinita ─────────────────────────────────────────────────────
+
+fn set_quality(screen: &mut Screen) {
+    use ondo_core::config::{QualityPref, QUALITY_CHOICES};
+
+    screen.clear();
+    let attuale = ondo_core::config::default_quality().unwrap_or(QualityPref::Ask);
+
+    println!("{}", style("Qualità predefinita dei download").bold());
+    println!(
+        "{}",
+        style(
+            "Con «Chiedi ogni volta» il download si ferma a domandarti la risoluzione\n\
+             fra quelle davvero disponibili per quel video.\n\n\
+             Con qualunque altra scelta parte SUBITO, senza interruzioni: è ciò che\n\
+             permette di lanciare più istanze di Ondo in parallelo e lasciarle lavorare."
+        )
+        .dim()
+    );
+    println!(
+        "\n{}",
+        style(
+            "Nota: saltando la domanda si salta anche il controllo dei formati, quindi\n\
+             non si può sapere in anticipo se a un video manca la traccia audio separata\n\
+             (caso in cui yt-dlp ripiega su 360p). Resta l'avviso a posteriori: un\n\
+             download a 360p o meno viene marcato nel dettaglio del video."
+        )
+        .yellow()
+    );
+    println!();
+
+    let labels: Vec<String> = QUALITY_CHOICES
+        .iter()
+        .map(|q| {
+            if *q == attuale {
+                format!("{}   ← attuale", q.label())
+            } else {
+                q.label()
+            }
+        })
+        .collect();
+    let default = QUALITY_CHOICES.iter().position(|q| *q == attuale).unwrap_or(0);
+
+    let scelta = Select::with_theme(&theme())
+        .with_prompt("Qualità predefinita")
+        .items(&labels)
+        .default(default)
+        .interact_opt();
+
+    let Ok(Some(i)) = scelta else { return };
+    let nuova = QUALITY_CHOICES[i];
+    if nuova == attuale {
+        return;
+    }
+    match ondo_core::config::set_default_quality(nuova) {
+        Ok(()) => screen.ok(format!("Qualità predefinita: {}", nuova.label())),
+        Err(e) => screen.err(e),
     }
 }
 
