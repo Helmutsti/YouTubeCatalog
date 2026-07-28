@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 
 use crate::config::get_paths;
-use crate::downloader::{resolve_channel_avatar, Reporter};
+use crate::downloader::{fetch_image, resolve_channel_avatar, Reporter};
 use crate::error::{OndoError, Result};
 use crate::library::files::{
     is_already_organized, locate_current_file, prune_empty_dirs, remove_file_and_empty_parent,
@@ -191,52 +191,140 @@ pub fn reorganize_library(dry_run: bool) -> Result<ReorganizeReport> {
 
 #[derive(Debug, Clone, Default)]
 pub struct AvatarReport {
-    pub resolved: usize,
+    pub saved: usize,
     pub skipped: usize,
+    pub not_found: usize,
     pub failed: usize,
+    pub bytes: u64,
 }
 
-/// Risolve l'URL della foto profilo degli autori che non ce l'hanno.
+/// Nome file per la foto di un autore.
 ///
-/// ⚠️ **Limite noto**: l'URL viene registrato, l'**immagine non viene scaricata**.
-/// Salvarla richiederebbe un client HTTP fra le dipendenze e una CLI non mostra
-/// immagini — vedi `rust/README.md`.
+/// La chiave è di solito un id di canale (`UC…`), ma può essere il **nome** quando
+/// l'id non è noto — e un nome può contenere qualsiasi cosa, emoji comprese. Si passa
+/// dallo stesso sanitizzatore usato per le cartelle dei creator, così il nome resta
+/// valido su Windows e leggibile.
+fn avatar_filename(key: &str) -> String {
+    format!("{}.jpg", crate::library::files::sanitize_name(Some(key), "sconosciuto"))
+}
+
+/// Percorso della foto di un autore, se è stata salvata.
+pub fn author_picture_path(key: &str) -> Result<Option<std::path::PathBuf>> {
+    let p = get_paths()?.authors_dir.join(avatar_filename(key));
+    Ok(p.is_file().then_some(p))
+}
+
+/// Risolve **e scarica** le foto profilo degli autori.
+///
+/// I metadati per-video non contengono alcun campo avatar (verificato sui dati reali),
+/// quindi servono due passi: un'interrogazione dedicata sull'URL del canale per
+/// ottenere l'URL dell'immagine, poi il download vero in `data/authors/<key>.jpg`.
+///
+/// Il download passa da ffmpeg (vedi [`crate::downloader::fetch_image`]): è già
+/// presente e sa leggere `https://`, quindi non serve aggiungere un client HTTP fra
+/// le dipendenze. **Salvare il file è il punto**: un URL `googleusercontent` muore
+/// insieme al canale, e allora la foto è perduta come lo sarebbe un video.
+///
+/// `force` ri-scarica anche ciò che c'è già; senza, si saltano gli autori che hanno
+/// sia l'URL registrato sia il file su disco.
 pub fn sync_author_avatars(force: bool, reporter: &dyn Reporter) -> Result<AvatarReport> {
+    let paths = get_paths()?;
     let st = state::read()?;
     let mut report = AvatarReport::default();
 
-    let targets: Vec<(String, String)> = st
-        .authors
-        .values()
-        .filter(|a| force || a.avatar_source_url().is_none())
-        .filter_map(|a| {
-            a.url()
-                .map(str::to_string)
-                .or_else(|| a.id().map(|id| format!("https://www.youtube.com/channel/{id}")))
-                .map(|url| (a.key().to_string(), url))
-        })
-        .collect();
+    struct Target {
+        key: String,
+        channel_url: String,
+        known_avatar: Option<String>,
+    }
 
-    report.skipped = st.authors.len() - targets.len();
+    let mut targets = Vec::new();
+    for author in st.authors.values() {
+        let file_exists = paths.authors_dir.join(avatar_filename(author.key())).is_file();
+        if !force && file_exists && author.avatar_source_url().is_some() {
+            report.skipped += 1;
+            continue;
+        }
+        let Some(channel_url) = author
+            .url()
+            .map(str::to_string)
+            .or_else(|| author.id().map(|id| format!("https://www.youtube.com/channel/{id}")))
+        else {
+            // Senza URL del canale non c'è nulla da interrogare: tipico dei video
+            // arrivati da un'enumerazione flat e mai arricchiti.
+            report.skipped += 1;
+            continue;
+        };
+        targets.push(Target {
+            key: author.key().to_string(),
+            channel_url,
+            // Se l'URL dell'immagine è già noto si salta l'interrogazione e si va
+            // dritti al download: una chiamata di rete in meno per autore.
+            known_avatar: (!force).then(|| author.avatar_source_url().map(str::to_string)).flatten(),
+        });
+    }
 
-    for (key, url) in targets {
-        match resolve_channel_avatar(&url) {
-            Ok(Some(avatar_url)) => {
+    if targets.is_empty() {
+        reporter.log("Nessuna foto da aggiornare.");
+        return Ok(report);
+    }
+    reporter.log(&format!("{} autori da aggiornare.", targets.len()));
+
+    for (i, t) in targets.iter().enumerate() {
+        if reporter.cancelled() {
+            reporter.log("Interrotto dall'utente.");
+            break;
+        }
+        reporter.progress((i as f64 / targets.len() as f64) * 100.0);
+
+        let avatar_url = match &t.known_avatar {
+            Some(u) => Some(u.clone()),
+            None => match resolve_channel_avatar(&t.channel_url) {
+                Ok(u) => u,
+                Err(e) => {
+                    reporter.log(&format!("✘ {}: canale non interrogabile — {}", t.key, e.message));
+                    report.failed += 1;
+                    continue;
+                }
+            },
+        };
+
+        let Some(avatar_url) = avatar_url else {
+            reporter.log(&format!("⊘ {}: nessuna foto profilo esposta", t.key));
+            report.not_found += 1;
+            continue;
+        };
+
+        let dest = paths.authors_dir.join(avatar_filename(&t.key));
+        match fetch_image(&avatar_url, &dest) {
+            Ok(bytes) => {
+                let local = avatar_filename(&t.key);
                 transaction(|st| {
-                    if let Some(author) = st.authors.get_mut(&key) {
+                    if let Some(author) = st.authors.get_mut(&t.key) {
+                        author.set_avatar(Some(&avatar_url), Some(&local));
+                    }
+                    Ok(())
+                })?;
+                report.saved += 1;
+                report.bytes += bytes;
+                reporter.log(&format!("✔ {}: {bytes} byte", t.key));
+            }
+            Err(e) => {
+                // L'URL si registra comunque: la prossima esecuzione riproverà solo il
+                // download, senza rifare l'interrogazione del canale.
+                transaction(|st| {
+                    if let Some(author) = st.authors.get_mut(&t.key) {
                         author.set_avatar(Some(&avatar_url), None);
                     }
                     Ok(())
                 })?;
-                report.resolved += 1;
-            }
-            Ok(None) => report.failed += 1,
-            Err(e) => {
-                reporter.log(&format!("Avatar di {key} non risolto: {}", e.message));
+                reporter.log(&format!("✘ {}: {}", t.key, e.message));
                 report.failed += 1;
             }
         }
     }
+
+    reporter.progress(100.0);
     Ok(report)
 }
 

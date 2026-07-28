@@ -784,12 +784,19 @@ fn menu_settings(screen: &mut Screen) {
             4 => {
                 screen.clear();
                 println!("{}\n", style("Foto dei creator…").bold());
+                let force = confirm("Ri-scaricare anche quelle già salvate?", false);
+                println!();
                 let r = TermReporter::new(true);
-                match ops::sync_author_avatars(false, &r) {
+                let out = ops::sync_author_avatars(force, &r);
+                r.finish();
+                match out {
                     Ok(rep) => screen.ok(format!(
-                        "{} risolte, {} già presenti, {} non trovate. \
-                         (Nota: viene registrato l'URL, l'immagine non è ancora scaricata.)",
-                        rep.resolved, rep.skipped, rep.failed
+                        "{} salvate ({}), {} già presenti, {} senza foto, {} fallite.",
+                        rep.saved,
+                        size(Some(rep.bytes)),
+                        rep.skipped,
+                        rep.not_found,
+                        rep.failed
                     )),
                     Err(e) => screen.err(e),
                 }

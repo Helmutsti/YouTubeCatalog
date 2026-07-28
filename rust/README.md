@@ -15,11 +15,13 @@ l'implementazione JavaScript completa e non viene toccato.
 
 ```bash
 npm run rust:build   # compila in release
-npm run rust:test    # 68 test
+npm run rust:test    # 82 test
 npm run cli:rust     # avvia la CLI
 
 # da rust/
-cargo run -p ondo-core --example e2e_download   # prova reale del download, con pulizia
+cargo run -p ondo-core --example e2e_download   # download reale, con pulizia
+cargo run -p ondo-core --example e2e_backup     # backup e ripristino reali
+cargo run -p ondo-core --example e2e_avatars    # foto degli autori, reali
 ```
 
 ---
@@ -136,15 +138,35 @@ abbia chiesto non è mai la scelta giusta.
    ricompare, che è esattamente ciò che allora mancava.
 4. **Niente cache del catalogo per processo**: si rilegge sotto lock.
 
+## Backup e foto degli autori
+
+**Backup `.zip`**: tutto lo stato tranne i video grezzi. Include le copertine — per un
+video rimosso da YouTube sono l'unica cosa non più recuperabile — ed esclude
+`cookies.txt`, che è una credenziale. Lo ZIP si **scrive** senza compressione (metodo
+0): implementare DEFLATE a mano per guadagnare un fattore ~5 significherebbe rischiare
+archivi corrotti, che è il modo peggiore in cui un backup possa fallire. Si **legge**
+anche compresso (metodo 8, INFLATE scritto qui), così i backup prodotti
+dall'implementazione JavaScript restano ripristinabili. Il ripristino copia prima lo
+stato attuale in `data/pre-restore-<data-ora>/` e tratta l'archivio come input non
+fidato: i nomi passano da una whitelist che rifiuta risalite e percorsi assoluti.
+
+**Foto degli autori**: risolte con yt-dlp e **scaricate con ffmpeg** in
+`data/authors/<key>.jpg`. ffmpeg è già presente e sa leggere `https://`, quindi non
+serve un client HTTP fra le dipendenze — è uno strumento usato leggermente fuori dal
+suo mestiere, in cambio di zero dipendenze nuove e di avatar davvero conservati invece
+che un URL che muore col canale. Attenzione: il file temporaneo deve conservare
+l'estensione `.jpg`, perché ffmpeg sceglie il muxer dal nome del file.
+
 ## Cosa manca
 
-- **Backup/ripristino `.zip`** (~324 righe): l'unica funzionalità del CLI JS assente.
-- **Download del file avatar**: l'URL si risolve e si registra, l'immagine non si salva
-  (servirebbe un client HTTP, e una CLI non mostra immagini).
+Il porting della logica di `core/src` è **completo**. Resta un solo scostamento
+consapevole:
+
 - **Il banco differenziale JS↔Rust è stato ritirato.** Confrontava le due
   implementazioni sullo stesso `catalog.json`; con lo stato diviso in tre file il JS non
   sa più leggerlo. Era prevedibile e annunciato: è il prezzo della divisione. Al suo
-  posto la rete di sicurezza sono i 68 test e la prova end-to-end reale.
+  posto la rete di sicurezza sono gli 82 test e **tre** prove end-to-end reali
+  (download, backup, avatar).
 
 ## Altre scelte tecniche
 

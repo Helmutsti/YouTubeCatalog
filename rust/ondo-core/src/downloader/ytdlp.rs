@@ -481,6 +481,85 @@ pub fn resolve_channel_avatar(channel_url: &str) -> Result<Option<String>> {
     Ok(square.first().copied().and_then(url_of))
 }
 
+// ── Scaricare un'immagine ───────────────────────────────────────────────────
+
+/// Scarica un'immagine da un URL e la salva come JPEG.
+///
+/// ## Perché passa da ffmpeg e non da un client HTTP
+///
+/// Serve per le **foto profilo degli autori**, che yt-dlp non scarica: i metadati
+/// per-video non contengono alcun campo avatar (verificato sui dati reali), quindi
+/// l'unica cosa che si ottiene è un URL. Scaricarlo richiederebbe un client HTTP fra
+/// le dipendenze; l'utente ha scelto di non aggiungerne, e ffmpeg è già lì e sa
+/// leggere `https://` e scrivere un'immagine.
+///
+/// È uno strumento usato leggermente fuori dal suo mestiere, e va detto. In cambio:
+/// zero dipendenze nuove, e gli avatar vengono davvero **conservati** invece di
+/// restare un URL che muore insieme al canale — che è il punto del progetto.
+///
+/// Note verificate dal vivo:
+/// - gli URL degli avatar YouTube **non hanno estensione** (`…=s0`): ffmpeg riconosce
+///   il formato dal contenuto, non dal nome;
+/// - `=s0` restituisce già l'originale — chiedere `=s512` o `=s900` non fa upscaling,
+///   quindi l'URL che dà yt-dlp si usa così com'è;
+/// - `-rw_timeout` evita di restare appesi su una rete che non risponde;
+/// - su URL non valido ffmpeg esce in errore **senza creare il file**.
+pub fn fetch_image(url: &str, dest: &Path) -> Result<u64> {
+    let paths = get_paths()?;
+    let bin = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
+    let ffmpeg = paths
+        .ffmpeg_location
+        .as_ref()
+        .map(|loc| loc.join(bin))
+        .unwrap_or_else(|| PathBuf::from(bin));
+
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    // Scrittura atomica: un download interrotto non lascia un JPEG troncato al posto
+    // di quello buono che c'era prima.
+    //
+    // ⚠️ Il temporaneo deve conservare l'estensione `.jpg`. ffmpeg sceglie il muxer di
+    // uscita **dal nome del file**: con un `.jpg.tmp` fallisce con "Error initializing
+    // the muxer … Invalid argument", perché `tmp` non è un formato che conosce.
+    // (Trovato dalla prova end-to-end reale, non dai test unitari.)
+    let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("immagine");
+    let tmp = dest.with_file_name(format!("{stem}.__tmp.jpg"));
+    let _ = std::fs::remove_file(&tmp);
+
+    let output = Command::new(&ffmpeg)
+        .args(["-nostdin", "-y", "-loglevel", "error", "-rw_timeout", "15000000", "-i"])
+        .arg(url)
+        .args(["-frames:v", "1"])
+        .arg(&tmp)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| {
+            OndoError::new(
+                ErrorKind::Io,
+                format!("Impossibile avviare ffmpeg ({}): {e}", ffmpeg.display()),
+            )
+        })?;
+
+    // ffmpeg può uscire con codice 0 anche quando non ha prodotto nulla (verificato
+    // su un URL inesistente): l'unica verifica che conta è che il file esista e non
+    // sia vuoto.
+    let ok = output.status.success() && tmp.is_file() && std::fs::metadata(&tmp).map(|m| m.len() > 0).unwrap_or(false);
+    if !ok {
+        let _ = std::fs::remove_file(&tmp);
+        let err = String::from_utf8_lossy(&output.stderr);
+        let tail = err.lines().rev().take(3).collect::<Vec<_>>().join(" / ");
+        return Err(OndoError::new(
+            ErrorKind::Io,
+            format!("Immagine non scaricata da {url}: {}", tail.trim()),
+        ));
+    }
+
+    let size = std::fs::metadata(&tmp)?.len();
+    std::fs::rename(&tmp, dest)?;
+    Ok(size)
+}
+
 // ── Selettori di formato ────────────────────────────────────────────────────
 
 /// L'esclusione AV1 è un workaround **specifico di YouTube**: l'AV1 alla
