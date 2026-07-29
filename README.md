@@ -173,9 +173,14 @@ cd C:\Ondo
 ondo.exe
 ```
 
-La radice predefinita è `ondo-data` **relativa alla cartella corrente**, creata vuota
-al primo avvio. Se metti `ondo.exe` nel `PATH` e vuoi lanciarlo da qualsiasi parte,
-dagli una radice assoluta:
+La libreria si cerca — e l'ordine rende l'installazione qui sopra **spostabile**: una
+`ondo-data` che esiste già **accanto all'eseguibile**, poi **nella cartella corrente**.
+Quindi `C:\Ondo` si sposta dove vuoi, e `ondo.exe` si lancia da qualunque cartella
+senza perdere di vista la sua libreria. Se non esiste nessuna delle due, viene creata
+vuota nella cartella corrente al primo avvio.
+
+Per tenere la libreria altrove — o per lanciare dal `PATH` un `ondo.exe` che non ha la
+sua `ondo-data` accanto — dagli una radice assoluta:
 
 ```bash
 set ONDO_ROOT=D:\Video\ondo-data      # cmd
@@ -207,13 +212,13 @@ cd C:\Ondo
 ondo-api.exe
 ```
 
-Poi apri **http://127.0.0.1:3001**. Come la CLI, **senza argomenti**: la `dist` la
-cerca accanto all'eseguibile e poi nella cartella corrente, la libreria è `ondo-data`
-relativa alla cartella corrente. Se le tieni altrove, si dice (`--help` le elenca):
+Poi apri **http://127.0.0.1:3001**. Come la CLI, **senza argomenti**: sia la `dist` sia
+la libreria si cercano accanto all'eseguibile e poi nella cartella corrente, e all'avvio
+il server stampa quale radice ha aperto. Se le tieni altrove, si dice (`--help` le elenca):
 
 | | |
 |---|---|
-| `--root <cartella>` | la libreria da servire (o `ONDO_ROOT`, default `./ondo-data`) |
+| `--root <cartella>` | la libreria da servire (o `ONDO_ROOT`; se non si dice, si cerca `ondo-data` accanto all'eseguibile e poi nella cartella corrente) |
 | `--web <cartella>` | la `dist/` della web app (o `ONDO_WEB`) |
 | `--port <numero>` | la porta (o `ONDO_PORT`, default `3001`) |
 | `--bind <indirizzo>` | su cosa ascoltare (o `ONDO_BIND`, default `127.0.0.1`) |

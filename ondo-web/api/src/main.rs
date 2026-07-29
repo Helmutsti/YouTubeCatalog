@@ -4,7 +4,7 @@
 //! le Range request (il seek del player) e, se c'è, la web app compilata.
 //!
 //! ```text
-//! ondo-api                                  # ./ondo-data su http://127.0.0.1:3001
+//! ondo-api                                  # la ondo-data che trova, su :3001
 //! ondo-api --root D:\Video\ondo-data        # una libreria che vive altrove
 //! ondo-api --root \\nas\video\ondo --port 8080 --bind 0.0.0.0
 //! ```
@@ -41,7 +41,8 @@ async fn main() {
 /// Le impostazioni di avvio: prima gli argomenti, poi le variabili d'ambiente, poi
 /// i default. Gli argomenti vincono perché sono quello che si legge nel comando.
 struct Avvio {
-    root: String,
+    /// `None` = nessuno l'ha detta: si cerca (vedi [`ondo::config::find_root`]).
+    root: Option<PathBuf>,
     bind: String,
     port: u16,
     /// `None` = nessuno l'ha detto: si cerca (vedi [`trova_web`]).
@@ -55,7 +56,9 @@ USO
   ondo-api [OPZIONI]
 
 OPZIONI
-  --root <cartella>   la libreria da servire        (o ONDO_ROOT, default ./ondo-data)
+  --root <cartella>   la libreria da servire         (o ONDO_ROOT; se non si dice, si
+                      cerca `ondo-data` accanto all'eseguibile, poi nella cartella
+                      corrente)
   --port <numero>     porta                          (o ONDO_PORT, default 3001)
   --bind <indirizzo>  su che indirizzo ascoltare     (o ONDO_BIND, default 127.0.0.1)
   --web <cartella>    la web app compilata           (o ONDO_WEB; se non si dice, si
@@ -71,7 +74,7 @@ NOTE
 
 fn leggi_argomenti() -> Result<Avvio, String> {
     let mut avvio = Avvio {
-        root: std::env::var("ONDO_ROOT").unwrap_or_else(|_| "ondo-data".into()),
+        root: None,
         bind: std::env::var("ONDO_BIND").unwrap_or_else(|_| "127.0.0.1".into()),
         port: std::env::var("ONDO_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3001),
         web: std::env::var_os("ONDO_WEB").map(PathBuf::from),
@@ -80,7 +83,7 @@ fn leggi_argomenti() -> Result<Avvio, String> {
     while let Some(flag) = it.next() {
         let mut valore = || it.next().ok_or_else(|| format!("manca il valore di {flag}"));
         match flag.as_str() {
-            "--root" => avvio.root = valore()?,
+            "--root" => avvio.root = Some(PathBuf::from(valore()?)),
             "--bind" => avvio.bind = valore()?,
             "--web" => avvio.web = Some(PathBuf::from(valore()?)),
             "--port" => {
@@ -99,7 +102,7 @@ fn leggi_argomenti() -> Result<Avvio, String> {
 
 async fn avvia() -> Result<(), Box<dyn std::error::Error>> {
     let avvio = leggi_argomenti()?;
-    let root = avvio.root;
+    let root = ondo::config::find_root(avvio.root);
     let lib = Library::open(&root)?;
 
     // Le cartelle si leggono adesso: montare uno `ServeDir` significa fissare un
@@ -137,7 +140,7 @@ async fn avvia() -> Result<(), Box<dyn std::error::Error>> {
     // Dove sono le cose, scritto all'avvio: è la risposta a «da quale cartella sta
     // attingendo?» senza dover indovinare.
     println!("ondo-api");
-    println!("  libreria    {root}");
+    println!("  libreria    {}", root.display());
     println!("  video       {}", videos.display());
     println!("  copertine   {}", covers.display());
     println!("  web app     {stato_web}");

@@ -211,6 +211,39 @@ pub fn in_path(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&path).map(|dir| dir.join(&file)).find(|c| c.is_file())
 }
 
+/// Il nome della radice, quando nessuno ne dice un altro.
+pub const DEFAULT_ROOT_NAME: &str = "ondo-data";
+
+/// Dove sta la libreria, quando nessuno l'ha detto.
+///
+/// Una radice **relativa alla cartella corrente** e nient'altro era un modo
+/// silenzioso di perdere la libreria: lanciando l'eseguibile da un'altra cartella
+/// non si apriva la propria, se ne creava una nuova vuota lì. Quindi si cerca una
+/// `ondo-data` che **esiste già**, e l'ordine è lo stesso della `dist` della web
+/// app: prima accanto all'eseguibile — l'installazione è exe e libreria nella
+/// stessa cartella, e così quella cartella si sposta dove si vuole e continua a
+/// funzionare — e poi la cartella corrente.
+///
+/// Non trovarne nessuna significa che non c'è ancora: si usa il nome relativo, che
+/// la crea nella cartella corrente. È il comportamento di sempre, ed è anche quello
+/// che lascia in pace lo sviluppo, dove l'eseguibile sta in `target/debug` e non è
+/// certo lì che va la libreria.
+pub fn find_root(explicit: Option<PathBuf>) -> PathBuf {
+    if let Some(p) = explicit {
+        return p;
+    }
+    if let Some(p) = std::env::var_os("ONDO_ROOT") {
+        return PathBuf::from(p);
+    }
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        let accanto = dir.join(DEFAULT_ROOT_NAME);
+        if accanto.is_dir() {
+            return accanto;
+        }
+    }
+    PathBuf::from(DEFAULT_ROOT_NAME)
+}
+
 /// I runtime JavaScript che yt-dlp sa usare, in ordine di priorità (`deno` è il
 /// solo abilitato di default, gli altri li abilitiamo noi).
 pub const JS_RUNTIME_NAMES: [&str; 4] = ["deno", "node", "quickjs", "bun"];
@@ -253,6 +286,19 @@ mod tests {
         let altrove = if cfg!(windows) { r"D:\archivio" } else { "/mnt/archivio" };
         cfg.videos = PathBuf::from(altrove);
         assert_eq!(cfg.videos_dir(), PathBuf::from(altrove));
+    }
+
+    #[test]
+    fn an_explicit_root_wins_and_the_default_is_a_relative_name() {
+        let scelta = if cfg!(windows) { r"D:\Video\ondo-data" } else { "/mnt/video/ondo-data" };
+        assert_eq!(find_root(Some(PathBuf::from(scelta))), PathBuf::from(scelta));
+        // Senza `ONDO_ROOT` e senza una radice accanto all'eseguibile dei test, si
+        // ricade sul nome relativo: la libreria creata nella cartella corrente al
+        // primo avvio. La variabile la legge chi lancia i test, quindi se c'è il
+        // caso non è verificabile e non lo si finge.
+        if std::env::var_os("ONDO_ROOT").is_none() {
+            assert_eq!(find_root(None), PathBuf::from(DEFAULT_ROOT_NAME));
+        }
     }
 
     #[test]

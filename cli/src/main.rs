@@ -77,7 +77,7 @@ fn main() {
 }
 
 fn run() -> R<()> {
-    let root = std::env::var("ONDO_ROOT").unwrap_or_else(|_| "ondo-data".into());
+    let root = ondo::config::find_root(None);
     let lib = Library::open(&root)?;
     let dl = Downloader::start(lib.config());
     let mut app = App { lib, dl, message: None };
@@ -117,7 +117,7 @@ fn run() -> R<()> {
         let titolo = format!(
             "ondo · {} video in {}{}",
             app.lib.len(),
-            root,
+            root.display(),
             attivi(&app)
         );
         screen(&titolo, &mut app.message);
