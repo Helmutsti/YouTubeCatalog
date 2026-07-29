@@ -44,7 +44,8 @@ struct Avvio {
     root: String,
     bind: String,
     port: u16,
-    web: PathBuf,
+    /// `None` = nessuno l'ha detto: si cerca (vedi [`trova_web`]).
+    web: Option<PathBuf>,
 }
 
 const AIUTO: &str = "\
@@ -57,7 +58,8 @@ OPZIONI
   --root <cartella>   la libreria da servire        (o ONDO_ROOT, default ./ondo-data)
   --port <numero>     porta                          (o ONDO_PORT, default 3001)
   --bind <indirizzo>  su che indirizzo ascoltare     (o ONDO_BIND, default 127.0.0.1)
-  --web <cartella>    la web app compilata           (o ONDO_WEB, default ondo-web/fe/dist)
+  --web <cartella>    la web app compilata           (o ONDO_WEB; se non si dice, si
+                      cerca `dist` accanto all'eseguibile, poi nella cartella corrente)
   -h, --help          questo testo
 
 NOTE
@@ -72,7 +74,7 @@ fn leggi_argomenti() -> Result<Avvio, String> {
         root: std::env::var("ONDO_ROOT").unwrap_or_else(|_| "ondo-data".into()),
         bind: std::env::var("ONDO_BIND").unwrap_or_else(|_| "127.0.0.1".into()),
         port: std::env::var("ONDO_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3001),
-        web: PathBuf::from(std::env::var("ONDO_WEB").unwrap_or_else(|_| "ondo-web/fe/dist".into())),
+        web: std::env::var_os("ONDO_WEB").map(PathBuf::from),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -80,7 +82,7 @@ fn leggi_argomenti() -> Result<Avvio, String> {
         match flag.as_str() {
             "--root" => avvio.root = valore()?,
             "--bind" => avvio.bind = valore()?,
-            "--web" => avvio.web = PathBuf::from(valore()?),
+            "--web" => avvio.web = Some(PathBuf::from(valore()?)),
             "--port" => {
                 let raw = valore()?;
                 avvio.port = raw.parse().map_err(|_| format!("--port: {raw} non è una porta"))?;
@@ -119,7 +121,7 @@ async fn avvia() -> Result<(), Box<dyn std::error::Error>> {
 
     // La web app compilata, se è stata costruita. Le rotte del router SPA non sono
     // file: qualunque percorso non trovato torna `index.html`, che poi decide lui.
-    let web = avvio.web;
+    let web = trova_web(avvio.web);
     let stato_web = if web.join("index.html").is_file() {
         let index = ServeFile::new(web.join("index.html"));
         app = app.fallback_service(ServeDir::new(&web).fallback(index));
@@ -143,6 +145,34 @@ async fn avvia() -> Result<(), Box<dyn std::error::Error>> {
     println!("  un solo processo per libreria: non tenere aperta anche la CLI");
     axum::serve(listener, app).with_graceful_shutdown(ctrl_c()).await?;
     Ok(())
+}
+
+/// Dove sta la web app compilata.
+///
+/// Se nessuno lo dice, si cerca — e l'ordine è quello che rende l'installazione
+/// **uguale a quella della CLI**: si copiano l'eseguibile e la sua `dist` accanto, e
+/// si lancia senza argomenti. Prima si guarda accanto all'eseguibile (l'installazione),
+/// poi nella cartella corrente, e infine il percorso dentro il repo (lo sviluppo).
+fn trova_web(esplicito: Option<PathBuf>) -> PathBuf {
+    if let Some(p) = esplicito {
+        return p;
+    }
+    let mut candidati: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidati.push(dir.join("dist"));
+            candidati.push(dir.join("web"));
+        }
+    }
+    candidati.push(PathBuf::from("dist"));
+    candidati.push(PathBuf::from("ondo-web/fe/dist"));
+
+    candidati
+        .iter()
+        .find(|c| c.join("index.html").is_file())
+        .cloned()
+        // Nessuna trovata: si tiene l'ultima per poterla nominare nel messaggio.
+        .unwrap_or_else(|| candidati.pop().expect("l'elenco non è vuoto"))
 }
 
 /// Gli stessi controlli che fa la CLI all'avvio: un binario mancante si dice adesso,

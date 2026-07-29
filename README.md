@@ -106,29 +106,18 @@ Su una macchina che deve solo **usare** Ondo. Rust, git e il codice sorgente non
 servono: bastano i file prodotti al punto 1 (tuoi, o presi da un'altra macchina con
 lo stesso sistema operativo).
 
-## Cosa serve
+Ci sono **due prodotti indipendenti** e si installano allo stesso modo, non uno sopra
+l'altro: la CLI (§2b) e la web app (§2c). Scegli quello che ti serve — o entrambi, che
+possono condividere la stessa libreria (**mai aperti insieme**, vedi in fondo).
 
-- **`ondo.exe`** se vuoi la CLI, **`ondo-api.exe`** se vuoi la web app, o entrambi.
-- Per la web app, la cartella **`dist/`** prodotta da `npm run build`: copiala dove
-  vuoi e indicala con `--web`. **Node non serve** su questa macchina: il bundle è
-  fatto di file statici che serve il binario Rust.
-- **yt-dlp**, **ffmpeg** e **ffprobe**: tre eseguibili, **non inclusi nel repo**
-  (`/tools/` è ignorato da git: peserebbero ~300 MB per versione nella history).
+## 2a. Quello che serve in entrambi i casi
 
-Ondo non ha altre dipendenze. Ne ha una **yt-dlp**, e riguarda solo YouTube: per
-calcolare i parametri offuscati che YouTube mette negli URL dei flussi deve
-eseguire il JavaScript del player, quindi gli serve un runtime JavaScript sulla
-macchina — va bene **uno qualunque** fra `deno`, `node`, `quickjs`, `bun`. Se non ce
-n'è nessuno i download da YouTube muoiono a metà con **403**; gli altri siti non se
-ne accorgono. CLI e server lo dicono all'avvio se non ne trovano.
+**La cartella della libreria**: è dove finiscono catalogo, video, copertine e
+metadati. Chiamala come vuoi; gli esempi usano `ondo-data`. Non sta dentro il
+programma: gliela si indica da fuori.
 
-## I passi
-
-**1. La cartella della libreria.** È dove finiscono catalogo, video, copertine e
-metadati. Chiamala come vuoi; l'esempio usa `ondo-data`. **Non sta dentro il
-programma**: gliela si indica da fuori, e i due programmi possono servire la stessa.
-
-**2. I binari esterni, dentro la libreria:**
+**Tre eseguibili esterni**, non inclusi nel repo (`/tools/` è ignorato da git:
+peserebbero ~300 MB per versione nella history), da mettere **dentro la libreria**:
 
 ```
 ondo-data/tools/yt-dlp.exe      da github.com/yt-dlp/yt-dlp → Releases
@@ -137,22 +126,34 @@ ondo-data/tools/ffprobe.exe     sta nello stesso archivio di ffmpeg
 ```
 
 ⚠️ **Dove li metti conta**, ed è l'errore più facile. La ricerca guarda in
-quest'ordine: la variabile d'ambiente → `<radice-libreria>/tools/` →
-`./tools/` relativo alla cartella corrente → il `PATH`. Metterli in
-`<radice>/tools/` è l'unica sistemazione che funziona **da qualunque cartella tu
-lanci il programma**.
+quest'ordine: la variabile d'ambiente → `<radice-libreria>/tools/` → `./tools/`
+relativo alla cartella corrente → il `PATH`. Metterli in `<radice>/tools/` è l'unica
+sistemazione che funziona **da qualunque cartella tu lanci il programma**.
 
-**3. Lancia** quello che ti serve.
+**Un runtime JavaScript**, che serve a yt-dlp e solo per YouTube: per calcolare i
+parametri offuscati che YouTube mette negli URL dei flussi deve eseguire il
+JavaScript del player. Va bene **uno qualunque** fra `deno`, `node`, `quickjs`, `bun`.
+Se non ce n'è nessuno, i download da YouTube muoiono a metà con **403**; gli altri siti
+non se ne accorgono. Entrambi i prodotti lo dicono all'avvio se non ne trovano.
 
-**La CLI:**
+## 2b. La CLI
+
+Due elementi: l'eseguibile e la libreria.
+
+```
+C:\Ondo\
+  ondo.exe
+  ondo-data\tools\…
+```
 
 ```bash
+cd C:\Ondo
 ondo.exe
 ```
 
-La radice predefinita è `ondo-data` **relativa alla cartella corrente**, e viene
-creata vuota al primo avvio. Se metti `ondo.exe` nel `PATH` e vuoi lanciarlo da
-qualsiasi parte, dagli una radice assoluta:
+La radice predefinita è `ondo-data` **relativa alla cartella corrente**, creata vuota
+al primo avvio. Se metti `ondo.exe` nel `PATH` e vuoi lanciarlo da qualsiasi parte,
+dagli una radice assoluta:
 
 ```bash
 set ONDO_ROOT=D:\Video\ondo-data      # cmd
@@ -160,56 +161,69 @@ $env:ONDO_ROOT = 'D:\Video\ondo-data' # PowerShell
 export ONDO_ROOT=/home/tuo/ondo-data  # bash
 ```
 
-**La web app:**
+**Verifica**: se manca un binario lo dice all'avvio, non a metà del primo download.
+**Impostazioni → Stato e percorsi** elenca radice, cartelle, yt-dlp, ffmpeg, ffprobe,
+il runtime JavaScript e VLC con `●` verde o `○` rosso: devono essere tutti verdi, VLC
+a parte. Poi **Download rapido**, incolla un link, Invio: devi vedere le fasi scorrere
+— risolvendo → metadati → barra → fatto — e il video comparire in **Libreria**.
 
-```bash
-ondo-api.exe --root D:\Video\ondo-data --web C:\ondo\dist
+## 2c. La web app
+
+**Tre** elementi invece di due: l'eseguibile, la sua `dist/` **accanto**, e la
+libreria. `dist/` è il risultato di `npm run build`; **Node non serve** su questa
+macchina, sono file statici che serve il binario Rust.
+
+```
+C:\Ondo\
+  ondo-api.exe
+  dist\                 ← accanto all'eseguibile: così non serve dirglielo
+  ondo-data\tools\…
 ```
 
-Poi apri **http://127.0.0.1:3001**. Le opzioni (`--help` le elenca tutte):
+```bash
+cd C:\Ondo
+ondo-api.exe
+```
+
+Poi apri **http://127.0.0.1:3001**. Come la CLI, **senza argomenti**: la `dist` la
+cerca accanto all'eseguibile e poi nella cartella corrente, la libreria è `ondo-data`
+relativa alla cartella corrente. Se le tieni altrove, si dice (`--help` le elenca):
 
 | | |
 |---|---|
 | `--root <cartella>` | la libreria da servire (o `ONDO_ROOT`, default `./ondo-data`) |
-| `--web <cartella>` | il `dist/` della web app (o `ONDO_WEB`, default `ondo-web/fe/dist`) |
+| `--web <cartella>` | la `dist/` della web app (o `ONDO_WEB`) |
 | `--port <numero>` | la porta (o `ONDO_PORT`, default `3001`) |
 | `--bind <indirizzo>` | su cosa ascoltare (o `ONDO_BIND`, default `127.0.0.1`) |
 
-Senza `--web` il server parte comunque e l'API risponde: te lo dice all'avvio.
+Senza `dist` il server parte comunque e l'API risponde sotto `/api`: te lo dice
+all'avvio.
 
-**Per raggiungerla da un altro dispositivo** in casa serve ascoltare su tutte le
-interfacce — di default ascolta solo il computer stesso:
-
-```bash
-ondo-api.exe --root D:\Video\ondo-data --web C:\ondo\dist --bind 0.0.0.0
-```
-
-Poi da telefono o tablet: `http://<ip-del-computer>:3001`. Non c'è nessuna
-autenticazione: chiunque sia sulla rete vede la libreria e può scaricare. Va bene in
-casa, non su una rete che non controlli.
-
-## Verificare l'installazione
-
-Se manca un binario, **CLI e server lo dicono all'avvio**, non a metà del primo
-download. Il server stampa anche da quali cartelle sta attingendo:
+**Verifica**: all'avvio stampa da dove sta attingendo, e i binari mancanti li dice lì.
 
 ```
 ondo-api
-  libreria    D:\Video\ondo-data
-  video       D:\Video\ondo-data\videos
-  copertine   D:\Video\ondo-data\covers
-  web app     C:\ondo\dist
+  libreria    ondo-data
+  video       ondo-data\videos
+  copertine   ondo-data\covers
+  web app     C:\Ondo\dist
   in ascolto  http://127.0.0.1:3001
 ```
 
-Nella CLI: **Impostazioni → Stato e percorsi** elenca radice, cartelle, yt-dlp,
-ffmpeg, ffprobe, il runtime JavaScript e VLC con `●` verde o `○` rosso; nella web
-app la stessa cosa sta in **Impostazioni**. Devono essere tutti verdi, VLC a parte.
+Poi nel browser: **Impostazioni** mostra lo stesso pannello di stato della CLI; in
+**Download** incolla un link e guarda le fasi scorrere. Apri il video: se si riproduce
+e riesci a spostarti a metà, funziona anche la parte che serve i byte.
 
-Prova reale, in entrambe: incolla un link in **Download** e guarda le fasi scorrere —
-risolvendo → metadati → barra → fatto — e il video comparire in libreria. Nella web
-app, aprilo: se si riproduce e riesci a spostarti a metà, anche la parte che serve i
-byte funziona.
+**Da un altro dispositivo in casa** serve ascoltare su tutte le interfacce, perché di
+default ascolta solo il computer stesso:
+
+```bash
+ondo-api.exe --bind 0.0.0.0
+```
+
+Poi da telefono o tablet: `http://<ip-del-computer>:3001`. **Non c'è nessuna
+autenticazione**: chiunque sia sulla rete vede la libreria e può scaricare. Va bene in
+casa, non su una rete che non controlli.
 
 ## Facoltativo
 
