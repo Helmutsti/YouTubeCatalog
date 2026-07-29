@@ -52,33 +52,43 @@ Nuovi, senza corrispondente su `main`:
 | `GET /api/stats` | i conteggi per ogni vista, per i chip della home, in una chiamata |
 | `GET /api/queue` · `DELETE /api/queue` | i link incollati ma non ancora risolti (prima non esistevano: senza id non erano rappresentabili) |
 
-## Differenze di schema
+## Lo schema: l'API parla ancora la lingua di prima
 
-**Lo stato.** L'API originale esponeva `presence` / `download` / `hidden` (flag
-ortogonali, M25) più una `category` derivata. Qui il record ha `state`
-(`pending`/`downloading`/`downloaded`/`failed`) più i flag `favorite`, `archived`,
-`removed`; la **`category` derivata resta**, con gli stessi sei valori, perché è
-l'unica cosa che il frontend guarda.
+Il record del core è piatto e in `snake_case` (`author`, `state`, `upload_date`,
+`width`); l'API originale esponeva un oggetto annidato e in `camelCase`
+(`channel.name`, `download`, `uploadDate`, `resolution.width`). **L'API traduce**: in
+uscita la forma è quella vecchia.
 
-Una categoria ha cambiato significato: **`available`** era «presente su YouTube e non
-scaricato», e dipendeva dalle sincronizzazioni. Senza fonti nessuno verifica la
-presenza, quindi qui `available` vuol dire semplicemente **da scaricare**.
+Non è nostalgia. Il frontend è arrivato da `main` con ~100 punti in 15 file che
+leggono quei campi: tradurre in `public.rs` costa sessanta righe in un file solo,
+tradurre là sarebbe stato riscrivere cento punti con cento occasioni di sbagliare. Un
+adattatore è esattamente ciò che un'API deve essere.
+
+La corrispondenza:
+
+| L'API espone | dal core |
+|---|---|
+| `channel: { id, name, avatarUrl }` | `author_id`, `author`, e `avatarUrl` sempre `null` (gli avatar non esistono) |
+| `resolution: { width, height, fps }` | `width`, `height`, `fps` — **misurati sul file** con ffprobe |
+| `video: { sizeBytes, container, … }` | `size_bytes` e l'estensione; codec, bitrate, versione di yt-dlp e `qualityNote` restano `null`: non li registriamo, e una riga vuota è meglio di un numero inventato |
+| `download: none/downloading/downloaded/failed` | `state` (`pending` → `none`) |
+| `presence: present/removed` | `removed` |
+| `hidden` | `archived` |
+| `uploadDate`, `durationSeconds`, `webpageUrl` | `upload_date`, `duration_seconds`, `url` |
+| `addedAt` (stringa ISO) | `added_at` (secondi dall'epoch) — il frontend fa `new Date(addedAt)` |
+| `sources: []` | non esistono: un elenco vuoto è la verità, e il frontend già lo gestisce |
+| `removedAt`, `enrichedAt` | sempre `null` |
+| `videoUrl`, `thumbnailUrl` | i percorsi, codificati **segmento per segmento** (i nomi canonici hanno spazi, accenti ed emoji) |
+| `category`, `fileExists` | derivati |
+
+**La `category`** resta con gli stessi sei valori, ma **`available` ha cambiato
+significato**: era «presente su YouTube e non scaricato» e dipendeva dalle
+sincronizzazioni; senza fonti nessuno verifica la presenza, quindi ora vuol dire
+semplicemente *da scaricare*. Precedenza: `downloading` → `failed` → `removed` →
+`hidden` → `downloaded` → `available`; chi richiede attenzione adesso vince.
 
 `removed` esiste come campo e come filtro, ma **nessuno lo imposta**: come accorgersi
 che un video è stato rimosso è una decisione rimandata.
-
-**Precedenza della categoria**: `downloading` → `failed` → `removed` → `hidden` →
-`downloaded` → `available`. Chi richiede attenzione adesso vince: un video in
-download lo dice anche se è archiviato.
-
-**I percorsi.** Nel record `file`, `cover` e `metadata` sono relativi **alla loro
-cartella** (non alla radice), e l'API aggiunge `videoUrl` e `coverUrl` già codificati
-segmento per segmento — i nomi canonici contengono spazi, accenti ed emoji.
-`thumbnailUrl` c'è come **alias di compatibilità** di `coverUrl`, così il frontend non
-cambia per un nome.
-
-**Campi aggiunti** dall'API: `category`, `durationLabel`, `videoUrl`, `coverUrl`,
-`thumbnailUrl`, `fileExists`.
 
 ## Differenze di comportamento
 
@@ -111,6 +121,31 @@ impostazioni richiede un riavvio del server. Era così anche con `express.static
 **Un solo processo per libreria.** Ogni processo tiene `library.json` in memoria e lo
 riscrive quando salva: server e CLI aperti insieme si sovrascrivono a vicenda. È una
 regola, non un vincolo imposto dal codice.
+
+## Il frontend
+
+Il frontend (`ondo-web/fe/`) è arrivato da `main` **come era** — 42 file, React 19 + vite — e adattato solo dove
+puntava a qualcosa che non esiste. Grazie alla traduzione dello schema, la maggior
+parte dei file non è stata toccata: `VideoCard`, `format.js`, `status.js`, `sort.js`,
+il player e il mini-player funzionano identici.
+
+Cosa è cambiato:
+
+| | |
+|---|---|
+| `api/client.js` | riscritto sui nuovi endpoint, **tenendo i nomi delle funzioni** perché le pagine non cambiassero per un rinominamento. Le funzioni senza endpoint sotto non ci sono: meglio un errore di build che una schermata che chiama il vuoto |
+| `SourcesPage` → **`DownloadsPage`** | le fonti non esistono, ma incollare un link e guardare i download è il cuore dell'app: la pagina nuova è l'equivalente della console «Download rapido» della CLI, con i link in attesa e quelli falliti |
+| `JobHistory` | via: era costruito su uno storico su disco, su `cancelJob` e su `clearJobs`, che non esistono. Il suo lavoro utile (vedere i download) vive in `DownloadsPage` |
+| `SettingsPage` | riscritta: via backup/ripristino, spostamento cartelle, caricamento del file cookie e riorganizzazione. Restano qualità predefinita, parallelismo (a caldo), VLC, **percorso** del file cookie e il pannello di stato. La sezione «Riproduzione» è intatta: sono preferenze del browser |
+| `useJobStream` | prima una `EventSource` per job su `/api/jobs/:id/stream`, adesso una sola su `/api/events` filtrata per numero di job |
+| `useHideWithPrompt` | il modale offriva «tieni il file» / «cancella **solo** il file, la scheda resta». La terza via non esiste nel core: adesso è «tieni il video» (archivia) o «cancella tutto» (scheda + file), e il testo lo dice |
+| azione «Aggiorna metadati» | togliata da card e scheda: nessun endpoint sotto |
+| filtro «per sorgente» in Home | togliato |
+| foto profilo del creator | togliata da `ChannelPage`: resta l'iniziale, come già faceva quando l'avatar mancava |
+
+`vite.config.js` inoltra `/api` e `/media` a `localhost:3001` in sviluppo, quindi il
+frontend usa sempre percorsi relativi: `npm run dev` per lavorarci, `npm run build`
+per produrre `dist/`, che `ondo-api` serve da sé (`--web`).
 
 ## Cosa serve al core prima di poter riportare il resto
 

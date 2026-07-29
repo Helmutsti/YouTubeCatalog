@@ -130,12 +130,24 @@ async fn autori(AxState(stato): AxState<Arc<Stato>>) -> Risposta {
     Ok(Json(json!({ "authors": autori })))
 }
 
-async fn video_autore(AxState(stato): AxState<Arc<Stato>>, Path(nome): Path<String>) -> Risposta {
+/// I video di un autore. La chiave è il **nome**, ma si accetta anche l'id del
+/// canale: il frontend costruisce i suoi link con `channel.id` quando c'è, e non
+/// vale la pena rompere quei collegamenti per una chiave diversa.
+async fn video_autore(AxState(stato): AxState<Arc<Stato>>, Path(chiave): Path<String>) -> Risposta {
     let lib = stato.lib();
+    let nome = if lib.authors().iter().any(|(a, _)| *a == chiave) {
+        chiave.clone()
+    } else {
+        match lib
+            .list(Filter::All)
+            .into_iter()
+            .find(|v| v.author_id.as_deref() == Some(chiave.as_str()))
+        {
+            Some(v) => v.author.clone(),
+            None => return Err(assente(format!("nessun autore «{chiave}»"))),
+        }
+    };
     let video: Vec<Value> = lib.by_author(&nome).into_iter().map(|v| public::video(&lib, v)).collect();
-    if video.is_empty() && !lib.authors().iter().any(|(a, _)| *a == nome) {
-        return Err(assente(format!("nessun autore «{nome}»")));
-    }
     Ok(Json(json!({ "author": nome, "videos": video })))
 }
 

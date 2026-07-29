@@ -57,7 +57,7 @@ OPZIONI
   --root <cartella>   la libreria da servire        (o ONDO_ROOT, default ./ondo-data)
   --port <numero>     porta                          (o ONDO_PORT, default 3001)
   --bind <indirizzo>  su che indirizzo ascoltare     (o ONDO_BIND, default 127.0.0.1)
-  --web <cartella>    la web app compilata           (o ONDO_WEB, default ondo-api/web/dist)
+  --web <cartella>    la web app compilata           (o ONDO_WEB, default ondo-web/fe/dist)
   -h, --help          questo testo
 
 NOTE
@@ -72,7 +72,7 @@ fn leggi_argomenti() -> Result<Avvio, String> {
         root: std::env::var("ONDO_ROOT").unwrap_or_else(|_| "ondo-data".into()),
         bind: std::env::var("ONDO_BIND").unwrap_or_else(|_| "127.0.0.1".into()),
         port: std::env::var("ONDO_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3001),
-        web: PathBuf::from(std::env::var("ONDO_WEB").unwrap_or_else(|_| "ondo-api/web/dist".into())),
+        web: PathBuf::from(std::env::var("ONDO_WEB").unwrap_or_else(|_| "ondo-web/fe/dist".into())),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {

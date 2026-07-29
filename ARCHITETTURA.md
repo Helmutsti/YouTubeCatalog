@@ -1,14 +1,17 @@
 # Ondo — architettura
 
-Due pezzi, niente altro.
+Una libreria e le interfacce che la usano.
 
 ```
-ondo/       la libreria: funzioni semplici per gestire la libreria video,
-            più il sentinel — un guardiano per video, su un thread
-ondo-cli/   menu a frecce sopra la libreria
+ondo-core/       la libreria: funzioni semplici per gestire la libreria video,
+                 più il sentinel — un guardiano per video, su un thread
+cli/             menu a frecce sopra la libreria
+ondo-web/api/    server HTTP: /api in JSON, /media per i byte (vedi DIFFERENZE.md)
+ondo-web/fe/     la web app React, che parla solo con l'API
 ```
 
-Un solo binario da spedire: `ondo`.
+Le dipendenze vanno in una direzione sola: `cli` e `api` chiamano `ondo-core`, mai il
+contrario. Due binari, `ondo` e `ondo-api`, e nessuno dei due ha bisogno dell'altro.
 
 ## La libreria (`ondo`)
 

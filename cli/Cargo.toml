@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "ondo-cli"
 description = "Menu a frecce sopra la libreria: cerca, libreria, download rapido, impostazioni"
 version.workspace = true
@@ -11,14 +11,14 @@ name = "ondo"
 path = "src/main.rs"
 
 [dependencies]
-ondo = { path = "../ondo" }
+ondo = { path = "../ondo-core" }
 
 # Menu navigabili con le FRECCE, non comandi digitati.
 dialoguer = { version = "0.11", default-features = false, features = ["fuzzy-select"] }
 console = "0.15"
 
-# Solo per la console del Download rapido: serve `event::poll`, cioè aspettare un
-# tasto **con un timeout**. È quello che permette di ridisegnare le barre mentre il
-# prompt resta attivo, senza un thread bloccato sullo stdin — che è il modo in cui
-# una console così finisce per mangiarsi i tasti del menu successivo.
+# Solo per la console del Download rapido: serve `event::poll`, cioÃ¨ aspettare un
+# tasto **con un timeout**. Ãˆ quello che permette di ridisegnare le barre mentre il
+# prompt resta attivo, senza un thread bloccato sullo stdin â€” che Ã¨ il modo in cui
+# una console cosÃ¬ finisce per mangiarsi i tasti del menu successivo.
 crossterm = "0.28"

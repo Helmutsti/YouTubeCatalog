@@ -1,0 +1,1021 @@
+/* ===== Design tokens — direzione "Cinema" (1b), scelta per questo progetto ===== */
+:root {
+  --bg: #0c0c0e;
+  --panel: #161619;
+  --panel2: #18181c;
+  --border: #26262b;
+  --border2: #1c1c20;
+  --ink: #f4f4f6;
+  --ink2: #c8c8ce;
+  --muted: #9a9aa2;
+  --faint: #6a6a72;
+  --page-bg: #0a0a0b;
+
+  --accent: #9184d9;
+  --accent-ink: #b6ade3;
+  --accent-contrast: #111;
+
+  /* Stato dei video — palette semantica separata dall'accento del brand
+     (eccetto "in download", che riusa l'accento: è letteralmente "la cosa
+     che sta succedendo ora", coerente con l'uso dell'accento come colore
+     "attivo" nel resto della UI). */
+  --st-new: oklch(0.72 0.13 235);
+  --st-pending: oklch(0.72 0.12 300);
+  --st-downloading: var(--accent);
+  --st-downloaded: oklch(0.72 0.14 145);
+  --st-failed: oklch(0.66 0.19 25);
+  --st-excluded: #5a5a62;
+  --st-removed: oklch(0.70 0.15 55); /* "rimosso da YouTube" (M25): ambra, distinto dal rosso "fallito" */
+
+  --radius-card: 12px;
+  --radius-pill: 999px;
+  --sidebar-w: 248px;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; }
+
+/* Barre di scorrimento minimali a scomparsa (punto 9 del backlog): larghezza
+   sempre riservata (nessuno spostamento di layout quando compaiono — il thumb
+   è solo trasparente finché non si passa sopra con il mouse l'area
+   scrollabile), thumb visibile solo in hover. Firefox non ha un vero
+   "a scomparsa" via CSS: resta comunque sottile grazie a scrollbar-width. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover { scrollbar-color: var(--border) transparent; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+*:hover::-webkit-scrollbar-thumb { background: var(--border); }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+img { max-width: 100%; display: block; }
+
+.display, .logo, h1, h2, h3, .card-title, .chip, .btn, .d-title {
+  font-family: 'Sora', system-ui, sans-serif;
+}
+
+::selection { background: var(--accent); color: var(--accent-contrast); }
+
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ===== Shell / Layout ===== */
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  height: 58px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--border2);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 20;
+}
+.logo {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.logo img { height: 40px; width: auto; display: block; }
+
+.search-box {
+  flex: 1;
+  max-width: 460px;
+  margin: 0 auto;
+  height: 38px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 9px;
+  color: var(--faint);
+}
+.search-box input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 14px;
+}
+.search-box input::placeholder { color: var(--faint); }
+.search-box input:focus { outline: none; }
+.search-clear {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; border: none;
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.search-clear:hover { background: var(--panel2); color: var(--ink2); }
+.search-box svg { flex: none; }
+
+.topbar-spacer { width: 1px; }
+
+.body-area {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: none;
+  padding: 16px 10px;
+  border-right: 1px solid var(--border2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 58px;
+  height: calc(100vh - 58px);
+  overflow-y: auto;
+}
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.side-item svg { flex: none; color: var(--faint); }
+.side-item:hover { background: var(--panel2); color: var(--ink2); }
+.side-item.active { background: var(--panel2); font-weight: 500; color: var(--ink); }
+.side-item.active svg { color: var(--ink); }
+.side-div { height: 1px; background: var(--border2); margin: 10px 10px; }
+.side-sec {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 10px 12px 6px;
+}
+.side-empty { padding: 4px 12px; font-size: 12px; color: var(--faint); }
+
+.avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 10px;
+  color: #fff;
+  background: #3a2a24;
+  overflow: hidden;
+}
+/* Avatar creator nella sidebar leggermente più grandi delle altre sedi
+   (card/dettaglio restano invariate: .avatar è condiviso, quindi si scope solo
+   la sidebar). */
+.side-item .avatar { width: 32px; height: 32px; font-size: 13px; }
+
+/* Foto profilo reale del canale (M14): riempie il contenitore .avatar/.d-avatar/
+   .chan-avatar già circolare, a qualunque delle tre taglie. Se assente si
+   ricade sull'iniziale-lettera esistente (children testuali del contenitore). */
+.avatar-photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 24px 60px;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.page-head h1 { font-size: 19px; margin: 0; color: #fff; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #e8e8ea;
+  flex: none;
+}
+.back-link:hover { background: var(--panel2); }
+
+/* ===== Chips ===== */
+.chips {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.chip {
+  flex: none;
+  padding: 7px 15px;
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink2);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.chip.active { background: var(--accent); border-color: transparent; color: var(--accent-contrast); }
+.chip .count { color: var(--faint); }
+.chip.active .count { color: rgba(17,17,17,.6); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+
+/* ===== Grid / Card ===== */
+.grid {
+  display: grid;
+  /* Card più grandi, una colonna in meno per riga a ogni larghezza tipica
+     (230px -> 280px: circa -1 colonna su schermi da 1280 a 1920px). */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px 16px;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+.thumb {
+  display: block;
+  position: relative;
+  aspect-ratio: 16/9;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: repeating-linear-gradient(135deg, #1e1e22 0 11px, #26262b 11px 22px);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.badge {
+  position: absolute;
+  left: 7px;
+  top: 7px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: #0c0c0e;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.badge-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: #0c0c0e;
+  flex: none;
+}
+.dur {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  background: rgba(0,0,0,.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.card-title {
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card.dimmed .card-title { color: var(--muted); }
+.card.dimmed .thumb { opacity: .55; }
+.card-info { display: flex; align-items: center; gap: 8px; }
+.card-meta { font-size: 11.5px; color: var(--muted); }
+
+.card-actions {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
+  background: linear-gradient(180deg, rgba(0,0,0,.05) 0%, rgba(0,0,0,.6) 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  opacity: 0;
+  transition: opacity .12s ease;
+  pointer-events: none;
+}
+.card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; pointer-events: auto; }
+
+/* ===== Buttons ===== */
+.btn {
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* --panel2 è quasi identico allo sfondo dei pannelli in cui i bottoni vivono
+   (stesso bug già corretto sulla barra di progresso): hover praticamente
+   invisibile. Usato --border, più chiaro. Aggiunto anche :active (mancava
+   del tutto: nessuna reazione visiva al click). */
+.btn:hover { background: var(--border); }
+.btn:active { background: color-mix(in oklch, var(--border) 70%, black); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:disabled:hover, .btn:disabled:active { background: transparent; }
+.btn.small { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
+.btn-primary { background: var(--accent); color: var(--accent-contrast); border-color: transparent; }
+/* background esplicito: senza, il generico ".btn:hover" (stessa specificità,
+   ma dichiarato prima) vince e sostituisce lo sfondo colorato con quello
+   scuro quasi nero dei bottoni normali — testo scuro su sfondo scuro,
+   illeggibile. Bug reale segnalato dall'utente, pre-esistente al rebrand. */
+.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+.btn-primary:active { background: var(--accent); filter: brightness(0.92); }
+.btn-danger { color: var(--st-failed); border-color: color-mix(in oklch, var(--st-failed) 45%, transparent); background: transparent; }
+.btn-danger:hover { background: color-mix(in oklch, var(--st-failed) 12%, transparent); }
+.btn-danger:active { background: color-mix(in oklch, var(--st-failed) 22%, transparent); }
+.btn-ghost { border-color: transparent; background: var(--panel2); }
+
+.banner-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+.banner-cta .label { font-size: 13.5px; color: var(--ink2); }
+.banner-cta .label b { color: #fff; }
+
+/* ===== Forms ===== */
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; max-width: 560px; }
+.field label { font-size: 12.5px; font-weight: 600; color: var(--ink2); }
+.field input, .field select {
+  height: 40px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 14px;
+  color: var(--ink);
+  font-size: 14px;
+}
+.field input:focus { outline: none; border-color: var(--accent); }
+.field .hint { font-size: 11.5px; color: var(--faint); }
+.form-row { display: flex; gap: 10px; align-items: flex-end; }
+
+/* ===== Filtro/ordinamento (Home, pagina canale — M19) ===== */
+.filter-bar { display: flex; gap: 10px; align-items: center; margin: 4px 0 20px; flex-wrap: wrap; }
+.filter-bar select {
+  height: 34px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0 10px; color: var(--ink2); font-size: 12.5px; cursor: pointer;
+}
+.filter-bar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ===== Empty / message states ===== */
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.notice {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--ink2);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.notice.error { border-color: color-mix(in oklch, var(--st-failed) 45%, transparent); color: color-mix(in oklch, var(--st-failed) 80%, white); }
+.notice.success { border-color: color-mix(in oklch, var(--st-downloaded) 45%, transparent); }
+
+/* Notifiche a scomparsa (toast), in alto a destra, sopra ogni pagina */
+.toast-host {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 340px;
+}
+.toast {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  color: var(--ink);
+  font-size: 13px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  animation: toast-in .2s ease;
+  /* border-left/testo cambiano colore con transizione morbida quando il toast
+     passa da "avviato" (info) a verde/rosso con l'esito, invece di sparire e
+     riapparire come un toast nuovo. */
+  transition: border-left-color .25s ease;
+}
+.toast-success { border-left-color: var(--st-downloaded); }
+.toast-error { border-left-color: var(--st-failed); }
+.toast.clickable { cursor: pointer; }
+.toast.clickable:hover { background: var(--panel2); }
+@keyframes toast-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+
+/* ===== Loading ===== */
+.spinner {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.4s; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== Lists (source rows, search results) ===== */
+.list { display: flex; flex-direction: column; gap: 2px; }
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 12px;
+  border-radius: 10px;
+}
+.list-row:hover { background: var(--panel2); }
+.res-thumb {
+  width: 108px;
+  flex: none;
+  aspect-ratio: 16/9;
+  border-radius: 7px;
+  overflow: hidden;
+  background: repeating-linear-gradient(135deg, #1e1e22 0 11px, #26262b 11px 22px);
+  position: relative;
+}
+.res-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ===== Pagina Sorgenti: pannello "Aggiungi" (restyle) ===== */
+.add-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; margin-bottom: 36px; }
+.add-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.add-row { display: flex; gap: 12px; align-items: center; }
+.add-row input {
+  flex: 1; height: 46px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0 16px; color: var(--ink); font-size: 14px;
+}
+.add-row input:focus { outline: none; border-color: var(--accent); }
+/* Bug 3 (effetto ottico): altezze input/bottone identiche a 46px, ma il bottone
+   pieno d'accento senza bordo visibile "pesa" più dell'input incorniciato dal
+   suo bordo 1px. Un bordo sottile (accento più scuro) lo incornicia come
+   l'input, attenuando l'illusione — nessun cambio di dimensioni. */
+.add-row .btn-primary { flex: none; height: 46px; padding: 0 20px; font-size: 13.5px; border-color: color-mix(in oklch, var(--accent) 62%, black); }
+.add-hint { font-size: 11.5px; color: var(--faint); margin-top: 10px; }
+
+/* ===== Pagina Sorgenti: elenco fonti collassabile (accordion) ===== */
+.sources-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: transparent; border: none; padding: 0; margin-bottom: 12px; cursor: pointer;
+}
+.sources-toggle .chev { color: var(--faint); transition: transform .15s ease; }
+.sources-toggle .chev.open { transform: rotate(180deg); }
+.sources-summary { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 20px; margin-bottom: 44px; font-size: 12.5px; color: var(--faint); }
+.sources-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 44px; }
+.source-line-wrap:not(:last-child) { border-bottom: 1px solid var(--border2); }
+.source-line { display: flex; align-items: center; gap: 16px; padding: 16px 20px; }
+.source-line-main { flex: 1; min-width: 0; }
+.source-line .name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.source-line .url { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.source-line .count { font-size: 13px; color: var(--muted); flex: none; }
+.source-line .actions { display: flex; gap: 6px; flex: none; }
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--border);
+  background: transparent; color: var(--ink2); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.icon-btn:hover { background: var(--panel2); }
+.icon-btn:disabled { opacity: .5; cursor: default; }
+/* Cestino neutro di default, rosso solo in hover — l'azione distruttiva non
+   deve "pesare" visivamente quando non è quella che si vuole compiere. */
+.icon-btn-danger { border-color: transparent; color: var(--faint); }
+.icon-btn-danger:hover { color: var(--st-failed); background: color-mix(in oklch, var(--st-failed) 12%, transparent); }
+/* Preferito nel dettaglio video: outline nello stesso grigio degli altri
+   bottoni azione (eredita .icon-btn), piena e gialla — stesso colore di
+   .fav-star sulla card — quando il video è preferito. */
+.fav-toggle.active { color: #f5c518; border-color: color-mix(in oklch, #f5c518 40%, transparent); }
+.fav-toggle.active:hover { background: color-mix(in oklch, #f5c518 12%, transparent); }
+.source-line-progress, .source-line-result { padding: 0 20px 16px; }
+
+/* ===== Video detail / player ===== */
+.detail-body { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+.player-col { flex: 2; min-width: 320px; }
+.player-frame {
+  aspect-ratio: 16/9;
+  border-radius: 12px;
+  background: #000;
+  overflow: hidden;
+  position: relative;
+}
+.player-frame video { width: 100%; height: 100%; }
+.player-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--muted); background: repeating-linear-gradient(135deg, #1e1e22 0 11px, #26262b 11px 22px);
+}
+
+/* Copertina "clicca per riprodurre" (stile Rumble): mostra la thumbnail a
+   tutto schermo con un grosso tasto play sopra, finché il video non è mai
+   stato avviato. Sparisce per sempre al primo play (video.onPlay), non
+   ricompare più mettendo in pausa. Un <img> proprio invece di affidarsi al
+   solo poster nativo: resta visibile anche in modalità "Solo audio", dove il
+   <video> sottostante è nascosto via opacity. */
+.player-cover {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: #000; border: none; padding: 0; margin: 0; cursor: pointer;
+}
+.player-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.player-cover-play {
+  position: relative; z-index: 1;
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; background: rgba(0, 0, 0, .55); border: 2px solid rgba(255, 255, 255, .85);
+  transition: transform .15s ease, background-color .15s ease, border-color .15s ease;
+}
+.player-cover:hover .player-cover-play,
+.player-cover:focus-visible .player-cover-play {
+  background: var(--accent); border-color: var(--accent); transform: scale(1.08);
+}
+
+/* ===== Mini-player persistente (M54) ===== */
+/* Slot di aggancio nella pagina di dettaglio: riempie il .player-frame. Il vero
+   <video> (nodo .global-player, montato da MiniPlayer sopra il router) viene
+   spostato qui dentro quando si è su questa pagina. */
+.player-dock-slot { position: absolute; inset: 0; }
+/* Nodo di montaggio stabile del player globale: sempre a riempire il proprio
+   contenitore (lo slot quando agganciato, il riquadro flottante altrimenti). */
+.global-player { position: relative; width: 100%; height: 100%; background: #000; }
+.global-player .gp-video { width: 100%; height: 100%; display: block; }
+
+/* Riquadro flottante "alla YouTube": fisso in basso a destra, sopra ogni cosa. */
+.mini-float-home {
+  position: fixed; right: 20px; bottom: 20px;
+  width: 384px; max-width: calc(100vw - 40px);
+  aspect-ratio: 16 / 9;
+  z-index: 300;
+  border-radius: 12px; overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .6);
+  display: none;
+}
+.mini-float-home.visible { display: block; }
+/* Chrome del riquadro flottante: barra col titolo (torna al video) + X. Compare
+   al passaggio del mouse, come i controlli nativi del <video>. */
+.gp-chrome {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 6px 16px;
+  background: linear-gradient(rgba(0, 0, 0, .72), transparent);
+  opacity: 0; transition: opacity .15s ease;
+}
+.mini-float-home:hover .gp-chrome, .gp-chrome:focus-within { opacity: 1; }
+.gp-bar {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  background: none; border: none; color: #fff; cursor: pointer;
+  font-size: 12px; padding: 2px 4px; text-align: left;
+}
+.gp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-close {
+  flex: none; display: flex; padding: 4px; border-radius: 6px; cursor: pointer;
+  background: rgba(0, 0, 0, .5); border: none; color: #fff;
+}
+.gp-close:hover { background: rgba(0, 0, 0, .85); }
+/* Desktop-only (scope M54): sotto il breakpoint mobile il riquadro non compare
+   mai — a doppia mandata col gate JS (isDesktopViewport), che già evita di
+   staccare il player su schermo piccolo, così non resta audio in sottofondo. */
+@media (max-width: 640px) { .mini-float-home { display: none !important; } }
+
+/* Interruttore (Impostazioni → Riproduzione) */
+.setting-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 4px; }
+.setting-text { flex: 1; min-width: 0; }
+.setting-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.setting-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.switch {
+  position: relative; flex: none; width: 44px; height: 24px; margin-top: 2px;
+  border: none; border-radius: 999px; cursor: pointer;
+  background: var(--border); transition: background .15s ease;
+}
+.switch.on { background: var(--accent); }
+.switch-knob {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; transition: left .15s ease;
+}
+.switch.on .switch-knob { left: 23px; }
+
+/* Traccia vuota leggermente più chiara di --panel2 (quasi identico allo
+   sfondo dei pannelli in cui vive: senza contrasto la barra risultava
+   invisibile finché non si riempiva). */
+.progress-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.progress-bar > div { height: 100%; background: var(--accent); transition: width .2s ease; }
+/* Barra indeterminata (fase di enumerazione della sync, senza % nota): un
+   segmento che scorre avanti e indietro finché l'operazione è in corso. */
+.progress-bar.indeterminate > div { width: 35%; transition: none; animation: indeterminate 1.15s ease-in-out infinite; }
+@keyframes indeterminate { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+
+.d-title { font-size: 21px; line-height: 1.3; color: #fff; margin: 18px 0 0; }
+.d-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.d-chan { display: flex; align-items: center; gap: 10px; }
+.d-avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 15px; color: #fff; background: #3a2a24;
+}
+.d-chan-name { font-weight: 600; font-size: 14px; color: var(--ink); }
+.d-meta { font-size: 12.5px; color: var(--muted); }
+.d-actions { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+.d-desc {
+  margin-top: 20px; padding: 16px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 12px;
+  font-size: 13px; line-height: 1.6; color: var(--ink2); white-space: pre-line;
+}
+.d-desc .label { font-size: 12px; font-weight: 600; color: var(--ink); display: block; margin-bottom: 6px; }
+/* Descrizione collassabile in stile YouTube: clampata a 3 righe finché
+   ".expanded" non viene aggiunta dal toggle in JSX. */
+.d-desc-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.d-desc-text.expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.d-desc-toggle {
+  display: block; margin-top: 8px; padding: 0; background: none; border: none;
+  font-size: 12.5px; font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.d-desc-toggle:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.d-tags { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.d-tag { font-size: 11.5px; color: var(--muted); background: rgba(255,255,255,.06); padding: 4px 10px; border-radius: 999px; }
+
+/* Box "Dati tecnici" (M21) — stessa classe .d-desc del box Descrizione. */
+.tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 20px; margin-top: 4px; }
+.tech-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.tech-key { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+.tech-val { color: var(--ink2); word-break: break-word; }
+.tech-val a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.tech-val a:hover { color: var(--accent); }
+
+.side-related { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
+/* Collassata (punto 1 del backlog): la colonna si restringe al solo header,
+   lasciando lo spazio al player invece di lasciare un vuoto a destra. */
+.side-related.collapsed { flex: none; min-width: 0; gap: 0; }
+/* Freccia di riapertura quando la colonna è collassata: larghezza naturale
+   (non stirata a tutta la colonna dal flex column) e ancorata in alto. */
+.rel-reopen-btn { align-self: flex-start; }
+.rel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rel-actions { display: flex; align-items: center; gap: 2px; }
+.rel-collapse-btn { background: transparent; border: none; color: var(--faint); cursor: pointer; display: flex; padding: 4px; border-radius: 6px; flex: none; }
+.rel-collapse-btn:hover { background: var(--panel2); color: var(--ink); }
+.rel-collapse-btn .chev { transition: transform .15s ease; }
+.rel-collapse-btn .chev.open { transform: rotate(180deg); }
+.rel-lbl { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 4px; }
+.rel-item { display: flex; gap: 10px; }
+
+/* Coda di riproduzione effimera (M52): box evidenziato sopra "Video
+   suggeriti" nella sidebar del dettaglio video, mostrato solo a coda non
+   vuota — un leggero tinteggio con --accent lo distingue a colpo d'occhio
+   dalla lista dei suggeriti sotto, che condivide invece lo stesso .rel-item. */
+.queue-box {
+  padding: 12px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px;
+  background: color-mix(in oklch, var(--accent) 8%, var(--panel));
+  border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border));
+}
+.queue-list { display: flex; flex-direction: column; gap: 10px; }
+.queue-item { align-items: center; padding: 4px; border-radius: 8px; }
+.queue-item .rel-thumb { width: 84px; }
+/* Video attualmente in riproduzione (M62): la coda non si svuota più, i già
+   visti restano — questo evidenzia dov'è il corrente nella lista. */
+.queue-item-current {
+  background: color-mix(in oklch, var(--accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.rel-thumb {
+  width: 120px; flex: none; aspect-ratio: 16/9; border-radius: 8px; position: relative; overflow: hidden;
+  background: repeating-linear-gradient(135deg, #1e1e22 0 11px, #26262b 11px 22px);
+}
+.rel-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.rel-title { font-size: 12.5px; line-height: 1.3; font-weight: 600; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rel-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+.chan-head { display: flex; align-items: flex-end; gap: 18px; padding: 0 6px; position: relative; margin-bottom: 18px; }
+.chan-avatar {
+  width: 108px; height: 108px; border-radius: 50%; background: #3a2a24;
+  border: 4px solid var(--page-bg); display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 40px; color: #fff;
+}
+.chan-name { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 10px; }
+.chan-count { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+
+/* ===== Jobs / log viewer ===== */
+.job-log {
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font: 12px/1.6 ui-monospace, Menlo, monospace;
+  color: #b8f0c0;
+  max-height: 340px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.job-log .line.err { color: #ff9a9a; }
+.job-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+.job-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.job-status {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  padding: 3px 9px; border-radius: 999px; color: #0c0c0e;
+}
+.job-type { font-size: 13px; color: var(--ink2); font-weight: 600; }
+.job-time { font-size: 11.5px; color: var(--faint); margin-left: auto; }
+.job-thumbs { display: flex; gap: 6px; align-items: center; margin: 2px 0 10px; }
+.job-thumb { width: 48px; height: 27px; border-radius: 5px; overflow: hidden; flex: none; background: var(--panel2); }
+.job-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.job-thumb-more { font-size: 11px; color: var(--faint); }
+.job-error-inline { font-size: 12px; color: var(--st-failed); margin: -2px 0 10px; }
+.btn-sm { height: 30px; padding: 0 10px; font-size: 12px; gap: 5px; }
+.job-del {
+  position: absolute; top: 10px; right: 10px; z-index: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 7px; flex: none;
+  background: transparent; border: 1px solid transparent; color: var(--faint); cursor: pointer;
+}
+.job-del:hover { color: var(--st-failed); border-color: var(--border); background: var(--panel2); }
+.job-del:disabled { opacity: .5; cursor: default; }
+.hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+
+/* Restyle Sorgenti (design handoff): riga ad altezza VARIABILE (min-height,
+   non più fissa) — copertina e colonna esito/progresso in "align-self:stretch"
+   la riempiono comunque per intero, qualunque sia l'altezza del contenuto. */
+.job-hist { position: relative; padding: 0; overflow: hidden; }
+.job-hist-row { display: flex; align-items: stretch; min-height: 88px; }
+.job-hist-cover { flex: none; width: 140px; align-self: stretch; position: relative; overflow: hidden; background: var(--panel2); }
+.job-hist-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.job-hist-cover.empty { display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px; color: var(--faint); font-size: 10.5px; }
+.job-hist-body { flex: 1 1 auto; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; justify-content: center; gap: 8px; cursor: pointer; }
+.job-hist-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-hist-meta { display: flex; align-items: center; gap: 10px; }
+.job-hist-more { font-size: 11.5px; color: var(--faint); }
+/* Colonna destra esito/progresso: DENTRO la riga (non più sotto), separata dal
+   corpo da un bordo verticale sottile — leggibile a colpo d'occhio, non
+   allunga la riga anche quando l'esito è un errore lungo. Sempre visibile
+   (non dietro un click), a differenza del log grezzo dietro isOpen. */
+.job-hist-side {
+  /* Allineato in basso, non centrato: da centrato finiva troppo vicino al
+     cestino (in alto a destra sulla card) — con lo spazio verticale extra
+     ora sopra, non più a ridosso dell'icona. */
+  flex: none; width: 260px; align-self: stretch; border-left: 1px solid var(--border2);
+  padding: 14px 18px; display: flex; flex-direction: column; justify-content: flex-end;
+  align-items: flex-end; text-align: right; gap: 6px;
+}
+.job-hist-phase { font-size: 11px; color: var(--faint); }
+.job-hist-side .progress-bar { width: 180px; }
+.job-hist-outcome { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.job-hist-outcome.err { color: var(--st-failed); }
+
+/* ===== Sidebar disclosure on mobile ===== */
+.mobile-nav { display: none; }
+
+@media (max-width: 880px) {
+  .sidebar { display: none; }
+  .main { padding: 16px 14px 84px; }
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 56px;
+    background: var(--bg);
+    border-top: 1px solid var(--border2);
+    align-items: center;
+    justify-content: space-around;
+    z-index: 30;
+  }
+  .mobile-nav a { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 9.5px; color: var(--faint); }
+  .mobile-nav a.active { color: var(--ink); }
+  .mobile-nav .plus {
+    width: 40px; height: 28px; border-radius: 8px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; color: var(--accent-contrast);
+  }
+  .grid { grid-template-columns: 1fr; }
+  .detail-body { flex-direction: column; }
+
+  /* Cronologia: la colonna destra fissa (260px) non ci sta in uno schermo
+     stretto — impilata sotto, a tutta larghezza, invece che a fianco. */
+  .job-hist-row { flex-wrap: wrap; }
+  .job-hist-cover { width: 100%; height: 130px; }
+  .job-hist-body { flex: 1 1 100%; padding: 12px 14px; }
+  .job-hist-side {
+    width: 100%; border-left: none; border-top: 1px solid var(--border2);
+    align-items: flex-start; text-align: left; padding: 12px 14px;
+  }
+  .job-hist-side .progress-bar { width: 100%; }
+}
+
+/* Selezione multipla in Libreria (M28) */
+.card-select { position: absolute; top: 8px; right: 8px; z-index: 3; width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+.card.selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
+
+/* Modale "Vuoi tenere il video?" (M30) */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; max-width: 460px; width: 100%; }
+.modal h3 { margin: 0 0 10px; font-size: 17px; color: #fff; }
+.modal p { margin: 0 0 18px; font-size: 13.5px; color: var(--ink2); line-height: 1.5; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* Scelta multipla nel modale (M55): opzioni impilate, ciascuna con etichetta in
+   evidenza e descrizione secondaria sotto — leggibili anche quando prolisse. */
+.modal-choices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.choice-btn {
+  display: flex; flex-direction: column; gap: 3px; text-align: left;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--panel-2, var(--panel)); border: 1px solid var(--border);
+  color: var(--ink); cursor: pointer; transition: border-color .12s, background .12s;
+}
+.choice-btn:hover { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 8%, var(--panel)); }
+.choice-label { font-size: 14px; font-weight: 600; color: #fff; }
+.choice-desc { font-size: 12.5px; color: var(--ink2); line-height: 1.4; }
+
+/* Radio dialog (M56, scelta risoluzione) */
+.modal-radios { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.radio-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--panel-2, var(--panel)); border: 1px solid var(--border);
+  color: var(--ink); cursor: pointer; transition: border-color .12s, background .12s;
+}
+.radio-row:hover { border-color: var(--accent); }
+.radio-row.selected { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 10%, var(--panel)); }
+.radio-row input { accent-color: var(--accent); cursor: pointer; }
+.radio-label { font-size: 14px; font-weight: 600; color: #fff; }
+
+/* Sync contestuale alla sorgente (barra + esito sulla riga) */
+.spin { animation: spin 1s linear infinite; }
+.source-result { font-size: 12px; margin: 6px 2px 0; color: var(--st-downloaded); }
+.source-result.err { color: var(--st-failed); }
+
+/* Menu ⋮ sulle card (M31, stile YouTube) */
+.card-menu { position: relative; flex: none; }
+.kebab { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; }
+.kebab:hover { background: var(--panel2); color: var(--ink); }
+.menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 41; min-width: 190px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 2px; }
+.menu-list.up { top: auto; bottom: calc(100% + 4px); }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 7px; background: transparent; border: none; color: var(--ink2); font-size: 13px; cursor: pointer; text-align: left; }
+.menu-item:hover { background: var(--panel2); color: var(--ink); }
+.menu-item svg { flex: none; color: var(--faint); }
+.menu-item:hover svg { color: var(--ink); }
+
+/* Copertine in bianco e nero nella pagina Archiviati (colore al passaggio del mouse) */
+.grayscale-grid .thumb img { filter: grayscale(1); transition: filter .2s ease; }
+.grayscale-grid .card:hover .thumb img { filter: grayscale(0); }
+
+/* M31: badge a pallino, "Su YouTube" verde, tasto archivia defilato, menu danger, placeholder scuro */
+:root { --st-available: oklch(0.72 0.14 145); }
+
+.badge-dot { position: absolute; left: 8px; top: 8px; width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,.4); z-index: 2; }
+/* Preferito (M43): stellina gialla in alto a destra della card */
+.fav-star { position: absolute; right: 8px; top: 8px; z-index: 2; color: #f5c518; display: flex; }
+.fav-star svg { stroke: color-mix(in oklch, #f5c518 55%, black); stroke-width: 1.5px; }
+.badge-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; padding: 0; border-radius: 0; background: transparent; color: var(--ink2); }
+.badge-dot-sm { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+/* "In download": un pallino statico non comunica un'attesa — pulsa come
+   un'icona app in installazione (un anello che si espande e svanisce). */
+.badge-dot.downloading, .badge-dot-sm.downloading { animation: badge-pulse 1.4s ease-in-out infinite; }
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 0 0 color-mix(in oklch, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 0 6px color-mix(in oklch, var(--accent) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-dot.downloading, .badge-dot-sm.downloading { animation: none; }
+}
+
+/* Video non ancora scaricato: copertina blur leggero + B/N, per distinguerlo
+   a colpo d'occhio da quelli già in libreria. Filtro sulla sola <img>, MAI su
+   .thumb: il bordo arrotondato del contenitore e gli overlay sopra la
+   copertina (badge-dot, fav-star, durata) sono elementi fratelli successivi
+   nel DOM/z-index, quindi restano nitidi senza bisogno di escluderli a mano. */
+.thumb.not-downloaded img { filter: blur(1.5px) grayscale(1); transition: filter .2s ease; }
+
+/* M45: copertina in download — blur (stesso schema di .grayscale-grid) +
+   overlay con freccia e anello di progresso. Il pallino badge-pulse resta
+   com'è (piccolo indicatore d'angolo); questo è il feedback grande e
+   centrale sulla card stessa. */
+.thumb.downloading img { filter: blur(6px); transition: filter .25s ease; }
+.dl-overlay {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.35);
+}
+.dl-ring { width: 46px; height: 46px; transform: rotate(-90deg); }
+.dl-ring-track { fill: none; stroke: rgba(255,255,255,.28); stroke-width: 2.5; }
+.dl-ring-fill {
+  fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round;
+  stroke-dasharray: 100 100; stroke-dashoffset: 100;
+  transition: stroke-dashoffset .3s ease;
+  transform-box: fill-box; transform-origin: 50% 50%;
+}
+/* Percentuale non disponibile (nessun jobId noto per questo video, es. dopo
+   un refresh a metà download): arco parziale che gira invece di un cerchio
+   fermo a metà — comunica "in corso" senza mentire su un progresso preciso. */
+.dl-ring-fill.indeterminate {
+  stroke-dasharray: 28 72; stroke-dashoffset: 0;
+  animation: dl-ring-spin 1s linear infinite;
+}
+@keyframes dl-ring-spin { to { transform: rotate(360deg); } }
+.dl-icon { position: absolute; color: #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+@media (prefers-reduced-motion: reduce) {
+  .dl-ring-fill.indeterminate { animation: none; stroke-dasharray: 100 100; stroke-dashoffset: 72; }
+}
+
+.btn-brick { color: #d98b7a; border-color: color-mix(in oklch, #a34a34 55%, transparent); background: color-mix(in oklch, #a34a34 12%, transparent); }
+.btn-brick:hover { background: color-mix(in oklch, #a34a34 24%, transparent); color: #ecaa98; }
+.d-archive-row { margin-top: 12px; }
+
+.menu-item.danger, .menu-item.danger svg { color: var(--st-failed); }
+.menu-item.danger:hover { background: color-mix(in oklch, var(--st-failed) 14%, transparent); }
+
+/* M53: card orizzontale (VideoCard layout="row"), usata in Cerca a piena
+   larghezza e nella colonna stretta dei "Video suggeriti" (~260px). Stessa
+   copertina/menu ⋮ della card grid (.thumb, .card-menu, .badge-dot, .dl-*,
+   .fav-star), solo impaginati in riga: qui sotto SOLO le regole di
+   dimensione/allineamento specifiche del layout orizzontale. */
+.card-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; position: relative; }
+.card-row:hover { background: var(--panel2); }
+.card-row.dimmed .row-title { color: var(--muted); }
+.card-row.dimmed .thumb-row { opacity: .55; }
+.card-row.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Larghezza relativa (non fissa): si restringe da sola nella colonna stretta
+   dei suggeriti senza bisogno di media/container query, perché è una % della
+   riga stessa (che riempie il proprio contenitore, largo o stretto che sia). */
+.thumb-row { width: 35%; max-width: 168px; min-width: 84px; flex: none; }
+.row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.row-title { font-size: 13px; line-height: 1.3; font-weight: 600; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.row-meta { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Placeholder "non disponibile": niente più bande oblique; con copertina, uno
+   sfondo scuro (impostato inline) così la scritta resta leggibile. */
+.player-placeholder { background: #0a0a0b; }
+
+/* Box "Stato e sincronizzazione" nel dettaglio video (M35) */
+.sync-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }

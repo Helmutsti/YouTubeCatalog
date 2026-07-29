@@ -16,3 +16,7 @@ cookies.txt
 .env
 .env.local
 .env.*.local
+
+# Dipendenze e build del frontend.
+/ondo-web/fe/node_modules/
+/ondo-web/fe/dist/

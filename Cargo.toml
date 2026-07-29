@@ -1,6 +1,6 @@
-[workspace]
+﻿[workspace]
 resolver = "2"
-members = ["ondo", "ondo-cli", "ondo-api"]
+members = ["ondo-core", "cli", "ondo-web/api"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,7 +10,7 @@ license = "MIT"
 
 # Dipendenze deliberatamente ridotte all'osso: serde/serde_json servono per
 # leggere l'output `-J` di yt-dlp e per il protocollo del sentinel. Tutto il
-# resto (parallelismo, processi, filesystem, scrittura atomica) è std.
+# resto (parallelismo, processi, filesystem, scrittura atomica) Ã¨ std.
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

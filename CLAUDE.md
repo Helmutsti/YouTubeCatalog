@@ -1,8 +1,10 @@
 # CLAUDE.md
 
-Ondo: archivio locale di video (yt-dlp). Due crate in due cartelle separate —
-**`ondo/`** è la libreria (che contiene anche il sentinel, su un thread) e
-**`ondo-cli/`** è l'interfaccia a menu, che dipende da `ondo` e non il contrario.
+Ondo: archivio locale di video (yt-dlp). Una libreria e le sue interfacce, in
+cartelle separate — **`ondo-core/`** è la libreria (che contiene anche il sentinel, su
+un thread), **`cli/`** è l'interfaccia a menu, **`ondo-web/api/`** è il server HTTP e
+**`ondo-web/fe/`** la web app React. Le dipendenze vanno in una direzione sola: le
+interfacce chiamano `ondo-core`, mai il contrario.
 L'architettura, il protocollo e le milestone stanno in **`ARCHITETTURA.md`**: leggilo
 prima di lavorare, aggiornalo quando cambia il presente.
 
