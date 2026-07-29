@@ -23,9 +23,24 @@ use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::model::author_of;
 
-/// Senza un runtime JavaScript yt-dlp non decifra le firme dei formati recenti e i
-/// download muoiono a metà con 403.
-const JS_RUNTIME: [&str; 2] = ["--js-runtimes", "node"];
+/// yt-dlp ha bisogno di **un** runtime JavaScript per calcolare i parametri
+/// offuscati che YouTube mette negli URL dei flussi: senza, i download muoiono a
+/// metà con 403. Non è una dipendenza di Ondo — è una dipendenza di yt-dlp, che
+/// esegue il JavaScript del player di YouTube.
+///
+/// Ne supporta quattro (in ordine di priorità: `deno`, `node`, `quickjs`, `bun`) ma
+/// **abilita solo `deno`** per default. Questi flag sono *additivi*: abilitandoli
+/// tutti, va bene qualunque runtime la macchina abbia, e viene usato il migliore
+/// disponibile. Prima qui c'era solo `node`, che su una macchina con Deno e senza
+/// Node era una dipendenza inventata da noi.
+const JS_RUNTIMES: [&str; 6] = [
+    "--js-runtimes",
+    "node",
+    "--js-runtimes",
+    "quickjs",
+    "--js-runtimes",
+    "bun",
+];
 
 /// Alcuni video stanno in un esperimento YouTube che pretende un "PO Token" dai
 /// client normali. `android_vr` non è soggetto all'esperimento; sta **accanto** a
@@ -206,7 +221,7 @@ pub fn run(
 fn resolve(cfg: &Config, url: &str, sink: &mut impl FnMut(Event)) -> Result<Value> {
     let build = |with_cookies: bool| {
         let mut a: Vec<String> = Vec::new();
-        a.extend(JS_RUNTIME.iter().map(|s| s.to_string()));
+        a.extend(JS_RUNTIMES.iter().map(|s| s.to_string()));
         a.extend(PLAYER_CLIENTS.iter().map(|s| s.to_string()));
         a.push("--no-playlist".into());
         a.push("--skip-download".into());
@@ -315,7 +330,7 @@ fn download_video(
     let template = staging.join("%(id)s.%(ext)s");
     let build = |with_cookies: bool| {
         let mut a: Vec<String> = Vec::new();
-        a.extend(JS_RUNTIME.iter().map(|s| s.to_string()));
+        a.extend(JS_RUNTIMES.iter().map(|s| s.to_string()));
         a.extend(PLAYER_CLIENTS.iter().map(|s| s.to_string()));
         a.push("--no-playlist".into());
         // Senza --newline l'avanzamento arriva con \r sulla stessa riga e non si

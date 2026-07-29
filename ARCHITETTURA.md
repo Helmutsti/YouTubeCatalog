@@ -108,8 +108,13 @@ quindi non c'è niente da bloccare.
 
 ## Fatti su yt-dlp che costano caro da riscoprire
 
-- `--js-runtimes node` — senza un runtime JS, yt-dlp non decifra le firme dei
-  formati recenti e i download muoiono a metà con **403**.
+- **Un runtime JavaScript**, o i download YouTube muoiono a metà con **403**: yt-dlp
+  deve eseguire il JavaScript del player per calcolare i parametri offuscati degli
+  URL dei flussi. Ne supporta quattro (`deno`, `node`, `quickjs`, `bun`) ma abilita
+  solo `deno` per default, quindi passiamo gli altri tre — i flag sono additivi e
+  viene usato il migliore disponibile. **Non è una dipendenza di Ondo**: è di yt-dlp,
+  e non va inchiodata a un runtime preciso (con `--js-runtimes node` e una macchina
+  con solo Deno era una dipendenza inventata da noi).
 - `--extractor-args youtube:player_client=default,android_vr,web_embedded` —
   alcuni video sono in un esperimento YouTube che pretende un "PO Token" dai
   client normali; `android_vr` non è soggetto all'esperimento.

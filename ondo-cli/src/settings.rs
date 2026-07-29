@@ -191,13 +191,19 @@ fn stato(app: &App) {
     riga("yt-dlp", &cfg.ytdlp);
     riga("ffmpeg", &cfg.ffmpeg);
     riga("ffprobe", &cfg.ffprobe);
-    match ondo::config::in_path("node") {
-        Some(p) => riga("node", &p),
+    // Il runtime JavaScript è un requisito di yt-dlp, non nostro: si mostra quale
+    // ha trovato, perché va bene uno qualunque dei quattro.
+    match ondo::config::js_runtime() {
+        Some((nome, p)) => riga(&format!("js ({nome})"), &p),
         None => println!(
             "  {} {:<12} {}",
             style("○").red(),
-            style("node").dim(),
-            style("non trovato nel PATH: yt-dlp senza runtime JS dà 403").red()
+            style("js").dim(),
+            style(format!(
+                "nessun runtime fra {} — yt-dlp non potrà scaricare da YouTube",
+                ondo::config::JS_RUNTIME_NAMES.join(", ")
+            ))
+            .red()
         ),
     }
     if let Some(vlc) = &cfg.vlc {

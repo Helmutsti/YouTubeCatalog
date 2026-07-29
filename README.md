@@ -79,11 +79,16 @@ con lo stesso sistema operativo).
 ## Cosa serve
 
 - **`ondo.exe`**, copiato dove vuoi.
-- **Node** — a *runtime*, non per compilare. yt-dlp ha bisogno di un runtime
-  JavaScript per decifrare le firme dei formati recenti; senza, i download muoiono
-  a metà con **403**.
-- **yt-dlp**, **ffmpeg** e **ffprobe**: tre eseguibili, **non incluse nel repo**
+- **yt-dlp**, **ffmpeg** e **ffprobe**: tre eseguibili, **non inclusi nel repo**
   (`/tools/` è ignorato da git: peserebbero ~300 MB per versione nella history).
+
+Ondo non ha altre dipendenze. Ne ha una **yt-dlp**, e riguarda solo YouTube: per
+calcolare i parametri offuscati che YouTube mette negli URL dei flussi deve
+eseguire il JavaScript del player, quindi gli serve un runtime JavaScript sulla
+macchina — va bene **uno qualunque** fra `deno`, `node`, `quickjs`, `bun`. Se non ce
+n'è nessuno i download da YouTube muoiono a metà con **403**; gli altri siti non se
+ne accorgono. La CLI ti dice all'avvio se non ne trova, e in *Stato e percorsi*
+mostra quale sta usando.
 
 ## I passi
 
@@ -151,7 +156,8 @@ scorrere — risolvendo → metadati → barra → fatto — e il video comparir
 - **«vcruntime140.dll non trovato»** all'avvio: il binario MSVC lega dinamicamente
   il runtime C. Installa il *Visual C++ Redistributable*, oppure ricompila statico
   con `RUSTFLAGS="-C target-feature=+crt-static" cargo build --release`.
-- **Download che falliscono con 403**: quasi sempre manca Node, o non è nel `PATH`.
+- **Download YouTube che falliscono con 403**: quasi sempre non c'è nessun runtime
+  JavaScript nel `PATH` (`deno`, `node`, `quickjs` o `bun` — ne basta uno).
 - **«non trovo: yt-dlp (...)»**: i tre eseguibili non sono dove il programma li
   cerca — rileggi il punto 2.
 

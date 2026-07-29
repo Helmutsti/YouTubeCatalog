@@ -211,6 +211,20 @@ pub fn in_path(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&path).map(|dir| dir.join(&file)).find(|c| c.is_file())
 }
 
+/// I runtime JavaScript che yt-dlp sa usare, in ordine di priorità (`deno` è il
+/// solo abilitato di default, gli altri li abilitiamo noi).
+pub const JS_RUNTIME_NAMES: [&str; 4] = ["deno", "node", "quickjs", "bun"];
+
+/// Il runtime JavaScript che yt-dlp troverebbe su questa macchina, se ce n'è uno.
+///
+/// Non è una dipendenza di Ondo: **yt-dlp** ha bisogno di eseguire il JavaScript
+/// del player di YouTube per calcolare i parametri offuscati degli URL dei flussi.
+/// Senza nessun runtime, i download YouTube muoiono a metà con 403 — vale la pena
+/// dirlo prima, non dopo. Va bene qualunque dei quattro.
+pub fn js_runtime() -> Option<(&'static str, PathBuf)> {
+    JS_RUNTIME_NAMES.iter().find_map(|nome| in_path(nome).map(|p| (*nome, p)))
+}
+
 fn find_tool(env_var: &str, name: &str, root: &Path) -> PathBuf {
     if let Some(p) = std::env::var_os(env_var) {
         return PathBuf::from(p);

@@ -94,11 +94,16 @@ fn run() -> R<()> {
             mancanti.push(format!("{nome} ({})", path.display()));
         }
     }
-    // Node non è un nostro binario ma è una nostra dipendenza: yt-dlp senza un
-    // runtime JavaScript non decifra le firme dei formati recenti e i download
-    // muoiono a metà con 403. È la causa più frequente di fallimenti misteriosi.
-    if ondo::config::in_path("node").is_none() {
-        mancanti.push("node (serve a yt-dlp, altrimenti 403)".to_string());
+    // Non un binario nostro e non un runtime in particolare: yt-dlp ha bisogno di
+    // eseguire il JavaScript del player di YouTube, e gli va bene uno qualunque fra
+    // deno, node, quickjs e bun. Senza nessuno dei quattro i download YouTube
+    // muoiono a metà con 403, che è la causa più frequente di fallimenti
+    // inspiegabili — meglio dirlo all'avvio.
+    if ondo::config::js_runtime().is_none() {
+        mancanti.push(format!(
+            "un runtime JavaScript per yt-dlp ({})",
+            ondo::config::JS_RUNTIME_NAMES.join(", ")
+        ));
     }
     if !mancanti.is_empty() {
         ui::err(
