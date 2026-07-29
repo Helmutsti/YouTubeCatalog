@@ -191,6 +191,15 @@ fn stato(app: &App) {
     riga("yt-dlp", &cfg.ytdlp);
     riga("ffmpeg", &cfg.ffmpeg);
     riga("ffprobe", &cfg.ffprobe);
+    match ondo::config::in_path("node") {
+        Some(p) => riga("node", &p),
+        None => println!(
+            "  {} {:<12} {}",
+            style("○").red(),
+            style("node").dim(),
+            style("non trovato nel PATH: yt-dlp senza runtime JS dà 403").red()
+        ),
+    }
     if let Some(vlc) = &cfg.vlc {
         riga("vlc", vlc);
     }

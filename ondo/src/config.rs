@@ -199,6 +199,18 @@ fn exe(name: &str) -> String {
     }
 }
 
+/// Cerca un eseguibile nel `PATH`, restituendo il percorso **assoluto**.
+///
+/// Serve perché "il nome nudo funziona, tanto ci pensa il sistema" non si può
+/// verificare: un percorso che esiste si controlla con `is_file()`, un nome nudo no.
+/// Risolvendolo qui, ogni percorso in [`Config`] è controllabile, e un binario
+/// mancante si può dire all'avvio invece di scoprirlo a metà del primo download.
+pub fn in_path(name: &str) -> Option<PathBuf> {
+    let file = exe(name);
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path).map(|dir| dir.join(&file)).find(|c| c.is_file())
+}
+
 fn find_tool(env_var: &str, name: &str, root: &Path) -> PathBuf {
     if let Some(p) = std::env::var_os(env_var) {
         return PathBuf::from(p);
@@ -209,8 +221,10 @@ fn find_tool(env_var: &str, name: &str, root: &Path) -> PathBuf {
             return c;
         }
     }
-    // Ultimo ripiego: il nome nudo, che lascia decidere al PATH. Se non c'è,
-    // l'errore arriva al primo spawn dicendo quale binario manca.
+    if let Some(p) = in_path(name) {
+        return p;
+    }
+    // Irrisolvibile: si tiene il nome nudo, così il messaggio dice *cosa* manca.
     PathBuf::from(file)
 }
 
@@ -254,6 +268,15 @@ mod tests {
         assert_eq!(letta.videos, PathBuf::from("altrove"));
         assert_eq!(letta.root, root, "la radice è dove il file è stato trovato, non ciò che dice");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn the_path_is_searched_for_real() {
+        // Un eseguibile che c'è di sicuro, su ogni sistema.
+        let sicuro = if cfg!(windows) { "cmd" } else { "sh" };
+        let trovato = in_path(sicuro).expect("dovrebbe essere nel PATH");
+        assert!(trovato.is_absolute() && trovato.is_file());
+        assert!(in_path("questo-eseguibile-non-esiste-affatto").is_none());
     }
 
     #[test]

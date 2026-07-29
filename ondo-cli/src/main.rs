@@ -90,9 +90,15 @@ fn run() -> R<()> {
         ("ffmpeg", app.lib.config().ffmpeg.clone()),
         ("ffprobe", app.lib.config().ffprobe.clone()),
     ] {
-        if !path.is_file() && path.components().count() > 1 {
+        if !path.is_file() {
             mancanti.push(format!("{nome} ({})", path.display()));
         }
+    }
+    // Node non è un nostro binario ma è una nostra dipendenza: yt-dlp senza un
+    // runtime JavaScript non decifra le firme dei formati recenti e i download
+    // muoiono a metà con 403. È la causa più frequente di fallimenti misteriosi.
+    if ondo::config::in_path("node").is_none() {
+        mancanti.push("node (serve a yt-dlp, altrimenti 403)".to_string());
     }
     if !mancanti.is_empty() {
         ui::err(
