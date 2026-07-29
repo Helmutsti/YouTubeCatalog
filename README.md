@@ -117,7 +117,8 @@ metadati. Chiamala come vuoi; gli esempi usano `ondo-data`. Non sta dentro il
 programma: gliela si indica da fuori.
 
 **Tre eseguibili esterni**, non inclusi nel repo (`/tools/` è ignorato da git:
-peserebbero ~300 MB per versione nella history), da mettere **dentro la libreria**:
+peserebbero ~300 MB per versione nella history). La sistemazione consigliata è
+**dentro la libreria**:
 
 ```
 ondo-data/tools/yt-dlp.exe      da github.com/yt-dlp/yt-dlp → Releases
@@ -125,10 +126,31 @@ ondo-data/tools/ffmpeg.exe      una build statica (gyan.dev, oppure BtbN su GitH
 ondo-data/tools/ffprobe.exe     sta nello stesso archivio di ffmpeg
 ```
 
-⚠️ **Dove li metti conta**, ed è l'errore più facile. La ricerca guarda in
-quest'ordine: la variabile d'ambiente → `<radice-libreria>/tools/` → `./tools/`
-relativo alla cartella corrente → il `PATH`. Metterli in `<radice>/tools/` è l'unica
-sistemazione che funziona **da qualunque cartella tu lanci il programma**.
+### Dove metterli, e cosa cambia
+
+**Dove li metti conta**, ed è l'errore più facile. La ricerca guarda in quest'ordine e
+si ferma al primo colpo:
+
+1. la variabile d'ambiente — `ONDO_YTDLP`, `ONDO_FFMPEG`, `ONDO_FFPROBE`
+2. **`<radice-libreria>/tools/`**
+3. **`./tools/`**, relativo alla **cartella corrente**
+4. il `PATH`
+
+Per il programma le quattro sono equivalenti: cambia solo *quali modi di lanciarlo*
+continuano a funzionare, e dove finiscono quei ~293 MB.
+
+| | cosa guadagni | cosa ti costa |
+|---|---|---|
+| **`<radice>/tools/`** (consigliato) | funziona **da qualunque cartella** tu lanci, perché la radice glielo dici tu: collegamenti, attività pianificate, `--root` su un disco esterno. E la libreria diventa auto-portante: la copi altrove e i tool viaggiano con lei | i 293 MB stanno **dentro i tuoi dati**: backup e sincronizzazioni della libreria se li portano dietro, ed è roba grossa e sostituibile. Con più librerie, una copia per ciascuna |
+| **`./tools/`** accanto agli eseguibili | una copia sola per tutte le librerie, e la separazione programma/dati resta netta | funziona **solo se lanci da quella cartella**: un collegamento con «Esegui in» diverso, o un comando dato da un'altra cartella, e i binari non si trovano più |
+| **nel `PATH`** (es. `C:\bin`) | una copia sola, indipendente sia dalla cartella corrente sia dalla libreria; aggiornare yt-dlp è un gesto in un posto solo | va sistemato il `PATH` una volta, e i binari non sono più "dentro" l'installazione: chi la copia altrove se li dimentica |
+
+Nota: `tools/` dentro la radice **non confonde il programma**. La radice non viene mai
+scandita in cerca di video: `videos/`, `covers/`, `metadata/` e `staging/` sono nominate
+una per una, e qualunque altra cartella lì dentro è invisibile.
+
+E ricordati di **aggiornare yt-dlp** ogni tanto, dovunque lo metti: YouTube cambia, e
+una versione vecchia comincia a fallire su video che prima scaricava.
 
 **Un runtime JavaScript**, che serve a yt-dlp e solo per YouTube: per calcolare i
 parametri offuscati che YouTube mette negli URL dei flussi deve eseguire il
