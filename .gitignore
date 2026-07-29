@@ -1,35 +1,19 @@
-node_modules/
-dist/
-.claude/
-/media/
-data/library.json
-data/sources.json
-data/catalog.json
-data/catalog.json.pre-v2
-data/metadata/
-data/metadata.json.pre-v2
-data/covers/
-data/authors/
-data/.commit/
-data/*.lock
-data/.ytdlp-archive.txt
-/videos/
-data/metadata.json
-data/config.json
-data/jobs/*.json
-data/jobs.json
-# Binari esterni: procurati da `npm run setup`, mai versionati (peserebbero
-# ~100-190MB per aggiornamento nella history). Si ignora l'intera cartella
-# invece dei singoli nomi, così coprono anche i .tmp della scrittura atomica
-# e i nomi di nuove piattaforme senza dover aggiornare questo file.
+# Binari esterni: pesano ~300MB, non si versionano mai.
 /tools/
-core/cookies.txt
 
-# Artefatti di compilazione Rust (rust/target arriva a centinaia di MB).
-# Cargo.lock INVECE è versionato: è un workspace con dei binari, quindi la
-# build deve essere riproducibile.
-/rust/target/
+# Artefatti di compilazione (centinaia di MB). Cargo.lock invece è versionato:
+# il workspace produce dei binari, quindi la build deve essere riproducibile.
+/target/
 
+# La libreria nuova e l'archivio storico dell'utente.
+/ondo-data/
+/media/
+/data/
+
+# Cookie della sessione YouTube: dati personali.
+cookies.txt
+
+.claude/
 .env
 .env.local
 .env.*.local

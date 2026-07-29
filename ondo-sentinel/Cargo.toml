@@ -1,0 +1,17 @@
+[package]
+name = "ondo-sentinel"
+description = "Un processo per video: risolve il link, prende metadati e copertina, scarica, riferisce"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ondo-sentinel"
+path = "src/main.rs"
+
+[dependencies]
+# Il protocollo (`ondo::Event`) è definito nella libreria: dipendere da essa è ciò
+# che rende impossibile far divergere le due parti.
+ondo = { path = "../ondo" }
+serde_json.workspace = true

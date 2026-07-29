@@ -1,0 +1,15 @@
+[package]
+name = "ondo"
+description = "Archivio video locale: una libreria con funzioni semplici per gestire la libreria"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[[example]]
+name = "scarica"
+path = "examples/scarica.rs"
