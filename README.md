@@ -7,8 +7,13 @@ file JSON, una CLI a menu, download in parallelo.
 Due pezzi, in due cartelle separate: **`ondo/`** è la libreria (che contiene anche il
 sentinel, il guardiano che segue un video dalla risoluzione del link al file su
 disco) e **`ondo-cli/`** è l'interfaccia a menu, che dipende da `ondo` e non il
-contrario. Il disegno è documentato nei commenti dei moduli — `ondo/src/sentinel.rs`
-e `ondo/src/downloader.rs` sono i due da leggere per capire come funziona.
+contrario.
+
+Il disegno sta in [`ARCHITETTURA.md`](ARCHITETTURA.md) — protocollo, chi tiene lo
+stato, milestone, limiti noti e i fatti su yt-dlp che costano caro da riscoprire;
+nel codice, i due moduli da leggere per capire come funziona sono
+`ondo/src/sentinel.rs` e `ondo/src/downloader.rs`. Qui c'è solo come metterlo in
+funzione.
 
 Sono **due guide distinte**: *compilare* produce il binario e riguarda chi lavora al
 codice; *installare* mette in funzione un binario già compilato su una macchina che
@@ -173,5 +178,5 @@ portarsi dietro percorsi che lì non esistono.
 
 **Un solo processo per libreria.** Ogni processo tiene `library.json` in memoria e
 lo riscrive tutto quando salva: due `ondo` sulla stessa cartella si sovrascrivono a
-vicenda. È un limite noto: finché non c'è un lock sul file, la regola è un solo
-processo per libreria.
+vicenda. È un limite noto, annotato in `ARCHITETTURA.md`: finché non c'è un lock sul
+file, la regola è **un solo processo per libreria**.
