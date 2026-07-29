@@ -4,8 +4,11 @@ Archivio video locale: scarica i video dei creator che ti interessano prima che
 spariscano, li tiene in ordine per autore e li rende cercabili. Un catalogo in un
 file JSON, una CLI a menu, download in parallelo.
 
-Due pezzi: `ondo` (la libreria) e `ondo-cli` (i menu). Il disegno sta in
-[`ARCHITETTURA.md`](ARCHITETTURA.md); qui c'è solo come metterlo in funzione.
+Due pezzi, in due cartelle separate: **`ondo/`** è la libreria (che contiene anche il
+sentinel, il guardiano che segue un video dalla risoluzione del link al file su
+disco) e **`ondo-cli/`** è l'interfaccia a menu, che dipende da `ondo` e non il
+contrario. Il disegno è documentato nei commenti dei moduli — `ondo/src/sentinel.rs`
+e `ondo/src/downloader.rs` sono i due da leggere per capire come funziona.
 
 Sono **due guide distinte**: *compilare* produce il binario e riguarda chi lavora al
 codice; *installare* mette in funzione un binario già compilato su una macchina che
@@ -170,4 +173,5 @@ portarsi dietro percorsi che lì non esistono.
 
 **Un solo processo per libreria.** Ogni processo tiene `library.json` in memoria e
 lo riscrive tutto quando salva: due `ondo` sulla stessa cartella si sovrascrivono a
-vicenda. È un limite noto, annotato in `ARCHITETTURA.md`.
+vicenda. È un limite noto: finché non c'è un lock sul file, la regola è un solo
+processo per libreria.
