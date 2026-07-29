@@ -1,0 +1,20 @@
+[package]
+name = "ondo-api"
+description = "Server HTTP sopra la libreria: espone /api, i file multimediali e la web app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ondo-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8.4"
+ondo = { path = "../ondo" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+tower-http = { version = "0.7.0", features = ["fs", "cors"] }
