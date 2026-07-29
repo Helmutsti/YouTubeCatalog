@@ -1,8 +1,37 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Un video in libreria. I percorsi (`file`, `cover`, `metadata`) sono **relativi
-/// alla radice**: spostare l'archivio non richiede di riscrivere `library.json`.
+/// Dove è arrivato un video nel suo percorso verso il disco.
+///
+/// Un video entra in libreria appena il link è risolto, non a download riuscito:
+/// è per questo che questo asse esiste, ed è ciò che rende "da scaricare" e
+/// "falliti" dei filtri invece di elenchi separati da tenere allineati.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    /// Deciso, non ancora sul disco (o da riscaricare).
+    #[default]
+    Pending,
+    /// Un sentinel ci sta lavorando adesso.
+    Downloading,
+    Downloaded,
+    Failed,
+}
+
+impl State {
+    pub fn label(self) -> &'static str {
+        match self {
+            State::Pending => "da scaricare",
+            State::Downloading => "in corso",
+            State::Downloaded => "scaricato",
+            State::Failed => "fallito",
+        }
+    }
+}
+
+/// Un video in libreria. I percorsi (`file`, `cover`, `metadata`) sono relativi
+/// **alla loro cartella** (`config.videos`, `config.covers`, `config.metadata`):
+/// spostare l'archivio è una riga di config, non una riscrittura del catalogo.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Video {
@@ -29,6 +58,17 @@ pub struct Video {
     pub metadata: Option<String>,
     /// Secondi dall'epoch: una data senza dipendenze e ordinabile.
     pub added_at: u64,
+
+    pub state: State,
+    /// Il motivo dell'ultimo fallimento, parola per parola come l'ha detto yt-dlp.
+    pub error: Option<String>,
+    pub attempts: u32,
+    pub favorite: bool,
+    /// Archiviato: resta in libreria ma sparisce da "tutti i video".
+    pub archived: bool,
+    /// Non più disponibile alla fonte. **Nessuno lo imposta ancora**: come
+    /// accorgersene è una decisione rimandata (vedi ARCHITETTURA.md, S2).
+    pub removed: bool,
 }
 
 impl Video {
@@ -65,6 +105,20 @@ impl Video {
             width: meta.get("width").and_then(Value::as_u64),
             height: meta.get("height").and_then(Value::as_u64),
             fps: meta.get("fps").and_then(Value::as_f64),
+            ..Video::default()
+        }
+    }
+
+    /// Il minimo che si sa appena il link è risolto: quanto basta per mostrare il
+    /// video in libreria mentre il download è ancora in corso.
+    pub fn stub(id: &str, title: &str, author: &str, duration: Option<f64>, url: &str) -> Video {
+        Video {
+            id: id.to_string(),
+            title: if title.is_empty() { id.to_string() } else { title.to_string() },
+            author: if author.is_empty() { "Sconosciuto".into() } else { author.to_string() },
+            url: url.to_string(),
+            duration_seconds: duration,
+            state: State::Downloading,
             ..Video::default()
         }
     }

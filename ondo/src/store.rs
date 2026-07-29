@@ -8,17 +8,33 @@ use crate::model::Video;
 
 pub const VERSION: u32 = 1;
 
+/// Un link incollato ma non ancora diventato un video.
+///
+/// Serve perché prima della risoluzione **non c'è un id**: un link appena
+/// incollato non può essere una chiave in `videos`. Se la risoluzione fallisce, il
+/// link resta qui con il suo `error` — è così che un fallimento precoce non
+/// scompare nel nulla.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueuedLink {
+    pub url: String,
+    pub error: Option<String>,
+    pub at: u64,
+}
+
 /// Il contenuto di `library.json`. `BTreeMap` e non `HashMap`: l'ordine delle
 /// chiavi è stabile, quindi il file è diffabile e non si rimescola a ogni salvataggio.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LibraryFile {
     pub version: u32,
     pub videos: BTreeMap<String, Video>,
+    /// I link non ancora risolti, in ordine di arrivo.
+    pub queue: Vec<QueuedLink>,
 }
 
 impl Default for LibraryFile {
     fn default() -> Self {
-        LibraryFile { version: VERSION, videos: BTreeMap::new() }
+        LibraryFile { version: VERSION, videos: BTreeMap::new(), queue: Vec::new() }
     }
 }
 

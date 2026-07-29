@@ -1,57 +1,194 @@
 use std::path::{Path, PathBuf};
 
-/// Tutto ciò che serve per far girare i sentinel. Si ricava da sola con
-/// [`Config::for_root`]; ogni campo resta sovrascrivibile a mano.
-#[derive(Debug, Clone)]
-pub struct Config {
-    /// Radice della libreria: contiene `library.json`, `videos/`, `covers/`, …
-    pub root: PathBuf,
-    pub ytdlp: PathBuf,
-    pub ffmpeg: PathBuf,
-    /// Percorso dell'eseguibile del sentinel.
-    pub sentinel: PathBuf,
-    /// File cookie in formato Netscape, per i video privati/non listati del
-    /// proprio account. `None` = non passare `--cookies` (vedi ARCHITETTURA.md:
-    /// i cookie insieme al client `android_vr` fanno scattare i 403).
-    pub cookies: Option<PathBuf>,
-    /// Tetto di risoluzione, `None` = la migliore disponibile.
-    pub max_height: Option<u32>,
-    /// Quanti sentinel in parallelo.
-    pub parallel: usize,
+use serde::{Deserialize, Serialize};
+
+use crate::error::Result;
+
+/// Che qualità scaricare.
+///
+/// `Ask` non è un tetto: è l'assenza di una decisione presa in anticipo. Chi
+/// scarica deve averla risolta **prima** di accodare — il tetto vero viaggia col
+/// singolo job (`Downloader::push_with`), non con la config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Quality {
+    /// La migliore disponibile.
+    Best,
+    /// Chiedi a ogni download.
+    Ask,
+    /// Al massimo questa altezza (o la migliore sotto).
+    Height(u32),
 }
 
-impl Config {
-    /// Radice + risoluzione automatica dei binari. Ordine di ricerca, per ogni
-    /// binario: variabile d'ambiente → `tools/` sotto la radice → `tools/` nella
-    /// cartella corrente → il nome nudo, che lascia decidere al `PATH`.
-    pub fn for_root(root: impl AsRef<Path>) -> Self {
-        let root = root.as_ref().to_path_buf();
-        Config {
-            ytdlp: find_tool("ONDO_YTDLP", "yt-dlp", &root),
-            ffmpeg: find_tool("ONDO_FFMPEG", "ffmpeg", &root),
-            sentinel: find_sentinel(),
-            root,
-            cookies: None,
-            max_height: None,
-            parallel: 3,
+impl Default for Quality {
+    fn default() -> Self {
+        Quality::Best
+    }
+}
+
+impl Quality {
+    /// Il tetto da passare a yt-dlp. `Ask` non ne ha: se arriva qui senza essere
+    /// stata risolta, si scarica il meglio, che è il default meno sorprendente.
+    pub fn max_height(self) -> Option<u32> {
+        match self {
+            Quality::Height(h) => Some(h),
+            Quality::Best | Quality::Ask => None,
         }
     }
 
+    pub fn label(self) -> String {
+        match self {
+            Quality::Best => "Massima".into(),
+            Quality::Ask => "Chiedi ogni volta".into(),
+            Quality::Height(h) => format!("{h}p (o la migliore sotto)"),
+        }
+    }
+}
+
+/// Le impostazioni della libreria, salvate in `<radice>/config.json`.
+///
+/// I campi *persistiti* sono le scelte dell'utente. I binari esterni no: si
+/// ridecidono a ogni avvio, così la stessa libreria funziona su una macchina
+/// diversa senza portarsi dietro percorsi che lì non esistono.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Config {
+    /// Cartella dei video: relativa alla radice, oppure assoluta per tenere
+    /// l'archivio su un altro disco.
+    pub videos: PathBuf,
+    pub covers: PathBuf,
+    pub metadata: PathBuf,
+    /// L'eseguibile di VLC. Non esiste un percorso valido per tutti: su Windows
+    /// l'installazione a 32 bit è la più comune anche su sistemi a 64 bit.
+    pub vlc: Option<PathBuf>,
+    /// File cookie in formato Netscape, per i video privati/non listati del
+    /// proprio account. I cookie **non** si usano di default: insieme al client
+    /// `android_vr` sono la combinazione che la CDN di YouTube blocca con 403.
+    pub cookies: Option<PathBuf>,
+    /// Che qualità scaricare, quando non è deciso per il singolo download.
+    pub quality: Quality,
+    /// Quanti sentinel insieme.
+    pub parallel: usize,
+
+    /// La radice. Non si persiste: è dove il file è stato trovato.
+    #[serde(skip)]
+    pub root: PathBuf,
+    #[serde(skip)]
+    pub ytdlp: PathBuf,
+    #[serde(skip)]
+    pub ffmpeg: PathBuf,
+    /// Misura i file scaricati: i metadati di yt-dlp descrivono il miglior formato
+    /// disponibile, non quello che si è preso.
+    #[serde(skip)]
+    pub ffprobe: PathBuf,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            videos: PathBuf::from("videos"),
+            covers: PathBuf::from("covers"),
+            metadata: PathBuf::from("metadata"),
+            vlc: default_vlc(),
+            cookies: None,
+            quality: Quality::Best,
+            parallel: 3,
+            root: PathBuf::new(),
+            ytdlp: PathBuf::new(),
+            ffmpeg: PathBuf::new(),
+            ffprobe: PathBuf::new(),
+        }
+    }
+}
+
+impl Config {
+    /// I valori di default per una radice, senza leggere niente da disco.
+    pub fn for_root(root: impl AsRef<Path>) -> Self {
+        let mut cfg = Config { root: root.as_ref().to_path_buf(), ..Config::default() };
+        cfg.resolve_tools();
+        cfg
+    }
+
+    /// Legge `<radice>/config.json`. Un file che non c'è vale come "tutti i
+    /// default": una cartella vuota è una libreria valida.
+    pub fn load(root: impl AsRef<Path>) -> Result<Self> {
+        let root = root.as_ref().to_path_buf();
+        let path = root.join("config.json");
+        let mut cfg: Config = match std::fs::read_to_string(&path) {
+            Ok(raw) if !raw.trim().is_empty() => serde_json::from_str(&raw)
+                .map_err(|e| crate::Error::new(format!("{} non è leggibile: {e}", path.display())))?,
+            _ => Config::default(),
+        };
+        cfg.root = root;
+        cfg.resolve_tools();
+        if cfg.parallel == 0 {
+            cfg.parallel = 1;
+        }
+        Ok(cfg)
+    }
+
+    pub fn save(&self) -> Result<()> {
+        std::fs::create_dir_all(&self.root)?;
+        let path = self.config_file();
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(())
+    }
+
+    pub fn config_file(&self) -> PathBuf {
+        self.root.join("config.json")
+    }
     pub fn library_file(&self) -> PathBuf {
         self.root.join("library.json")
     }
+    /// Le cartelle configurate, rese assolute rispetto alla radice.
     pub fn videos_dir(&self) -> PathBuf {
-        self.root.join("videos")
+        self.under_root(&self.videos)
     }
     pub fn covers_dir(&self) -> PathBuf {
-        self.root.join("covers")
+        self.under_root(&self.covers)
     }
     pub fn metadata_dir(&self) -> PathBuf {
-        self.root.join("metadata")
+        self.under_root(&self.metadata)
     }
     pub fn staging_dir(&self) -> PathBuf {
         self.root.join("staging")
     }
+
+    fn under_root(&self, dir: &Path) -> PathBuf {
+        if dir.is_absolute() {
+            dir.to_path_buf()
+        } else {
+            self.root.join(dir)
+        }
+    }
+
+    /// Ricalcola i percorsi dei binari esterni per questa macchina.
+    pub fn resolve_tools(&mut self) {
+        self.ytdlp = find_tool("ONDO_YTDLP", "yt-dlp", &self.root);
+        self.ffmpeg = find_tool("ONDO_FFMPEG", "ffmpeg", &self.root);
+        self.ffprobe = find_tool("ONDO_FFPROBE", "ffprobe", &self.root);
+    }
+}
+
+/// Le due installazioni di VLC che esistono davvero su Windows, in ordine di
+/// probabilità: la a 32 bit è la più diffusa anche sui sistemi a 64 bit.
+fn default_vlc() -> Option<PathBuf> {
+    let candidates: [&str; 3] = if cfg!(windows) {
+        [
+            r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
+            r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+            "",
+        ]
+    } else {
+        ["/usr/bin/vlc", "/usr/local/bin/vlc", "/Applications/VLC.app/Contents/MacOS/VLC"]
+    };
+    candidates
+        .iter()
+        .filter(|c| !c.is_empty())
+        .map(PathBuf::from)
+        .find(|p| p.is_file())
 }
 
 fn exe(name: &str) -> String {
@@ -67,35 +204,62 @@ fn find_tool(env_var: &str, name: &str, root: &Path) -> PathBuf {
         return PathBuf::from(p);
     }
     let file = exe(name);
-    let candidates = [root.join("tools").join(&file), PathBuf::from("tools").join(&file)];
-    for c in candidates {
+    for c in [root.join("tools").join(&file), PathBuf::from("tools").join(&file)] {
         if c.is_file() {
             return c;
         }
     }
-    // Ultimo ripiego: il nome nudo. Se non è nel PATH, l'errore arriva al primo
-    // spawn con un messaggio che dice quale binario manca.
+    // Ultimo ripiego: il nome nudo, che lascia decidere al PATH. Se non c'è,
+    // l'errore arriva al primo spawn dicendo quale binario manca.
     PathBuf::from(file)
 }
 
-/// Il sentinel è un binario del nostro stesso workspace: vive accanto
-/// all'eseguibile che sta girando. Il caso `examples/` è quello che si incontra
-/// subito lanciando `cargo run --example`, dove l'eseguibile finisce una cartella
-/// più in basso di `target/debug/`.
-fn find_sentinel() -> PathBuf {
-    if let Some(p) = std::env::var_os("ONDO_SENTINEL") {
-        return PathBuf::from(p);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_dirs_hang_off_the_root_absolute_ones_do_not() {
+        let mut cfg = Config::for_root("radice");
+        assert_eq!(cfg.videos_dir(), Path::new("radice").join("videos"));
+        let altrove = if cfg!(windows) { r"D:\archivio" } else { "/mnt/archivio" };
+        cfg.videos = PathBuf::from(altrove);
+        assert_eq!(cfg.videos_dir(), PathBuf::from(altrove));
     }
-    let file = exe("ondo-sentinel");
-    if let Ok(current) = std::env::current_exe() {
-        if let Some(dir) = current.parent() {
-            for d in [dir, dir.parent().unwrap_or(dir)] {
-                let c = d.join(&file);
-                if c.is_file() {
-                    return c;
-                }
-            }
-        }
+
+    #[test]
+    fn quality_is_a_choice_not_just_a_number() {
+        assert_eq!(Quality::Best.max_height(), None);
+        assert_eq!(Quality::Height(1080).max_height(), Some(1080));
+        // «Chiedi» non è un tetto: chi non l'ha risolta prende il meglio.
+        assert_eq!(Quality::Ask.max_height(), None);
+        // E sopravvive a un giro su disco con un nome leggibile.
+        assert_eq!(serde_json::to_string(&Quality::Ask).unwrap(), "\"ask\"");
+        assert_eq!(serde_json::to_string(&Quality::Height(720)).unwrap(), r#"{"height":720}"#);
     }
-    PathBuf::from(file)
+
+    #[test]
+    fn a_saved_config_comes_back_the_same() {
+        let root = std::env::temp_dir().join(format!("ondo-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut cfg = Config::for_root(&root);
+        cfg.quality = Quality::Height(1080);
+        cfg.parallel = 5;
+        cfg.videos = PathBuf::from("altrove");
+        cfg.save().unwrap();
+
+        let letta = Config::load(&root).unwrap();
+        assert_eq!(letta.quality, Quality::Height(1080));
+        assert_eq!(letta.parallel, 5);
+        assert_eq!(letta.videos, PathBuf::from("altrove"));
+        assert_eq!(letta.root, root, "la radice è dove il file è stato trovato, non ciò che dice");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_missing_file_means_defaults() {
+        let cfg = Config::load(std::env::temp_dir().join("ondo-non-esiste-affatto")).unwrap();
+        assert_eq!(cfg.parallel, 3);
+        assert_eq!(cfg.quality, Quality::Best);
+    }
 }

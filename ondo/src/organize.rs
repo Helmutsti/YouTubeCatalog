@@ -25,13 +25,16 @@ pub fn sanitize(name: &str) -> String {
     }
 }
 
-/// `videos/<Autore>/<Titolo> [<id>].<ext>` — relativo alla radice.
+/// `<Autore>/<Titolo> [<id>].<ext>` — relativo alla **cartella dei video**, non
+/// alla radice: è ciò che permette di spostare l'archivio cambiando una riga di
+/// config.
+///
 /// L'id è **sempre** nel nome, non solo in caso di collisione: due video con lo
 /// stesso titolo nello stesso canale esistono davvero, e così il problema non si
 /// pone mai.
 pub fn video_rel_path(author: &str, title: &str, id: &str, ext: &str) -> String {
     let ext = if ext.is_empty() { "mp4" } else { ext };
-    format!("videos/{}/{} [{}].{}", sanitize(author), sanitize(title), id, ext)
+    format!("{}/{} [{}].{}", sanitize(author), sanitize(title), id, ext)
 }
 
 /// Sposta un file creando le cartelle che servono. `rename` è istantaneo sullo
@@ -74,11 +77,11 @@ mod tests {
     fn builds_the_canonical_path() {
         assert_eq!(
             video_rel_path("Rick Astley", "Never Gonna Give You Up", "dQw4w9WgXcQ", "mp4"),
-            "videos/Rick Astley/Never Gonna Give You Up [dQw4w9WgXcQ].mp4"
+            "Rick Astley/Never Gonna Give You Up [dQw4w9WgXcQ].mp4"
         );
         assert_eq!(
             video_rel_path("A/B", "Ti: cerco", "x1", ""),
-            "videos/A-B/Ti- cerco [x1].mp4",
+            "A-B/Ti- cerco [x1].mp4",
             "senza estensione si assume mp4, che è il formato di fusione"
         );
     }
