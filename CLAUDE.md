@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-Ondo: archivio locale di video (yt-dlp) — una libreria Rust e un processo sentinel.
+Ondo: archivio locale di video (yt-dlp). Due crate in due cartelle separate —
+**`ondo/`** è la libreria (che contiene anche il sentinel, su un thread) e
+**`ondo-cli/`** è l'interfaccia a menu, che dipende da `ondo` e non il contrario.
 L'architettura, il protocollo e le milestone stanno in **`ARCHITETTURA.md`**: leggilo
 prima di lavorare, aggiornalo quando cambia il presente.
 
@@ -24,4 +26,7 @@ prima di lavorare, aggiornalo quando cambia il presente.
 
 - Windows 11, PowerShell. I binari esterni stanno in `tools/` (`yt-dlp.exe`,
   `ffmpeg.exe`, `ffprobe.exe`) e non sono versionati.
-- `data/` e `media/` contengono l'archivio storico dell'utente: non toccarli.
+- La libreria dell'utente vive in `ondo-data/` (o dove dice `ONDO_ROOT`): non è
+  versionata e **contiene i suoi video**. Non toccarla per fare prove — per quelle
+  si usa una radice di scarto (`ONDO_ROOT=...`), perché due processi sulla stessa
+  libreria si sovrascrivono a vicenda.

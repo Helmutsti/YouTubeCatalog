@@ -5,10 +5,9 @@
 # il workspace produce dei binari, quindi la build deve essere riproducibile.
 /target/
 
-# La libreria nuova e l'archivio storico dell'utente.
+# La libreria dell'utente: catalogo, video, copertine, metadati, staging.
+# Il nome è il default; con ONDO_ROOT può stare in qualunque altra cartella.
 /ondo-data/
-/media/
-/data/
 
 # Cookie della sessione YouTube: dati personali.
 cookies.txt
