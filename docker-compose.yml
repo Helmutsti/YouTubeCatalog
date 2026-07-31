@@ -1,0 +1,29 @@
+# M63 — Deploy su QNAP (Container Station) o qualunque host Docker.
+#
+# I percorsi host qui sotto sono RELATIVI alla cartella del compose. Su QNAP
+# sostituiscili con i percorsi reali delle tue cartelle sul NAS (es.
+# /share/Container/youtubecatalog/data, e il grande share dei video). Vedi
+# docs/DOCKER.md per la guida passo-passo.
+
+services:
+  youtubecatalog:
+    build: .
+    image: youtubecatalog:latest
+    container_name: youtubecatalog
+    restart: unless-stopped
+    ports:
+      # host:container — cambia la parte a sinistra se 3001 è già occupata sul NAS.
+      - "3001:3001"
+    volumes:
+      # Stato del catalogo (catalog.json, config.json, jobs.json, metadata.json).
+      - ./data:/app/data
+      # Copertine e avatar (piccoli) + .ytdlp-archive.txt.
+      - ./media:/app/media
+      # I VIDEO (grandi): punta questa riga alla cartella del NAS dedicata ai
+      # video. Mount annidato dentro /app/media — Docker lo gestisce senza problemi.
+      - ./videos:/app/media/videos
+      # Binario yt-dlp aggiornabile senza rebuild: metti qui tools/yt-dlp_linux
+      # (reso eseguibile: chmod +x). Vedi docs/DOCKER.md per scaricarlo.
+      - ./tools:/app/tools
+      # (Facoltativo) cookie YouTube per video privati/non listati:
+      # - ./cookies.txt:/app/core/cookies.txt:ro

@@ -1,22 +1,20 @@
-# Binari esterni: pesano ~300MB, non si versionano mai.
-/tools/
-
-# Artefatti di compilazione (centinaia di MB). Cargo.lock invece è versionato:
-# il workspace produce dei binari, quindi la build deve essere riproducibile.
-/target/
-
-# La libreria dell'utente: catalogo, video, copertine, metadati, staging.
-# Il nome è il default; con ONDO_ROOT può stare in qualunque altra cartella.
-/ondo-data/
-
-# Cookie della sessione YouTube: dati personali.
-cookies.txt
-
+node_modules/
+dist/
 .claude/
+/media/
+data/catalog.json
+data/metadata.json
+data/config.json
+data/jobs/*.json
+data/jobs.json
+# Lock consultivo sulla libreria (M80): stato di runtime di questa macchina.
+data/.lock
+# Binari esterni: procurati da `npm run setup`, mai versionati (peserebbero
+# ~100-190MB per aggiornamento nella history). Si ignora l'intera cartella
+# invece dei singoli nomi, così coprono anche i .tmp della scrittura atomica
+# e i nomi di nuove piattaforme senza dover aggiornare questo file.
+/tools/
+core/cookies.txt
 .env
 .env.local
 .env.*.local
-
-# Dipendenze e build del frontend.
-/ondo-web/fe/node_modules/
-/ondo-web/fe/dist/

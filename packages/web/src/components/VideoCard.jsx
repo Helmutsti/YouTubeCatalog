@@ -1,0 +1,259 @@
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { MoreVertical, Download, Archive, ArchiveRestore, User, FileDown, Star, StarOff, Trash2, ListPlus, ListMinus } from 'lucide-react';
+import { StatusBadge } from './StatusBadge.jsx';
+import { formatDuration, videoDisplayDate, channelKey, channelInitial } from '../lib/format.js';
+import { actionsFor } from '../lib/reviewActions.js';
+import { confirmDialog } from '../lib/dialog.js';
+import { useActiveDownloadJobId } from '../lib/downloadTracker.js';
+import { useJobStream } from '../hooks/useJobStream.js';
+import { addToQueue, removeFromQueue, useQueue } from '../lib/queueStore.js';
+import { showToast } from '../lib/toast.js';
+
+// Voci del menu ⋮ per tipo di azione (kind da actionsFor). Etichette/icone in
+// stile YouTube; "hide"→Archivia, "unhide"→Ripristina (contestuale allo stato).
+const MENU = {
+  download: { label: 'Scarica video', Icon: Download },
+  hide: { label: 'Archivia', Icon: Archive },
+  unhide: { label: 'Ripristina', Icon: ArchiveRestore }
+};
+
+// `layout`: 'grid' (default, invariato) per Home/Archiviati/creator; 'row' per
+// la card orizzontale (M53) usata in Cerca e "Video suggeriti" — stesso
+// componente, stessa logica di stato/menu ⋮, solo la struttura JSX cambia,
+// così le due varianti non possono divergere (è la divergenza ad aver causato
+// il bug delle card profilo).
+export function VideoCard({ video, onDecide, selected, onToggleSelect, layout = 'grid' }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
+  const kebabRef = useRef(null);
+  const menuListRef = useRef(null);
+  const dur = formatDuration(video.durationSeconds);
+  const date = videoDisplayDate(video);
+  const actions = actionsFor(video);
+  const downloading = video.download === 'downloading';
+  // Non ancora in libreria: copertina blur+B/N (sulla sola immagine, mai su
+  // bordo/overlay). Esclude "downloading", che ha già il proprio trattamento
+  // dedicato qui sotto (blur più forte + anello di progresso) — sommare
+  // anche questo li farebbe scontrare.
+  const notDownloaded = video.download !== 'downloaded' && !downloading;
+  // jobId noto solo se il download è stato avviato da questa stessa sessione
+  // (vedi lib/downloadTracker.js): se assente (pagina ricaricata a metà
+  // download, o avviato altrove) niente percentuale reale, il cerchio ricade
+  // su un'animazione indeterminata.
+  const activeJobId = useActiveDownloadJobId(video.id);
+  const { progress } = useJobStream(downloading ? activeJobId : null);
+  // Archivia/Ripristina va in fondo al menu, separato dalle altre azioni.
+  const archiveAction = actions.find((a) => a.kind === 'hide' || a.kind === 'unhide');
+  const otherActions = actions.filter((a) => a.kind !== 'hide' && a.kind !== 'unhide');
+  const key = channelKey(video);
+  // Coda di riproduzione effimera (M52): solo sui video scaricati (senza file
+  // locale non c'è nulla da autoplayare quando gli tocca il turno) — stesso
+  // vincolo del CLI, che offre "Aggiungi alla coda" solo tra i già scaricati.
+  const isDownloaded = video.download === 'downloaded';
+  const queueItems = useQueue();
+  const queued = queueItems.some((q) => q.id === video.id);
+
+  // Bug: su una card in fondo al viewport il menu ⋮ (aperto sempre verso il
+  // basso) usciva fuori schermo e le voci restavano irraggiungibili. All'apertura
+  // misuriamo lo spazio sotto il kebab: se non basta per il menu e sopra c'è
+  // posto, lo apriamo verso l'alto. useLayoutEffect così il flip avviene prima
+  // del paint (nessun lampeggio verso il basso).
+  useLayoutEffect(() => {
+    if (!menuOpen) { setDropUp(false); return; }
+    const btn = kebabRef.current;
+    const list = menuListRef.current;
+    if (!btn || !list) return;
+    const r = btn.getBoundingClientRect();
+    const h = list.offsetHeight;
+    setDropUp(window.innerHeight - r.bottom < h + 8 && r.top > h + 8);
+  }, [menuOpen]);
+
+  async function act(kind) {
+    setMenuOpen(false);
+    if (kind === 'queue') {
+      addToQueue(video);
+      showToast('Aggiunto alla coda.', 'success', 2000);
+      return;
+    }
+    if (kind === 'unqueue') {
+      removeFromQueue(video.id);
+      showToast('Rimosso dalla coda.', 'info', 2000);
+      return;
+    }
+    if (kind === 'deletevideo') {
+      // Cancellazione totale e irreversibile (punto 11): conferma esplicita,
+      // stesso modale usato per gli altri confirm dell'app.
+      const ok = await confirmDialog({
+        title: 'Cancellare definitivamente il video?',
+        message: `Azione irreversibile: file, copertina e scheda di "${video.title ?? video.id}" verranno cancellati per sempre. Se il video appartiene ancora a una fonte, la prossima sincronizzazione potrebbe reinserirlo in libreria.`,
+        confirmLabel: 'Cancella per sempre',
+        danger: true
+      });
+      if (!ok) return;
+    }
+    onDecide(video.id, kind);
+  }
+
+  // Contenuto della copertina: identico in grid e row, cambia solo la classe
+  // che ne fissa la dimensione (thumb-row vs il default a piena colonna).
+  const thumbInner = (
+    <>
+      {video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" loading="lazy" /> : null}
+      {downloading && (
+        <div className="dl-overlay">
+          <svg className="dl-ring" viewBox="0 0 36 36">
+            <circle className="dl-ring-track" cx="18" cy="18" r="15.9155" />
+            <circle
+              className={`dl-ring-fill${progress == null ? ' indeterminate' : ''}`}
+              cx="18" cy="18" r="15.9155"
+              style={progress != null ? { strokeDashoffset: 100 - progress } : undefined}
+            />
+          </svg>
+          <Download size={16} className="dl-icon" />
+        </div>
+      )}
+      {onToggleSelect && (
+        <input
+          type="checkbox"
+          className="card-select"
+          checked={!!selected}
+          title="Seleziona"
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => { e.stopPropagation(); onToggleSelect(video.id); }}
+        />
+      )}
+      <StatusBadge video={video} />
+      {video.favorite && (
+        <div className="fav-star" title="Preferito">
+          <Star size={16} fill="currentColor" />
+        </div>
+      )}
+      {dur && <div className="dur">{dur}</div>}
+    </>
+  );
+
+  // Menu ⋮: unico in tutta l'app, condiviso da grid e row — è proprio questa
+  // condivisione a garantire che le azioni disponibili non divergano mai tra
+  // i due layout.
+  const menu = (
+    <div className="card-menu">
+      <button
+        ref={kebabRef}
+        className="kebab"
+        aria-label="Azioni"
+        title="Azioni"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((o) => !o); }}
+      >
+        <MoreVertical size={16} />
+      </button>
+      {menuOpen && (
+        <>
+          <div className="menu-backdrop" onClick={(e) => { e.preventDefault(); setMenuOpen(false); }}></div>
+          <div ref={menuListRef} className={`menu-list${dropUp ? ' up' : ''}`} onClick={(e) => e.stopPropagation()}>
+            {otherActions.map((a) => {
+              const m = MENU[a.kind] ?? MENU.download;
+              const Icon = m.Icon;
+              return (
+                <button key={a.kind} className="menu-item" onClick={() => act(a.kind)}>
+                  <Icon size={15} />{m.label}
+                </button>
+              );
+            })}
+            {/* Preferito (M43): toggle indipendente, ammesso in qualunque stato */}
+            <button className="menu-item" onClick={() => act(video.favorite ? 'unfavorite' : 'favorite')}>
+              {video.favorite ? <StarOff size={15} /> : <Star size={15} />}
+              {video.favorite ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}
+            </button>
+            {/* Coda di riproduzione effimera (M52): come i preferiti, un
+                toggle client-side hardcoded, mai instradato su onDecide
+                (nessuna chiamata API, nessuno stato di dominio coinvolto). */}
+            {isDownloaded && (
+              <button className="menu-item" onClick={() => act(queued ? 'unqueue' : 'queue')}>
+                {queued ? <ListMinus size={15} /> : <ListPlus size={15} />}
+                {queued ? 'Rimuovi dalla coda' : 'Aggiungi alla coda'}
+              </button>
+            )}
+            {/* Aggiorna metadati: anche sui rimossi (ri-verifica) */}
+            <button className="menu-item" onClick={() => act('metadata')}>
+              <FileDown size={15} />Aggiorna metadati
+            </button>
+            {key && (
+              <Link className="menu-item" to={`/channels/${encodeURIComponent(key)}`} onClick={() => setMenuOpen(false)}>
+                <User size={15} />Mostra profilo
+              </Link>
+            )}
+            {/* Archivia/Ripristina: in fondo al menu, sempre rosso solo per "Archivia" */}
+            {archiveAction && (
+              <button
+                className={`menu-item${archiveAction.kind === 'hide' ? ' danger' : ''}`}
+                onClick={() => act(archiveAction.kind)}
+              >
+                {archiveAction.kind === 'hide' ? <Archive size={15} /> : <ArchiveRestore size={15} />}
+                {MENU[archiveAction.kind].label}
+              </button>
+            )}
+            {/* Cancella definitivamente (punto 11): solo sui video già
+                archiviati — gate a due passi, applicato anche lato core. */}
+            {video.hidden && (
+              <button className="menu-item danger" onClick={() => act('deletevideo')}>
+                <Trash2 size={15} />Cancella
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  if (layout === 'row') {
+    // Card orizzontale (M53): stessa copertina/menu della grid, impaginati in
+    // riga. Usata sia a piena larghezza (Cerca) sia nella colonna stretta dei
+    // suggeriti (~260px) — il ridimensionamento della miniatura è tutto in
+    // CSS (.thumb-row), qui la struttura è unica per entrambi i contesti.
+    return (
+      <div className={`card-row${video.hidden ? ' dimmed' : ''}${selected ? ' selected' : ''}`}>
+        <Link to={`/videos/${video.id}`} className={`thumb thumb-row${downloading ? ' downloading' : ''}${notDownloaded ? ' not-downloaded' : ''}`}>
+          {thumbInner}
+        </Link>
+        <div className="row-body">
+          <Link to={`/videos/${video.id}`} className="row-title">
+            {video.title ?? video.id}
+          </Link>
+          <div className="row-meta">
+            {video.channel?.name ?? 'Creator sconosciuto'}{date ? ` · ${date}` : ''}
+          </div>
+        </div>
+        {menu}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`card${video.hidden ? ' dimmed' : ''}${selected ? ' selected' : ''}`}>
+      <Link to={`/videos/${video.id}`} className={`thumb${downloading ? ' downloading' : ''}${notDownloaded ? ' not-downloaded' : ''}`}>
+        {thumbInner}
+      </Link>
+      <Link to={`/videos/${video.id}`} className="card-title">
+        {video.title ?? video.id}
+      </Link>
+      <div className="card-info">
+        {key ? (
+          <Link to={`/channels/${encodeURIComponent(key)}`} className="avatar">
+            {video.channel?.avatarUrl ? <img className="avatar-photo" src={video.channel.avatarUrl} alt="" /> : channelInitial(video)}
+          </Link>
+        ) : (
+          <div className="avatar">
+            {video.channel?.avatarUrl ? <img className="avatar-photo" src={video.channel.avatarUrl} alt="" /> : channelInitial(video)}
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="card-meta">{video.channel?.name ?? 'Creator sconosciuto'}</div>
+          {date && <div className="card-meta">{date}</div>}
+        </div>
+
+        {menu}
+      </div>
+    </div>
+  );
+}
