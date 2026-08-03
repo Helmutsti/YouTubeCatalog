@@ -183,6 +183,27 @@ export function migrateVideoToFlags(video) {
   return true;
 }
 
+// Normalizzazione (M87) dei tre assi introdotti DOPO che dei video erano già in
+// catalogo: `favorite` (M43), `enrichedAt` (M26), `missCount` (M31). Il codice
+// che li legge è difensivo (`!!video.favorite`, `video.missCount ?? 0`,
+// `!v.enrichedAt`), quindi un video che non li ha funziona comunque — ed è il
+// motivo per cui la libreria reale (409 video: 256 senza `favorite`, 63 senza
+// `enrichedAt`, 3 senza `missCount`) si leggeva già senza errori. Li si scrive
+// comunque, una volta sola, per non lasciare che sia la difensività a tenere in
+// piedi lo schema: `undefined` e `false` si comportano allo stesso modo finché
+// nessuno prova `Object.keys`, un `JSON.stringify` per confronto o una
+// `videos.filter(v => v.favorite === false)`. Idempotente: al secondo giro non
+// tocca niente. NON assegna un valore "intelligente" a `enrichedAt` (non si può
+// sapere a posteriori se i metadati completi ci sono): `null` = "da arricchire",
+// che è la verità per un video mai passato da `enrichSource`.
+export function normalizeVideoAxes(video) {
+  let changed = false;
+  if (!('favorite' in video)) { video.favorite = false; changed = true; }
+  if (!('enrichedAt' in video)) { video.enrichedAt = null; changed = true; }
+  if (!('missCount' in video)) { video.missCount = 0; changed = true; }
+  return changed;
+}
+
 // Migrazione (M41) dal vecchio `source` singolo (appartenenza a UNA fonte) alle
 // `sources` come array di etichette (appartenenza a zero, una o più fonti).
 // `sources` di riferimento è `catalog.sources` al momento del caricamento, per

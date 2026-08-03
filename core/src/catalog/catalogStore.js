@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { getPaths } from '../config.js';
-import { createEmptyCatalog, DOWNLOAD_STATE, migrateVideoToFlags, migrateVideoToSources } from './catalogSchema.js';
+import { createEmptyCatalog, DOWNLOAD_STATE, migrateVideoToFlags, migrateVideoToSources, normalizeVideoAxes } from './catalogSchema.js';
 
 let catalog = null;
 let loadPromise = null;
@@ -21,6 +21,8 @@ function reconcileOnLoad(cat) {
     if (migrateVideoToFlags(video)) changed = true;
     // Migrazione una tantum (M41) dal vecchio `source` singolo a `sources` (array).
     if (migrateVideoToSources(video, cat.sources)) changed = true;
+    // Normalizzazione una tantum (M87) dei campi aggiunti dopo: favorite/enrichedAt/missCount.
+    if (normalizeVideoAxes(video)) changed = true;
     // Reconciliation: un download interrotto a metà (processo morto durante
     // il download) va riportato a "none" e rifatto da zero al prossimo trigger.
     if (video.download === DOWNLOAD_STATE.DOWNLOADING) {

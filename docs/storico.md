@@ -1577,6 +1577,9 @@ Benchmark su catalogo **sintetico** a forma dello schema vero (i 274 video reali
 milestone M67-M73 sono quindi chiuse come abbandonate (la voce con la motivazione
 completa sta negli "Scartati" di `PIANO.md`); il codice **non è stato buttato**:
 resta sul branch `rust-core`, e il progetto su carta in `rust-core.md`.
+*(Aggiornamento M87: il branch `rust-core` è stato poi cancellato su richiesta
+dell'utente. Il codice resta comunque raggiungibile dalla history di `node-core`,
+che ne discende: `git log 82c31df`, `git show 82c31df:ondo-core/src/lib.rs`.)*
 
 **La scoperta che ha deciso il *come*.** La domanda vera non era "torniamo a
 Node?" ma "da dove ripartiamo: dall'albero di `main`, o riscriviamo il core in
@@ -1902,3 +1905,179 @@ Non tutto si può tradurre: `dialoguer` e `@inquirer` non sono la stessa libreri
   prefissare solo la prima riga di ogni blocco `stderr`, nascondendo le righe di
   log successive. La schermata funzionava già. Morale: prima di accusare il codice
   sotto esame, verificare lo strumento che lo osserva.
+
+## M87 — Il branch resta solo core + CLI, e la libreria reale ci entra dentro
+
+Due richieste dell'utente nello stesso giro: **(1)** su `node-core` deve restare
+solo il nuovo core e la nuova CLI — la web app e l'API «sono ancora sul branch
+`main`, poi le migreremo da lì»; **(2)** un **backup zip della libreria sul
+Desktop**, poi la **migrazione** perché sia leggibile dal nuovo core («non credo
+sia compatibile con il branch node»).
+
+Prima di tutto è stato **cancellato il branch `rust-core`, anche in remoto**, su
+richiesta dell'utente. Verificato prima che fosse **antenato** di `node-core`
+(`git merge-base --is-ancestor`): i suoi 24 commit restano quindi raggiungibili
+dalla history di questo branch (`git show 82c31df:ondo-core/src/lib.rs`), e il
+disegno su carta resta in `rust-core.md`. Le frasi che dicevano «resta sul branch
+`rust-core`» sono state corrette qui e in `PIANO.md`: puntavano a un ref che non
+esiste più.
+
+### Il taglio: 54 file fuori, e il criterio
+
+Fuori: `packages/server/**` (10 file), `packages/web/**` (42), il pacchetto
+Docker (`Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/DOCKER.md`) e
+`docs/avvio-avanzato.md`. Gli script di root che li avviavano (`build`, `start`,
+`serve`, `server`, `server:local`, `web`, `web:lan`) sono spariti: restano
+`setup` e `cli`. `npm install` ha rimosso 94 pacchetti (Express, Vite, React e
+il loro codazzo); `@inquirer/prompts` è l'unica dipendenza rimasta, il core
+continua a non averne nessuna.
+
+**Il criterio, esplicitato perché è la parte riusabile.** Docker e le due guide
+non sono stati tagliati perché "non servono": sono stati tagliati perché
+esistono **solo** per servire la web app (M63 è letteralmente "la web servita
+attraverso l'API", e `DOCKER.md` è la sua confezione per QNAP). Ciò che serve a
+un pezzo di codice se ne va con quel pezzo di codice, altrimenti resta un
+`Dockerfile` che fa `npm run build` di una cartella che non c'è.
+
+**Cosa NON è stato toccato, deliberatamente**: il core è rimasto **integrale**,
+comprese le funzioni che oggi solo la web app chiama (`searchVideos` fuzzy,
+`listChannels`, backup/ripristino zip, `reorganizeLibrary`, avatar dei canali,
+`analyzeVideoDownload`, il `port` in config). Non sono peso morto: sono la
+superficie contro cui il frontend di `main` è scritto, e toglierle trasformerebbe
+la migrazione futura in una riscrittura. Cancellare codice **duplicato** (il
+frontend, che su `main` esiste in versione buona) e cancellare codice **usato da
+un chiamante che tornerà** sono due decisioni diverse: la prima previene la
+divergenza, la seconda la causerebbe.
+
+### La verifica (B3, verifica reale ON)
+
+1. **Il core sulla libreria vera, in sola lettura**: 88 export, preflight dei tre
+   binari + runtime JS, 409 video, i sette conteggi per filtro, 54 autori,
+   ricerca esatta e fuzzy a confronto, pool, job storici, dettaglio di un video
+   con path e metadati grezzi.
+2. **La CLI vera pilotata a tasti**: intestazione, le quattro voci, i sette
+   conteggi della Libreria, righe d'elenco, pannello statistiche + azioni
+   contestuali, «Stato e percorsi» (● su tutti i binari, VLC, runtime), «Qualità
+   predefinita», «Download in parallelo», autori, ritorno indietro a ogni
+   livello. `Ctrl-C` come "indietro" funziona (M86).
+3. **Due download reali in parallelo, in una sandbox isolata** (copia di
+   `core`+`cli`, `data/` e `media/` propri, `tools/` condivisa per non
+   duplicare 150MB di binari; giunzioni `mklink /J` a mano perché robocopy
+   copia le giunzioni di npm come cartelle vere, e con quelle il `PROJECT_ROOT`
+   della copia sarebbe finito dentro `node_modules`):
+
+   | video | registrato nel catalogo | cosa dicevano i metadati |
+   |---|---|---|
+   | `jNQXAC9IVRw` "Me at the zoo" | **320×240 @15fps**, 0,5 MB | 240p (unico formato) |
+   | `aqz-KE-bpKQ` "Big Buck Bunny 60fps 4K" | **640×360 @30fps**, 52,7 MB | 3840×2160 @60fps |
+
+   Pool a 2 (`running: 2` subito dopo l'accodamento), layout canonico
+   `<Creator>/<Titolo> [<id>].mp4`, copertine, **avatar dei canali** scaricati,
+   `qualityNote` con `downloadedHeight: 360 / maxAvailableHeight: 2160`. La
+   seconda riga è M78 vista funzionare di nuovo sul dato vero.
+4. La CLI **riavviata nella sandbox**, dove i file esistono davvero: i due video
+   compaiono con risoluzione, durata, dimensione e percorso corretti.
+
+### La libreria reale: il dubbio era ragionevole, la risposta è no
+
+**Backup prima di tutto** (richiesta dell'utente, e A7): zip su Desktop,
+`Ondo-backup-libreria-2026-08-03.zip`, 458 file / 854 MB — `data/` per intero
+(catalogo 3,6MB, metadati 38,9MB, storico job, config), 386 copertine, 60 avatar
+e i **6 video presenti in `media/`**. Integrità verificata non guardando la
+dimensione ma **rileggendo `data/catalog.json` da dentro l'archivio** e
+riparsandolo: 409 video, 13 fonti.
+
+**Audit dello schema** contro ciò che il nuovo core si aspetta: nessun campo
+legacy (`status`, `source`, `decidedAt` — le migrazioni M25/M41 erano già
+passate), nessun valore fuori dominio su `presence`/`download`, `sources` sempre
+array, chiavi della mappa sempre uguali a `video.id`, nessuna etichetta che punta
+a una fonte non più registrata, zero scaricati senza `localPath`. **La libreria
+era già compatibile**: l'unica cosa che il caricamento con il nuovo core ha
+scritto è stata la chiave `queue: []` (M85), assente nei cataloghi scritti da
+`main`.
+
+Mancavano però tre campi **nati dopo** parte dei video: `favorite` (M43) su 256,
+`enrichedAt` (M26) su 63, `missCount` (M31) su 3. Non davano errori perché tutto
+il codice che li legge è **difensivo** (`!!video.favorite`, `video.missCount ?? 0`,
+`!v.enrichedAt`) — ed è esattamente il motivo per cui valeva la pena scriverli:
+finché è la difensività a tenere in piedi lo schema, `undefined` e `false` si
+comportano allo stesso modo *fino al primo* `Object.keys`, `JSON.stringify` di
+confronto o `filter(v => v.favorite === false)`. Da qui
+**`normalizeVideoAxes()`** in `catalogSchema.js`, chiamata da `reconcileOnLoad`
+accanto alle migrazioni M25/M41/M85: idempotente, e **non inventa valori** —
+`enrichedAt` resta `null` («da arricchire»), perché a posteriori non si può
+sapere se i metadati completi ci sono.
+
+**Come è stata applicata** (A7): provata **prima su una copia** del catalogo
+reale in sandbox, con confronto campo per campo prima/dopo — 256+63+3 campi
+aggiunti, **nessun altro campo alterato**, conteggi identici, e un secondo
+caricamento in un processo nuovo che non riscrive più niente (idempotenza).
+Poi applicata all'originale, con lo stesso confronto: 409 video prima e dopo,
+stessi id, scaricati 358→358, nascosti 28→28, preferiti 11→11, rimossi 22→22,
+fonti 13→13, avatar 62→62.
+
+### I video consolidati su `D:`, e i sei file su `C:` che non erano quello che sembravano
+
+Richiesta dell'utente a disco **ricollegato**: «sposta i video sul disco locale
+nel disco `D`». `D:\YouTube\Video` conteneva già 392 file / 148,3 GB, e in
+`media/videos` su `C:` c'erano 6 file per 813 MB.
+
+**Il piano fatto prima di muovere qualcosa ha cambiato il lavoro**: non c'era
+niente da spostare. Tutti i **358** video che il catalogo dà per scaricati erano
+**già** su `D:`; i 6 su `C:` erano **duplicati**. Verificato non per dimensione ma
+per **sha256**, e confrontando anche con lo `sha256` registrato nel catalogo:
+
+- **5 su 6 identici bit per bit** alla copia su `D:` *e* al valore nel catalogo →
+  rimossi da `C:`, 748,3 MB liberati, cartelle per creator rimaste vuote
+  eliminate. La rimozione è passata da un controllo a **doppia condizione**
+  (identico a `D:` **e** coerente col catalogo): se una delle due non regge, il
+  file su `C:` non si tocca. Nessuno dei 6 è finito in quel ramo, ma è la
+  condizione che rende ripetibile l'operazione senza rileggerla.
+- **1 divergente** (`169ozNGFlXc`): su `D:` c'era un **altro file**, 105.215.157
+  byte contro 104.477.383. Qui "sposta" avrebbe significato **sovrascrivere**, e
+  la dimensione da sola non dice quale sia il buono. Misurati entrambi con
+  ffprobe: **stesso video** (VP9 1920×1080 @30, Opus stereo, durata identica al
+  millesimo, 510,854s), quello su `D:` più vecchio (24/7) e appena più grosso
+  (+0,7% di bitrate), quello su `C:` più recente (25/7) — cioè il ri-scaricato
+  della riparazione dei 83 video del 25 luglio. **Il catalogo descrive quello di
+  `C:`** (dimensione *e* sha256 combaciano), quindi tenere l'altro avrebbe reso
+  stale lo sha256 di quel record.
+
+  Scelta: **niente sovrascrittura**. Il file di `D:` è stato **messo da parte** in
+  `D:\YouTube\_duplicati-fuori-catalogo\`, cartella **fuori da `videosRoot`** —
+  non "rinominato in `.bak` sul posto", che è la mossa istintiva: `libraryService`
+  ritrova i file cercando ricorsivamente il marker `[<id>]`, quindi un doppione
+  con lo stesso id dentro la radice dei video sarebbe una mina per un futuro
+  `reorganizeLibrary`. Poi il file di `C:` è stato copiato al suo posto, **hash
+  verificato dopo la copia** e solo allora l'originale rimosso.
+
+**Esito, con la config vera dell'utente e `D:` collegato**: `media/videos` vuota,
+`videosDir → D:\YouTube\Video`, 409 video, conteggi invariati (381/358/51/0/11/28/22)
+e **`missingFiles()` = 0** — dove prima, a disco staccato, erano 352. La CLI
+avviata sulla config reale mostra `● video D:\YouTube\Video`, tutti i binari a `●`
+e il pannello libreria **senza** più la riga "N file dati per scaricati non sono al
+loro posto".
+
+### Due difetti trovati, e perché non si correggono separatamente
+
+- **Col disco dei video scollegato, niente parte.** `getPaths()` fa
+  `mkdirSync(videosDir, {recursive: true})` a **ogni** chiamata, e `recursive`
+  non serve a nulla se manca la radice: con `videosRoot: "D:\YouTube\Video"` e
+  `D:` staccato, l'errore è `ENOENT: mkdir 'D:\YouTube\Video'`. Non è un problema
+  di messaggio: `getPaths()` è chiamato anche da `readCatalogFromDisk()`, quindi
+  **nessuna** operazione è possibile, nemmeno leggere la libreria o cambiare
+  l'impostazione sbagliata *da dentro l'app*.
+- **Ma quel crash è oggi l'unica protezione contro il bug 1** (l'auto-guarigione
+  `downloaded → none` che tratta "disco non montato" come "file cancellato"). Con
+  il disco staccato, `missingFiles()` ne conta **352 su 358**: una sync in quello
+  stato declasserebbe quasi tutta la libreria, e non esiste il ritorno automatico.
+  Per questo i due bug sono stati registrati **legati**: sistemare l'avvio da
+  solo aprirebbe la porta al danno. Nessuno dei due è stato corretto in questa
+  milestone (fuori dallo scope chiesto), ma la dipendenza è scritta nel `PIANO.md`
+  perché è la cosa che, dimenticata, farebbe fare il danno.
+
+**Pulizia (A7/B4)**: `config.json` deviato a `videosRoot: null` per il tempo
+delle prove e **ripristinato a hash identico** (`457EDE40…`); nessun lock
+residuo in `data/`; sandbox e copie di lavoro nello scratchpad di sessione, mai
+nella cartella del progetto (comportamento fondamentale 2). Il catalogo reale ha
+due scritture volute e nessun'altra: `queue: []` e i tre campi normalizzati.

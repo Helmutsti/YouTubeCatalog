@@ -155,11 +155,13 @@ Decisioni già prese con l'utente:
 
 ## Struttura del progetto
 
-Monorepo con npm workspaces. **`/core`** è la libreria condivisa (le "mini API": funzioni JS pure, senza dipendenza da Express/HTTP), elevata a cartella di primo livello proprio perché è il cuore del progetto — non un dettaglio interno a `packages/`. `cli`, `server` e `web` dentro `packages/` sono le interfacce/adapter che la consumano, tutte richiamando le stesse funzioni esportate da `core`:
+Monorepo con npm workspaces. **`/core`** è la libreria condivisa (le "mini API": funzioni JS pure, senza dipendenza da Express/HTTP), elevata a cartella di primo livello proprio perché è il cuore del progetto — non un dettaglio interno a `packages/`. Dentro `packages/` stanno le interfacce/adapter che la consumano, tutte richiamando le stesse funzioni esportate da `core`.
+
+> ⚠️ **Su questo branch (`node-core`) c'è solo `packages/cli`** (M87). `packages/server` (wrapper Express) e `packages/web` (SPA React) **vivono su `main`** e da lì verranno migrati a core/CLI chiusi; con loro sono usciti il pacchetto Docker (`Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/DOCKER.md`) e `docs/avvio-avanzato.md`. Le sezioni più sotto che li descrivono (**"Serving video e player"**, **"Pagine frontend"**) restano perché sono la **specifica della migrazione**, non codice presente qui.
 
 ```
 YouTubeCatalog/
-  package.json                 # root workspaces: ["core", "packages/*"]; script "setup" (M64)
+  package.json                 # root workspaces: ["core", "packages/*"]; script "setup" (M64) e "cli" (M87)
   .gitignore                   # /tools/ ignorata per intero: i binari non si versionano mai (M64)
   data/
     catalog.json                 # core: fonte di verità (dati curati)
@@ -196,59 +198,16 @@ YouTubeCatalog/
       jobs/jobs/downloadPending.js
       jobs/jobs/downloadSingle.js
   packages/
-    cli/                          # primo consumatore delle mini API di /core
+    cli/                          # UNICO consumatore delle mini API su questo branch (M87)
       package.json                  # dipendenza: @inquirer/prompts
-      cli.js                      # menu a frecce (@inquirer/prompts): importa @catalog/core direttamente, nessun HTTP
-    server/                       # thin wrapper HTTP attorno a @catalog/core (M10)
-      package.json                   # dipendenza: express
-      src/
-        index.js                     # crea l'app Express, CORS aperto (strumento locale single-user), monta le route sotto /api + media statico
-        routes/videos.routes.js      # lettura catalogo, decideVideo/playVideo, searchVideos, canali, download singolo
-        routes/sources.routes.js     # listSources/addSource/removeSource, /api/sync
-        routes/jobs.routes.js        # triggerJob/listJobs/getJob + GET /api/jobs/:id/stream (SSE, bridge su jobManager)
-        routes/library.routes.js     # POST /api/library/reorganize (dryRun di default true)
-        media/mediaRoutes.js         # express.static per /media/videos e /media/thumbnails (Range requests/ETag)
-        lib/asyncRoute.js            # cattura le Error di core -> 400 { error: message }, un solo pattern di errore
-        lib/publicVideo.js           # aggiunge videoUrl/thumbnailUrl con path-encoding per segmento
-    web/                          # SPA React, client HTTP di packages/server (M11)
-      vite.config.js                # proxy dev su /api e /media verso il server
-      src/
-        App.jsx                      # route SPA: /, /videos/:id, /search, /channels/:key, /sources, /archived, /settings
-        main.jsx
-        api/client.js
-        hooks/useJobStream.js        # sottoscrizione SSE condivisa, chiude la EventSource a success/failed
-        hooks/useHideWithPrompt.jsx  # modale "Vuoi tenere il video?" (archivia/cancella) riusabile
-        hooks/useTitle.js            # titolo della scheda
-        hooks/useQueueAdvance.js     # avanzamento coda condiviso MiniPlayer/pulsanti "Successivo" (M57)
-        lib/format.js
-        lib/reviewActions.js         # REVIEW_ACTIONS_BY_STATUS, stessa tabella del CLI
-        lib/status.js
-        lib/sort.js
-        lib/navigation.js
-        lib/toast.js                 # toast globali (stato su globalThis)
-        lib/dialog.js                # dialog imperativi: confirm + scelta a radio button (M56)
-        lib/downloadActions.js       # avvio download con scelta della risoluzione (M56)
-        lib/downloadTracker.js       # traccia i job di download attivi per id
-        lib/apiBase.js               # VITE_API_BASE_URL, indipendenza posizionale web↔API (M47)
-        lib/queueStore.js            # coda di riproduzione effimera "alla Spotify/YouTube" (M52)
-        lib/playerStore.js           # stato del player globale / mini-player (M54)
-        pages/CatalogPage.jsx        # Home: chip di stato, banner "Scarica in coda"
-        pages/VideoDetailPage.jsx    # slot del player globale + azioni contestuali allo stato
-        pages/SearchPage.jsx         # ricerca fuzzy (searchVideos), debounce 300ms
-        pages/ChannelPage.jsx        # equivalente di "Guarda"
-        pages/SourcesPage.jsx        # "Gestisci fonti" + "Sincronizza" fusi
-        pages/ArchivedPage.jsx       # video archiviati (hidden)
-        pages/SettingsPage.jsx       # cartelle media, cookie, sezione "Riproduzione"/mini-player (M54)
-        components/VideoCard.jsx
-        components/StatusBadge.jsx
-        components/StatusChips.jsx
-        components/Layout.jsx        # monta MiniPlayer (sopra l'<Outlet/>), nav
-        components/MobileNav.jsx
-        components/JobHistory.jsx    # storico job condiviso (M24): copertina+titolo, cancella singolo/svuota
-        components/ToastHost.jsx     # render dei toast globali
-        components/DialogHost.jsx    # render dei dialog imperativi (M56)
-        components/MiniPlayer.jsx    # UNICO <video> sopra il router, reparenting dock/flottante (M54)
-        styles/global.css            # design token direzione "Cinema" (scuro), nessun framework CSS
+      cli.js                      # ← main.rs (M86): App/pump, le quattro voci, preflight all'avvio
+      ondo.js                     # adattatore: Library/Downloader sincroni sopra @catalog/core (M86)
+      ui.js                       # ← ui.rs: glifi, videoLine, askQuality, screen/ok/err (ANSI a mano)
+      library.js                  # ← library.rs: i sette conteggi, elenchi, azioni contestuali
+      search.js                   # ← search.rs: prompt + risultati della ricerca esatta
+      settings.js                 # ← settings.rs: stato e percorsi, qualità, download in parallelo
+      quick.js                    # ← quick.rs: download rapido in raw mode, barre live
+    # packages/server e packages/web NON sono su questo branch: vivono su `main` (M87)
   scripts/
     setup.mjs                    # `npm run setup` (M64): scarica yt-dlp/ffmpeg/ffprobe in tools/ per l'OS corrente
   tools/                         # NON versionata (/tools/ in .gitignore): la popola scripts/setup.mjs
@@ -261,9 +220,8 @@ YouTubeCatalog/
     PIANO.md                       # futuro: milestone pianificate + backlog + bug
     documentazione.md              # stato attuale (riassunto vivo: core, decisioni, meccaniche controintuitive, scelte negative)
     storico.md                     # log append-only di tutte le implementazioni/decisioni, milestone per milestone
-    avvio-avanzato.md              # LAN, sviluppo a due processi, problemi di rete (spostato dal README, M65)
-    DOCKER.md                      # deploy su NAS/QNAP
-    rust-core.md                   # progetto su carta di ondo-core in Rust (ABI C) — milestone M67-M73
+    rust-core.md                   # progetto su carta di ondo-core in Rust (ABI C) — milestone M67-M73, abbandonate
+    # avvio-avanzato.md e DOCKER.md sono usciti con server/web (M87): stanno su `main`
 ```
 
 ## Schema del catalogo (`data/catalog.json`)
@@ -522,7 +480,7 @@ I menu del CLI (`@inquirer/prompts` dentro cicli `while(true)`) non pulivano il 
 
 > **Nota (evoluzione M55/M56):** questo blocco descrive la meccanica base originale. Da **M55** il selettore di formato ha una rete di sicurezza (evita ripieghi silenziosi a bassa risoluzione) e registra `video.qualityNote` quando scarica sotto il massimo disponibile; da **M56** la risoluzione è **scelta per-download** (`maxHeight`, radio button web / `select` CLI) invece che sempre al massimo, ed è stato aggiunto il client `web_embedded` come ulteriore ripiego. Il comportamento corrente di dettaglio vive in `documentazione.md` (stato attuale) e in `storico.md` (M55/M56).
 
-## Serving video e player (`packages/server`, M10)
+## Serving video e player (`packages/server`, M10) — *codice su `main`, qui è la spec della migrazione (M87)*
 
 - `express.static()` (via pacchetto `send`) supporta **Range requests**/ETag out of the box, montato da `media/mediaRoutes.js`:
   ```js

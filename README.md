@@ -1,8 +1,10 @@
-# YouTube Catalog (Ondo)
+# YouTube Catalog (Ondo) — core + CLI
 
-Archivio personale e locale dei video YouTube dei tuoi creator preferiti: li scarica per non perderli, li cataloga e li rende sfogliabili e riproducibili da una web app o da un menu a terminale.
+Archivio personale e locale dei video YouTube dei tuoi creator preferiti: li scarica per non perderli, li cataloga e li rende sfogliabili e riproducibili da un menu a terminale.
 
 Strumento **locale, single-user**. Un solo linguaggio (Node.js), nessun Python.
+
+> **Questo branch (`node-core`) contiene solo il core e la CLI.** La **web app** e l'**API HTTP** vivono sul branch **`main`** e da lì verranno migrate quando core e CLI saranno chiusi: qui non ne esiste una copia, di proposito — due versioni divergenti dello stesso frontend sarebbero peggio di nessuna. Per usare la web app: `git checkout main`.
 
 ---
 
@@ -13,12 +15,10 @@ Serve **Node.js 20 o superiore** (<https://nodejs.org>, include `npm`). Nient'al
 Dalla cartella del progetto, tre comandi:
 
 ```bash
-npm install      # dipendenze di tutti i pacchetti
-npm run setup    # scarica yt-dlp + ffmpeg in tools/ (per il tuo sistema)
-npm run serve    # compila la web app e avvia il server
+npm install      # dipendenze (solo @inquirer/prompts: il core non ne ha nessuna)
+npm run setup    # scarica yt-dlp + ffmpeg + ffprobe in tools/ (per il tuo sistema)
+npm run cli      # apre il menu a terminale
 ```
-
-Poi apri **<http://localhost:3001>**.
 
 Le cartelle `media/` e i file in `data/` vengono creati da soli al primo avvio: non devi preparare nulla a mano.
 
@@ -30,55 +30,49 @@ Le cartelle `media/` e i file in `data/` vengono creati da soli al primo avvio: 
 
 ## Uso
 
-### Web app (consigliata)
-
-`npm run serve`, poi <http://localhost:3001>. Da lì: aggiungi playlist come fonti, sincronizza, scarica, cerca, guarda, gestisci impostazioni e backup.
-
-Per aprirla da un telefono o un altro PC di casa, usa `http://<IP-di-questa-macchina>:3001` (**l'indirizzo IP**, non il nome del PC). Dettagli e casi problematici: [`docs/avvio-avanzato.md`](docs/avvio-avanzato.md).
-
-### Menu a terminale
-
 ```bash
 npm run cli
 ```
 
-Tutto navigabile con le **frecce**, nessun comando da digitare. Fa le stesse cose della web app, più la riproduzione con VLC. Non richiede che il server sia avviato.
+Tutto navigabile con le **frecce**, nessun comando da digitare. Quattro voci:
+
+| Voce | Cosa fa |
+|---|---|
+| **Cerca** | Ricerca esatta su titolo, autore, tag e descrizione; dai risultati si agisce sul video. |
+| **Libreria** | Tutti i video, per autore, preferiti, da scaricare, archiviati, rimossi da YouTube, falliti. Su un video: riproduci (VLC), solo audio, preferito, archivia, togli dalla libreria. |
+| **Download rapido** | Incolli uno o più link e guardi le barre di avanzamento dal vivo. Esc torna al menu **senza fermare i download**. |
+| **Impostazioni** | Stato e percorsi (cartelle, binari, runtime JS, VLC), qualità predefinita, quanti download in parallelo. |
+
+I download continuano mentre navighi. Uscire con download attivi te lo chiede prima.
 
 ---
 
 ## Configurazione
 
-Tutto sta in `data/config.json`, creato da solo al primo avvio con valori sensati (`data/config.example.json` è il modello). I campi che potresti voler cambiare:
+Tutto sta in `data/config.json`, creato da solo al primo avvio con valori sensati (`data/config.example.json` è il modello). Quasi tutto si cambia dal menu **Impostazioni**; a mano, i campi che contano:
 
 | Campo | A cosa serve |
 |---|---|
 | `videosRoot` | Cartella dei **file video**. Default `null` = dentro `media/videos`. Impostala per tenerli su un altro disco, es. `"D:\\YouTube\\Video"`. |
 | `mediaRoot` | Cartella di copertine e avatar (default `./media`). |
-| `port` | Porta del server (default `3001`). |
-| `playback.vlcPath` | Percorso di `vlc.exe`, solo per la riproduzione via VLC dal menu a terminale. |
+| `quality` | Qualità predefinita: `"best"`, `"ask"` (chiede a ogni download) o `{ "height": 1080 }`. |
+| `jobs.parallel` | Quanti download insieme (default `1`). Si può cambiare a caldo. |
+| `playback.vlcPath` | Percorso di `vlc.exe`, per la riproduzione. |
 
 > Nei percorsi Windows dentro il JSON serve la **doppia** backslash: `"D:\\YouTube\\Video"`.
 
-Le stesse cartelle si possono spostare anche dalla pagina **Impostazioni** della web app.
+> **Se il disco di `videosRoot` non è collegato, l'app non parte** (`ENOENT ... mkdir`). È un difetto noto, registrato in [`docs/PIANO.md`](docs/PIANO.md) → "Bug noti". Ripiego: ricollega il disco, o rimetti `videosRoot` a `null`.
 
 ---
 
 ## Video privati o non listati (facoltativo)
 
-Se la tua playlist contiene video privati o non listati del tuo account, yt-dlp deve autenticarsi:
+Se ti servono video privati o non listati del tuo account, yt-dlp deve autenticarsi:
 
 1. Esporta i cookie di YouTube in **formato Netscape** (es. con l'estensione "Get cookies.txt LOCALLY").
-2. Caricali dalla pagina **Impostazioni** della web app, oppure salva il file come `core/cookies.txt`.
+2. Salva il file come `core/cookies.txt`.
 
 Se il file non c'è, tutto funziona lo stesso. Non viene mai versionato.
-
----
-
-## Backup
-
-Dalla pagina **Impostazioni** (o dal menu **Backup / Ripristino** del CLI) si scarica un `.zip` con **tutto lo stato tranne i file video**: catalogo, metadati, storico, impostazioni, copertine e avatar.
-
-Al ripristino i file attuali vengono prima copiati in `data/pre-restore-<data-ora>/`: nulla viene cancellato. **Dopo un ripristino riavvia il server**, perché lo stato è tenuto in memoria.
 
 ---
 
@@ -86,11 +80,10 @@ Al ripristino i file attuali vengono prima copiati in `data/pre-restore-<data-or
 
 | | |
 |---|---|
-| Avvio in LAN, sviluppo con hot-reload, risoluzione problemi di rete | [`docs/avvio-avanzato.md`](docs/avvio-avanzato.md) |
-| Deploy su NAS / QNAP con Docker | [`docs/DOCKER.md`](docs/DOCKER.md) |
 | Come funziona e perché (stato attuale) | [`docs/documentazione.md`](docs/documentazione.md) |
 | Regole di progetto e architettura | [`docs/progetto.md`](docs/progetto.md) |
 | Cosa manca da fare | [`docs/PIANO.md`](docs/PIANO.md) |
-| Progetto del core in Rust (ABI C) — su carta | [`docs/rust-core.md`](docs/rust-core.md) |
+| Storia completa, milestone per milestone | [`docs/storico.md`](docs/storico.md) |
+| Progetto del core in Rust (ABI C) — su carta, abbandonato | [`docs/rust-core.md`](docs/rust-core.md) |
 
 > **Piattaforme.** Nato e usato su **Windows**. `npm run setup` e il codice scelgono i binari giusti anche su **Linux** e **macOS**, ma il supporto lì non è ancora verificato end-to-end.
