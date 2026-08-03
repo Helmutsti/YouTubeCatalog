@@ -3,7 +3,7 @@
 // Le briciole comuni a tutti i menu: pulire lo schermo, un messaggio che
 // sopravvive a un ridisegno, e come si scrive una riga di video.
 
-import { select as inquirerSelect } from '@inquirer/prompts';
+import { select as inquirerSelect, input as inquirerInput, confirm as inquirerConfirm } from '@inquirer/prompts';
 
 import * as core from '../../core/src/index.js';
 
@@ -32,30 +32,79 @@ export const PER_DOWNLOAD = core.QUALITY_PER_DOWNLOAD;
 // Quante voci per pagina negli elenchi lunghi: il `max_length(15)` dell'originale.
 export const PAGE = 15;
 
+// Un prompt annullato: `Esc` (M88) oppure `Ctrl-C`. Sono due errori diversi
+// perché arrivano da due strade diverse — l'abort del segnale e il segnale di
+// interruzione — ma per chi chiama significano la stessa cosa: «niente scelto».
+const ANNULLATO = new Set(['AbortPromptError', 'ExitPromptError']);
+
+/**
+ * Rende **annullabile con Esc** un prompt di `@inquirer` (M88).
+ *
+ * `@inquirer` non ha un tasto "annulla": `dialoguer` sì (`interact_opt`), e la
+ * CLI è la sua traduzione, quindi il tasto va aggiunto. Come: un `AbortSignal`
+ * passato al prompt (che alla sua cancellazione esce con `AbortPromptError`) e
+ * un ascoltatore `keypress` su `stdin` che lo cancella quando arriva `escape`.
+ *
+ * Perché `keypress` e non i byte grezzi: un `Esc` da solo (`0x1b`) e una freccia
+ * (`0x1b [ A`) cominciano con lo **stesso** byte. Distinguerli a mano vorrebbe
+ * dire riscrivere il parser delle sequenze ANSI; `readline` — che `@inquirer`
+ * tiene già acceso sullo stdin per conto suo — lo ha già fatto e chiama `escape`
+ * solo l'Esc vero. Verificato sul campo prima di scriverlo: durante un `select`
+ * l'ascoltatore vede `down | escape`, mai un `escape` per una freccia.
+ *
+ * L'ascoltatore si stacca **sempre** (`finally`): lasciarlo attaccato terrebbe
+ * `stdin` in flowing mode e il prompt successivo si mangerebbe dei tasti.
+ */
+export async function annullabile(run) {
+  const controller = new AbortController();
+  const onKey = (_ch, key) => {
+    if (key?.name === 'escape') controller.abort();
+  };
+  process.stdin.on('keypress', onKey);
+  try {
+    return await run(controller.signal);
+  } catch (err) {
+    if (ANNULLATO.has(err?.name)) return null;
+    throw err;
+  } finally {
+    process.stdin.off('keypress', onKey);
+  }
+}
+
 /**
  * Un `Select` a frecce che si può **annullare**, come `interact_opt` di
  * dialoguer: Esc o Ctrl-C danno `null` invece di terminare il processo. È così
  * che nell'originale si torna indietro da un menu senza scegliere niente.
  */
 export async function selectOpt({ message = '', choices, defaultValue, pageSize = PAGE }) {
-  try {
-    return await inquirerSelect({
-      message,
-      choices,
-      default: defaultValue,
-      pageSize,
-      loop: false,
-      // Un elenco di dialoguer non ha né un `?` davanti né una riga di aiuto in
-      // fondo ("↑↓ navigate • ⏎ select"): le voci cominciano subito sotto
-      // l'intestazione della schermata. Prefisso e messaggio vuoti fanno cadere
-      // la prima riga per intero (il prompt la filtra se resta vuota), e la riga
-      // di aiuto passa da `style.keysHelpTip`, che qui non stampa niente.
-      theme: { prefix: '', style: { keysHelpTip: () => '' } }
-    });
-  } catch (err) {
-    if (err?.name === 'ExitPromptError') return null;
-    throw err;
-  }
+  return annullabile((signal) =>
+    inquirerSelect(
+      {
+        message,
+        choices,
+        default: defaultValue,
+        pageSize,
+        loop: false,
+        // Un elenco di dialoguer non ha né un `?` davanti né una riga di aiuto in
+        // fondo ("↑↓ navigate • ⏎ select"): le voci cominciano subito sotto
+        // l'intestazione della schermata. Prefisso e messaggio vuoti fanno cadere
+        // la prima riga per intero (il prompt la filtra se resta vuota), e la riga
+        // di aiuto passa da `style.keysHelpTip`, che qui non stampa niente.
+        theme: { prefix: '', style: { keysHelpTip: () => '' } }
+      },
+      { signal }
+    )
+  );
+}
+
+/** Un campo di testo annullabile con Esc: `null` = annullato (M88). */
+export async function inputOpt({ message, initial }) {
+  return annullabile((signal) => inquirerInput({ message, default: initial }, { signal }));
+}
+
+/** Una conferma annullabile con Esc: `null` = annullato, diverso da `false` (M88). */
+export async function confirmOpt({ message, defaultValue = false }) {
+  return annullabile((signal) => inquirerConfirm({ message, default: defaultValue }, { signal }));
 }
 
 /**
@@ -133,9 +182,18 @@ function padTruncate(text, width) {
   return s.join('') + ' '.repeat(width - s.length);
 }
 
-/** Una riga d'elenco: stato, durata, autore, titolo. */
-export function videoLine(v) {
-  return `${glyph(v)} ${padStart(core.durationLabel(v.durationSeconds), 7)}  ${padTruncate(v.author, 22)}  ${v.title}`;
+/**
+ * Una riga d'elenco: stato, durata, autore, titolo.
+ *
+ * `autore: false` (M88) toglie la colonna dell'autore: in una vista **centrata su
+ * un autore** quel nome è già nell'intestazione e ripeterlo su ogni riga occupa
+ * 24 colonne per non dire niente — colonne che qui servono al titolo, che è
+ * l'unica cosa che distingue una riga dall'altra.
+ */
+export function videoLine(v, { autore = true } = {}) {
+  const durata = padStart(core.durationLabel(v.durationSeconds), 7);
+  if (!autore) return `${glyph(v)} ${durata}  ${v.title}`;
+  return `${glyph(v)} ${durata}  ${padTruncate(v.author, 22)}  ${v.title}`;
 }
 
 /**

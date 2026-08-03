@@ -3,21 +3,16 @@
 // Cerca: si scrive, si scelgono i risultati, si agisce. La ricerca la fa il core
 // (`searchLibrary`) — qui non c'è nessuna regola di corrispondenza.
 
-import { input } from '@inquirer/prompts';
-
 import * as ui from './ui.js';
 import * as library from './library.js';
 
 const BACK = Symbol('back');
 const ALTRO = Symbol('altro');
 
+// M88: Esc (come Ctrl-C) annulla la ricerca. Una query vuota è già il modo in cui
+// questa schermata torna al menu, quindi "annullato" diventa la stringa vuota.
 async function inputOpt(message, initial) {
-  try {
-    return await input({ message, default: initial });
-  } catch (err) {
-    if (err?.name === 'ExitPromptError') return '';
-    throw err;
-  }
+  return (await ui.inputOpt({ message, initial })) ?? '';
 }
 
 export async function open(app) {

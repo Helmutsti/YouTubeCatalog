@@ -2081,3 +2081,92 @@ delle prove e **ripristinato a hash identico** (`457EDE40…`); nessun lock
 residuo in `data/`; sandbox e copie di lavoro nello scratchpad di sessione, mai
 nella cartella del progetto (comportamento fondamentale 2). Il catalogo reale ha
 due scritture volute e nessun'altra: `queue: []` e i tre campi normalizzati.
+
+## M88 — `Esc` come «indietro», e la vista di un autore che non ripete l'autore
+
+**Il problema, nelle parole dell'utente**: «non posso scorrere tutto un catalogo
+arrivando in fondo per indietro». Aveva ragione: `← indietro` è l'**ultima** voce
+di ogni elenco, quindi uscire da una vista di 381 video voleva dire attraversarla
+tutta. `Ctrl-C` faceva già da "indietro" (M86) ma è una scorciatoia che nessuno
+indovina, e in un terminale significa istintivamente "ammazza il programma".
+
+### Come è stato fatto, e perché non prompt per prompt
+
+`@inquirer` non ha un tasto "annulla"; `dialoguer` — di cui questa CLI è la
+traduzione — sì (`interact_opt`). Serviva quindi aggiungerlo, in **un solo
+punto**: `ui.annullabile(run)` crea un `AbortController`, lo passa al prompt
+(che alla cancellazione esce con `AbortPromptError`) e lo cancella quando arriva
+`escape`. `selectOpt`, `inputOpt` e `confirmOpt` ci passano tutte e tre, quindi
+`Esc` vale in **ogni** prompt della CLI senza che nessun modulo lo sappia.
+
+**La decisione tecnica che conta: `keypress`, non i byte.** `Esc` da solo è
+`0x1b`; una freccia è `0x1b [ A`. Guardare i byte grezzi vorrebbe dire
+riscrivere il parser delle sequenze ANSI e sbagliare i casi limite (Esc premuto
+subito prima di una freccia, sequenze spezzate su due chunk). `readline` — che
+`@inquirer` tiene già acceso su `stdin` per conto suo — quel parser lo ha già, ed
+emette `escape` solo per l'Esc vero. **Spike prima del codice** (B1): durante un
+`select` pilotato, l'ascoltatore vede `down | escape` e il prompt esce con
+`AbortPromptError`; nessun `escape` spurio per le frecce.
+
+Dettagli che sembrano piccoli e non lo sono:
+
+- **L'ascoltatore si stacca sempre** (`finally`). Lasciarlo attaccato terrebbe
+  `stdin` in flowing mode e il prompt successivo si mangerebbe dei tasti — lo
+  stesso difetto già incontrato in M86 con la schermata in raw mode.
+- **`Esc` e `Ctrl-C` restano errori distinti** (`AbortPromptError` /
+  `ExitPromptError`) perché arrivano da due strade diverse, ma per chi chiama
+  significano la stessa cosa e collassano su `null`. Un solo insieme di nomi in
+  `ui.js`, invece di due `catch` copiati in quattro file.
+- **Cosa vuol dire "annullato" dipende dal prompt**, e va deciso dal chiamante,
+  non dal wrapper: su una conferma sì/no annullare **è** rispondere no; nel campo
+  della ricerca è la query vuota (che già riportava al menu); su un campo delle
+  impostazioni è "non cambiare niente"; nel menu principale è uscire.
+
+### La vista di un autore
+
+Constatazione dell'utente: in `Libreria · <autore>` ogni riga ripeteva il nome
+dell'autore, che è già nell'intestazione. `ui.videoLine(v, { autore: false })`
+toglie quella colonna: 24 caratteri che non dicevano niente e che ora vanno al
+**titolo**, l'unica cosa che in quella vista distingue una riga dall'altra (prima
+i titoli lunghi andavano a capo, ora ci stanno). Nelle altre viste la colonna
+resta — lì l'autore cambia riga per riga, quindi serve.
+
+### La verifica (B3)
+
+14 controlli sulla CLI vera pilotata a tasti, ognuno con l'atteso dichiarato:
+Esc dal fondo di un elenco di 381 video (torna al sottomenu), dal sottomenu
+(torna al menu), dal campo di testo della ricerca, dai menu «Qualità
+predefinita» e «Download in parallelo» **senza cambiare il valore**, dalle
+Impostazioni, e dal menu principale → uscita con **exit code 0**. Tutti passati.
+Più le due schermate a confronto, con e senza colonna autore.
+
+**Due cose imparate dal banco di prova, non dal prodotto:**
+
+- Il primo giro sembrava dire che «dopo il primo Esc la CLI si blocca». Era il
+  **driver**: catturava un frame per passo e la ristampa del menu arrivava nel
+  frame dopo, così i passi risultavano vuoti. Diagnosticato mandando un `DOWN`
+  dopo l'Esc: il cursore si muoveva, quindi lo stdin era vivissimo. Secondo
+  falso allarme di questo tipo in due milestone (M86 ne ha uno gemello): la
+  regola "prima di accusare il codice, verificare lo strumento che lo osserva"
+  ha pagato di nuovo.
+- Anche l'`exit code` «NON uscito» era del driver, che attaccava l'ascoltatore
+  `exit` **dopo** che il processo era già uscito. Attaccato allo spawn: `0`.
+
+### E una prova che non c'entrava con l'Esc: i download paralleli sono veri
+
+Domanda dell'utente nel mezzo del lavoro: «questa CLI node può gestire download
+paralleli reali?». Provato dal **percorso della CLI** (`ondo.js` → `dl.pushWith`,
+cioè ciò che fa «Download rapido»), con `jobs.parallel: 3` e tre link — due
+video-campione e uno preso dai "da scaricare" della libreria vera. La prova
+decisiva non è un contatore nostro ma il **sistema operativo**: `tasklist` conta
+**3 processi `yt-dlp.exe`** vivi nello stesso istante (6 righe, perché
+`yt-dlp.exe` è PyInstaller onefile: un parent e un worker per download — limite
+già noto e documentato in M51/M58), mentre il pool riporta `3 in corso / 0 in
+coda`. Tre download indipendenti, tre processi reali, 16s in totale.
+
+Il terzo dei tre è **fallito**, e per un motivo che vale registrare: non il
+parallelismo, ma il **limite dei 260 caratteri di Windows** — la sandbox vive in
+un percorso profondo e il titolo era di 78 caratteri, quindi yt-dlp non è
+riuscito a scrivere l'`.info.json`. Con `videosRoot` corto (`D:\YouTube\Video`)
+non si manifesta, ed è per questo che non era mai emerso: annotato fra i bug noti
+con i tre rimedi possibili (`\\?\`, `--trim-filenames`, un avviso nel preflight).

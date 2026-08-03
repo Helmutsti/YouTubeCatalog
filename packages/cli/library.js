@@ -4,22 +4,17 @@
 
 import { existsSync } from 'node:fs';
 
-import { confirm } from '@inquirer/prompts';
-
 import * as core from '../../core/src/index.js';
 import * as ui from './ui.js';
 import { FILTER, STATE } from './ondo.js';
 
 const BACK = Symbol('back');
 
-// `confirm` che si può annullare come nell'originale: Esc/Ctrl-C valgono "no".
+// `confirm` che si può annullare come nell'originale: Esc/Ctrl-C valgono "no"
+// (M88: l'Esc passa da `ui.confirmOpt`, che ritorna `null` per "annullato" —
+// qui, su una domanda sì/no, annullare *è* rispondere no).
 async function confirmOpt(message, defaultValue = false) {
-  try {
-    return await confirm({ message, default: defaultValue });
-  } catch (err) {
-    if (err?.name === 'ExitPromptError') return false;
-    throw err;
-  }
+  return (await ui.confirmOpt({ message, defaultValue })) === true;
 }
 
 export async function open(app) {
@@ -90,8 +85,9 @@ async function authorsView(app) {
       await app.pump();
       ui.screen(`Libreria · ${autore}`, app);
       const video = app.lib.byAuthor(autore);
+      // M88 — qui l'autore è già nell'intestazione: le righe non lo ripetono.
       const vociVideo = [
-        ...video.map((v) => ({ name: ui.videoLine(v), value: v.id })),
+        ...video.map((v) => ({ name: ui.videoLine(v, { autore: false }), value: v.id })),
         { name: '← indietro', value: BACK }
       ];
 

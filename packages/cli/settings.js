@@ -5,8 +5,6 @@
 
 import { existsSync } from 'node:fs';
 
-import { input } from '@inquirer/prompts';
-
 import * as core from '../../core/src/index.js';
 import * as ui from './ui.js';
 import { FILTER } from './ondo.js';
@@ -156,14 +154,10 @@ async function paths(app) {
  * per sbaglio in una voce vorrebbe dire non poterne uscire senza scrivere qualcosa.
  */
 async function chiedi(prompt, attuale) {
-  let nuovo;
-  try {
-    nuovo = await input({ message: prompt, default: attuale });
-  } catch (err) {
-    if (err?.name === 'ExitPromptError') return null;
-    throw err;
-  }
-  nuovo = String(nuovo ?? '').trim();
+  // M88: Esc (come Ctrl-C) esce dal campo senza cambiare niente.
+  const risposta = await ui.inputOpt({ message: prompt, initial: attuale });
+  if (risposta === null) return null;
+  const nuovo = String(risposta).trim();
   return nuovo === String(attuale ?? '').trim() ? null : nuovo;
 }
 
