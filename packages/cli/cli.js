@@ -174,6 +174,12 @@ async function run() {
         return;
       }
     } catch (e) {
+      // Ctrl-C non è un errore di questa voce di menu: esce dal programma, e per
+      // farlo deve attraversare questo `catch` invece di finirci dentro (M89).
+      if (ui.isInterruzione(e)) {
+        dl.dispose();
+        throw e;
+      }
       ui.err(app, e);
     }
   }
@@ -182,6 +188,13 @@ async function run() {
 run()
   .then(() => process.exit(0))
   .catch((e) => {
+    // Ctrl-C: uscita voluta, non un guasto. 130 è il codice convenzionale per
+    // "terminato da SIGINT", così anche uno script che invoca la CLI lo distingue
+    // da un errore vero. Il lock su data/ lo rilascia l'hook di `exit`.
+    if (ui.isInterruzione(e)) {
+      console.log(`\n${ui.style.dim('Interrotto.')}`);
+      process.exit(130);
+    }
     console.error(`${ui.style.red('✗')} ${e?.message ?? e}`);
     process.exit(1);
   });

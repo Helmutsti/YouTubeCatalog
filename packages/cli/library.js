@@ -320,6 +320,7 @@ export async function actions(app, id) {
         }
       }
     } catch (e) {
+      if (ui.isInterruzione(e)) throw e; // Ctrl-C attraversa: esce dal programma (M89)
       ui.err(app, e);
     }
   }

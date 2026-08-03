@@ -45,6 +45,8 @@ Tutto navigabile con le **frecce**, nessun comando da digitare. Quattro voci:
 
 I download continuano mentre navighi. Uscire con download attivi te lo chiede prima.
 
+**Tasti**: le frecce per muoverti, Invio per scegliere, **`Esc` per tornare indietro** (da qualsiasi elenco, senza scorrere fino a «← indietro»), **`Ctrl-C` per uscire** dal programma.
+
 ---
 
 ## Configurazione

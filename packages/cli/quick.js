@@ -63,10 +63,15 @@ export async function open(app) {
   let focus = { kind: 'prompt' };
   let input = '';
   let uscita = null;
+  let interrotto = false;
 
   const stdin = process.stdin;
   const eraRaw = stdin.isRaw;
-  readline.emitKeypressEvents(stdin);
+  // Il decoder è già installato da `ui.js` con la finestra corta per l'Esc (M89):
+  // questa chiamata trova il decoder e torna subito. Le opzioni si passano
+  // comunque, così se un giorno questo modulo fosse il primo a girare non
+  // erediterebbe di nascosto il default di 500ms.
+  readline.emitKeypressEvents(stdin, ui.KEYPRESS_OPTS);
   if (stdin.isTTY) stdin.setRawMode(true);
   stdin.resume();
   term.write(term.clearAll());
@@ -78,7 +83,10 @@ export async function open(app) {
 
   const onKeypress = (str, key) => {
     if (!key) return;
+    // M89 — `Ctrl-C` esce dal programma, come in ogni altra schermata; `Esc`
+    // torna al menu (e i download continuano). Prima erano la stessa cosa.
     if (key.ctrl && (key.name === 'c' || key.name === 'd')) {
+      interrotto = true;
       uscita?.();
       return;
     }
@@ -151,6 +159,10 @@ export async function open(app) {
   if (stdin.isTTY) stdin.setRawMode(!!eraRaw);
   stdin.pause();
   term.write(`${term.clearAll()}${term.moveTo(0, 0)}${term.showCursor()}`);
+  // Lo stdin va rimesso a posto **prima** di far salire l'interruzione: se si
+  // uscisse lasciando il terminale in raw mode e il cursore nascosto, la shell
+  // resterebbe muta dopo l'uscita.
+  if (interrotto) throw new ui.Interruzione();
 }
 
 function draw(app, rows, input, focus) {

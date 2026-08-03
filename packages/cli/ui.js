@@ -3,6 +3,8 @@
 // Le briciole comuni a tutti i menu: pulire lo schermo, un messaggio che
 // sopravvive a un ridisegno, e come si scrive una riga di video.
 
+import readline from 'node:readline';
+
 import { select as inquirerSelect, input as inquirerInput, confirm as inquirerConfirm } from '@inquirer/prompts';
 
 import * as core from '../../core/src/index.js';
@@ -32,10 +34,53 @@ export const PER_DOWNLOAD = core.QUALITY_PER_DOWNLOAD;
 // Quante voci per pagina negli elenchi lunghi: il `max_length(15)` dell'originale.
 export const PAGE = 15;
 
-// Un prompt annullato: `Esc` (M88) oppure `Ctrl-C`. Sono due errori diversi
-// perché arrivano da due strade diverse — l'abort del segnale e il segnale di
-// interruzione — ma per chi chiama significano la stessa cosa: «niente scelto».
-const ANNULLATO = new Set(['AbortPromptError', 'ExitPromptError']);
+/**
+ * Quanto `readline` aspetta, dopo un `Esc`, per capire se è l'inizio di una
+ * sequenza più lunga (M89). Il suo default è **500ms**, e sono i 500ms che si
+ * sentivano come «Esc è un po' lento»: misurati, il byte `1b` arriva in 1ms e
+ * l'evento `escape` 513ms dopo.
+ *
+ * Perché 20ms bastano: una freccia arriva in **un solo chunk** (`1b 5b 42`),
+ * non spezzata — verificato — quindi la finestra serve solo a coprire una
+ * sequenza divisa in due letture, che su un terminale locale non capita. Se un
+ * giorno la CLI girasse su un collegamento molto lento (SSH), una freccia
+ * spezzata con più di 20ms di ritardo verrebbe letta come Esc + `[B`: è il
+ * prezzo consapevole di questa scelta, e il numero sta qui per poterlo alzare.
+ */
+const ESCAPE_TIMEOUT_MS = 20;
+
+/**
+ * Installa il decoder dei tasti su `stdin` **prima** di chiunque altro.
+ *
+ * `readline.emitKeypressEvents` esce subito se il decoder c'è già, e il timeout
+ * lo cattura chi lo installa: quindi il primo che chiama decide per tutto il
+ * processo. Chiamandolo noi al caricamento di questo modulo — che è il primo che
+ * la CLI importa — sia i prompt di `@inquirer` sia la schermata in raw mode del
+ * Download rapido ereditano la finestra corta senza saperne niente.
+ */
+readline.emitKeypressEvents(process.stdin, { escapeCodeTimeout: ESCAPE_TIMEOUT_MS });
+
+export const KEYPRESS_OPTS = { escapeCodeTimeout: ESCAPE_TIMEOUT_MS };
+
+/**
+ * `Ctrl-C` **non** è «indietro» (M89): in un terminale significa «interrompi
+ * adesso», e ora che `Esc` fa da indietro non c'è più motivo di prestargli quel
+ * significato (in M86 gliel'avevamo dato perché era l'unico tasto disponibile).
+ *
+ * Non è un errore dell'operazione in corso: è una richiesta che deve
+ * **attraversare** i `catch` intermedi e arrivare in cima. Per questo è un tipo
+ * a sé e ogni `catch` della CLI la rilancia invece di mostrarla come «✗ …».
+ */
+export class Interruzione extends Error {
+  constructor() {
+    super('Interrotto.');
+    this.name = 'Interruzione';
+  }
+}
+
+export function isInterruzione(e) {
+  return e?.name === 'Interruzione';
+}
 
 /**
  * Rende **annullabile con Esc** un prompt di `@inquirer` (M88).
@@ -64,7 +109,10 @@ export async function annullabile(run) {
   try {
     return await run(controller.signal);
   } catch (err) {
-    if (ANNULLATO.has(err?.name)) return null;
+    // Esc → «niente scelto», e chi chiama decide cosa vuol dire.
+    if (err?.name === 'AbortPromptError') return null;
+    // Ctrl-C → si esce dal programma: la si rilancia perché arrivi in cima.
+    if (err?.name === 'ExitPromptError') throw new Interruzione();
     throw err;
   } finally {
     process.stdin.off('keypress', onKey);

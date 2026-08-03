@@ -5,6 +5,20 @@
 
 ## Milestone pianificate
 
+### M89 — Esc immediato, e Ctrl-C che esce invece di fare indietro: **completata** ✅
+
+Due rilievi dell'utente subito dopo M88: «anche ctrl+c va indietro» e «esc è un po' lento».
+
+**(a) L'Esc era lento per un motivo preciso, misurato.** Il byte `1b` arriva in **1ms**, ma l'evento `escape` di `readline` arrivava **513ms dopo**: è il suo `escapeCodeTimeout` (default 500ms), il tempo in cui aspetta di capire se quell'Esc è l'inizio di una sequenza più lunga — `Esc` e le frecce cominciano con lo stesso byte. Non era il nostro codice: fra `escape` e l'uscita del prompt passavano 2ms.
+
+**La correzione (tre righe, nessun parser scritto a mano).** `readline.emitKeypressEvents(stream, iface)` prende `escapeCodeTimeout` dall'oggetto che gli si passa, **ed esce subito se il decoder è già installato**: il primo che lo installa decide per tutto il processo. `ui.js` — il primo modulo che la CLI importa — lo installa con **20ms**, così i prompt di `@inquirer` *e* la schermata in raw mode del Download rapido ereditano la finestra corta senza saperne niente. Misurato dopo: **33-40ms**. Le frecce restano immediate, perché arrivano in un solo chunk (`1b 5b 42`) e non aspettano nessuna finestra. Prezzo consapevole, scritto accanto alla costante: su un collegamento molto lento (SSH) una freccia spezzata con più di 20ms di ritardo verrebbe letta come Esc.
+
+**(b) Ctrl-C ora esce dal programma**, da qualunque livello, con exit code **130** (la convenzione per "terminato da SIGINT") e una riga «Interrotto.». In M86 gli era stato dato il significato di "indietro" perché era l'unico tasto disponibile; ora che `Esc` fa da indietro, quel significato è sbagliato — in un terminale `Ctrl-C` vuol dire «interrompi adesso». Vale anche nel Download rapido, dove prima Ctrl-C e Esc facevano la stessa cosa: ora `Esc` torna al menu (e i download continuano), `Ctrl-C` esce.
+
+**Come attraversa il codice**: `ui.Interruzione`, un tipo a sé, perché non è un errore dell'operazione in corso ma una richiesta che deve arrivare in cima — i cinque `catch` intermedi della CLI la **rilanciano** invece di mostrarla come «✗ …». Nel Download rapido viene lanciata **dopo** aver rimesso a posto il terminale (raw mode spento, cursore mostrato): uscire lasciando il terminale in raw mode renderebbe muta la shell.
+
+**Verifica**: latenza dell'Esc misurata sulla CLI vera (33/40/40ms), Ctrl-C da tre livelli diversi (menu, elenco di 381 video, pannello impostazioni) → exit 130 e messaggio, Ctrl-C dal Download rapido → exit 130 **e** cursore ripristinato, più le **11 prove di regressione** di M88 (Esc indietro a ogni livello, Esc al menu principale → exit 0). Tutte passate.
+
 ### M88 — Esc come «indietro», e la vista di un autore che non ripete l'autore: **completata** ✅
 
 **Il problema, nelle parole dell'utente**: «non posso scorrere tutto un catalogo arrivando in fondo per indietro». Vero: la voce `← indietro` sta in **fondo** all'elenco, e con 381 video uscire da una vista voleva dire arrivarci. `Ctrl-C` funzionava già (M86) ma non è un tasto che si indovina.

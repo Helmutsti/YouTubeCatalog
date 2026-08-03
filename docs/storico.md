@@ -2170,3 +2170,76 @@ un percorso profondo e il titolo era di 78 caratteri, quindi yt-dlp non è
 riuscito a scrivere l'`.info.json`. Con `videosRoot` corto (`D:\YouTube\Video`)
 non si manifesta, ed è per questo che non era mai emerso: annotato fra i bug noti
 con i tre rimedi possibili (`\\?\`, `--trim-filenames`, un avviso nel preflight).
+
+## M89 — L'Esc immediato, e `Ctrl-C` che torna a voler dire «esci»
+
+Due rilievi dell'utente arrivati subito dopo M88, entrambi giusti: «anche ctrl+c
+va indietro» e «esc è un po' lento».
+
+### I 500 millisecondi non erano nostri
+
+**Misurato prima di ipotizzare** (B1): il byte `1b` arriva su `stdin` in **1ms**,
+l'evento `keypress: escape` **513ms dopo**, e fra quell'evento e l'uscita del
+prompt passano **2ms**. Il ritardo era tutto dentro `readline`: è il suo
+`escapeCodeTimeout` (default **500ms**), la finestra in cui aspetta di capire se
+quell'`Esc` è l'inizio di una sequenza più lunga — `Esc` da solo è `1b`, una
+freccia è `1b 5b 42`, e per i primi 500ms sono indistinguibili.
+
+**La prima idea, scartata**: riconoscere l'Esc da noi sul `data` grezzo (il byte
+arriva in 1ms). Funzionerebbe — verificato che le frecce arrivano in **un solo
+chunk** e l'Esc da solo in un chunk di **un byte** — ma vorrebbe dire tenere in
+casa un pezzo di parser delle sequenze ANSI e i suoi casi limite.
+
+**La correzione vera, tre righe.** `readline.emitKeypressEvents(stream, iface)`
+legge `escapeCodeTimeout` dall'oggetto che gli si passa, **ed esce subito se il
+decoder sullo stream è già installato**: quindi *il primo che lo installa decide
+per tutto il processo*. Lo installa `ui.js` — il primo modulo che la CLI importa
+— con **20ms**, e da lì lo ereditano sia i prompt di `@inquirer` sia la schermata
+in raw mode del Download rapido, senza che nessuno dei due sappia niente.
+Verificato che l'ordine regga davvero prima di scrivere il codice: con il decoder
+installato a 20ms, un `select` di `@inquirer` esce **33ms** dopo l'Esc.
+
+Misure sulla CLI vera, tre Esc di fila: **33ms, 40ms, 40ms** (da 513). Le frecce
+non ne soffrono: arrivano complete in un chunk, quindi non aspettano nessuna
+finestra. Il prezzo è scritto accanto alla costante: su un collegamento molto
+lento una freccia spezzata con più di 20ms fra i due pezzi verrebbe letta come
+`Esc` + `[B`. Su un terminale locale non capita, e il numero è lì per essere
+alzato se un giorno servisse.
+
+### `Ctrl-C` non è «indietro»
+
+In M86 gli era stato dato quel significato perché era l'**unico** tasto che
+`@inquirer` lasciava intercettare, e serviva un modo per annullare un menu come
+faceva `interact_opt` di dialoguer. Ora che `Esc` fa da indietro quel motivo non
+c'è più, e in un terminale `Ctrl-C` vuol dire una cosa sola: interrompi adesso.
+Ora esce dal programma da **qualunque** livello, con exit code **130** (la
+convenzione per "terminato da SIGINT", così anche uno script che invochi la CLI
+distingue l'uscita voluta da un guasto) e una riga «Interrotto.». Vale anche nel
+Download rapido, dove prima `Esc` e `Ctrl-C` erano la stessa cosa: adesso `Esc`
+torna al menu con i download che continuano, `Ctrl-C` chiude tutto.
+
+**Come attraversa il codice, e perché non è un errore.** L'interruzione è un tipo
+a sé (`ui.Interruzione`) e non un `Error` generico, perché deve **attraversare** i
+`catch` intermedi: la CLI ne ha cinque che trasformano un'eccezione nel messaggio
+«✗ …» accanto al menu, e lì un Ctrl-C sarebbe finito a mostrare "Interrotto" come
+se fosse un guasto dell'operazione, restando nel programma. Ognuno di quei
+`catch` ora la rilancia in una riga. In cima, il `.catch` di `run()` la riconosce
+ed esce con 130; il lock su `data/` lo rilascia l'hook di `exit` già esistente.
+
+**Un dettaglio che sarebbe stato un bug fastidioso**: nel Download rapido
+l'interruzione viene lanciata **dopo** il ripristino del terminale (raw mode
+spento, cursore rimostrato). Lanciarla prima avrebbe fatto uscire la CLI
+lasciando la shell in raw mode e senza cursore — cioè apparentemente rotta, con
+la causa a due file di distanza. Verificato che nell'output di un Ctrl-C da
+quella schermata ci sia la sequenza `\e[?25h`.
+
+### La verifica (B3)
+
+- **Latenza dell'Esc** misurata sulla CLI vera, tre volte: 33/40/40ms.
+- **Ctrl-C da tre livelli** (menu principale, elenco di 381 video, pannello delle
+  impostazioni) → `exit 130` e il messaggio, tutte e tre.
+- **Ctrl-C dal Download rapido** → `exit 130`, messaggio, **e** cursore
+  ripristinato.
+- **11 prove di regressione di M88**: Esc indietro da elenco/sottomenu/campo di
+  testo/vista autore/Download rapido/due menu delle impostazioni, ed Esc al menu
+  principale che esce con **0** (diverso da 130: uscire non è interrompere).

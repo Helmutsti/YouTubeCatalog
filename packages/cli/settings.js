@@ -32,6 +32,7 @@ export async function open(app) {
       else if (scelta === 'quality') await quality(app);
       else if (scelta === 'parallel') await parallel(app);
     } catch (e) {
+      if (ui.isInterruzione(e)) throw e; // Ctrl-C attraversa (M89)
       ui.err(app, e);
     }
   }
@@ -143,6 +144,7 @@ async function paths(app) {
         }
       }
     } catch (e) {
+      if (ui.isInterruzione(e)) throw e; // Ctrl-C attraversa (M89)
       ui.err(app, e);
     }
   }
