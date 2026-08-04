@@ -1,0 +1,14 @@
+{
+  "name": "@catalog/ondo-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ondo": "./bin/ondo.js"
+  },
+  "dependencies": {
+    "@catalog/core": "*",
+    "@catalog/cli": "*",
+    "commander": "^12.1.0"
+  }
+}

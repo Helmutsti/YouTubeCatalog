@@ -115,7 +115,7 @@ async function esci(app) {
   return false;
 }
 
-async function run() {
+export async function run() {
   // Lock sulla libreria (M80). Prima di ogni altra cosa: se un server o un'altra
   // CLI è aperta, questo processo non deve nemmeno arrivare al menu — due
   // processi sulla stessa libreria si sovrascrivono a vicenda.
@@ -185,16 +185,21 @@ async function run() {
   }
 }
 
-run()
-  .then(() => process.exit(0))
-  .catch((e) => {
-    // Ctrl-C: uscita voluta, non un guasto. 130 è il codice convenzionale per
-    // "terminato da SIGINT", così anche uno script che invoca la CLI lo distingue
-    // da un errore vero. Il lock su data/ lo rilascia l'hook di `exit`.
-    if (ui.isInterruzione(e)) {
-      console.log(`\n${ui.style.dim('Interrotto.')}`);
-      process.exit(130);
-    }
-    console.error(`${ui.style.red('✗')} ${e?.message ?? e}`);
-    process.exit(1);
-  });
+// Guardia sull'auto-invocazione: `node packages/cli/cli.js` deve continuare a
+// partire da solo, ma `ondo-cli` deve poter importare `run` senza farlo
+// scattare due volte (una all'import, una alla chiamata esplicita).
+if (import.meta.url === `file://${process.argv[1]}`) {
+  run()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      // Ctrl-C: uscita voluta, non un guasto. 130 è il codice convenzionale per
+      // "terminato da SIGINT", così anche uno script che invoca la CLI lo distingue
+      // da un errore vero. Il lock su data/ lo rilascia l'hook di `exit`.
+      if (ui.isInterruzione(e)) {
+        console.log(`\n${ui.style.dim('Interrotto.')}`);
+        process.exit(130);
+      }
+      console.error(`${ui.style.red('✗')} ${e?.message ?? e}`);
+      process.exit(1);
+    });
+}
