@@ -86,6 +86,12 @@ ondo setup   # scarica yt-dlp + ffmpeg + ffprobe in tools/ (per il tuo sistema)
 
 (sostituisci \`<tag>\` con la versione della release che vuoi, es. \`v1.0.0\`)
 
+Per disinstallarlo:
+
+\`\`\`bash
+npm uninstall -g @catalog/ondo-cli
+\`\`\`
+
 ## Installazione — dal sorgente estratto
 
 Se hai scaricato ed estratto questo pacchetto invece di installarlo con l'URL:

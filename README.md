@@ -50,6 +50,12 @@ ondo source --help
 
 Questo pacchetto **non include il menu interattivo** (`ondo` senza argomenti stampa un messaggio invece di aprirlo) — per quello serve l'installazione completa qui sopra.
 
+Per disinstallarlo:
+
+```bash
+npm uninstall -g @catalog/ondo-cli
+```
+
 ---
 
 ## Uso

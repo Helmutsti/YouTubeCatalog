@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { Command } from 'commander';
 import * as core from '@catalog/core';
 
@@ -6,6 +9,12 @@ import { videoCommand } from '../src/commands/video.js';
 import { authorCommand } from '../src/commands/author.js';
 import { sourceCommand } from '../src/commands/source.js';
 import { setupCommand } from '../src/commands/setup.js';
+
+// Letta da package.json invece di essere hardcoded: la versione pubblicata
+// nel .tgz della release viene scritta lì da scripts/package-ondo-cli.mjs
+// (uguale al tag della release), quindi `ondo --version` la rispecchia sempre.
+const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json');
+const { version } = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 
 // `ondo` senza argomenti resta il menu interattivo di sempre (@catalog/cli);
 // gli import di quel package restano dinamici perché caricano @inquirer/prompts
@@ -47,7 +56,7 @@ async function main() {
   program
     .name('ondo')
     .description('ondo — il catalogo video da terminale')
-    .version('0.1.0');
+    .version(version);
 
   // Lock consultivo su data/ (M80), preso una volta prima di qualunque
   // sotto-comando che tocchi il catalogo — stesso lock del menu interattivo.
