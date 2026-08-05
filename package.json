@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "ondo": "node packages/ondo-cli/bin/ondo.js",
+    "ondo:link": "npm link --workspace packages/ondo-cli",
+    "ondo:package": "node scripts/package-ondo-cli.mjs",
     "cli": "node packages/cli/cli.js",
-    "link:ondo": "npm link --workspace packages/ondo-cli",
-    "package:ondo-cli": "node scripts/package-ondo-cli.mjs"
+    "web": "npm run web:build && npm run web:start",
+    "web:dev": "npm run dev --workspace=packages/web",
+    "web:dev:lan": "npm run dev:lan --workspace=packages/web",
+    "web:build": "npm run build --workspace=@catalog/web",
+    "web:start": "node packages/server/src/index.js",
+    "web:start:local": "node packages/server/src/index.js --local"
   },
   "workspaces": [
     "core",

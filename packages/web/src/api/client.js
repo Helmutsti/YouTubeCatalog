@@ -1,0 +1,121 @@
+// Client sottile su packages/server: una funzione per endpoint, stessa forma
+// dei nomi in @catalog/core così la corrispondenza resta ovvia. Nessuna
+// logica applicativa qui — solo fetch + propagazione dell'errore.
+import { apiUrl, resolveMediaUrls } from '../lib/apiBase.js';
+
+async function request(path, options) {
+  const res = await fetch(apiUrl(path), {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  const isJson = res.headers.get('content-type')?.includes('application/json');
+  const body = isJson ? await res.json() : null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? `Richiesta fallita (${res.status})`);
+  }
+  // Riscrive i path /media/... assoluti verso API_BASE_URL quando impostato
+  // (default: nessun cambiamento, vedi lib/apiBase.js).
+  return resolveMediaUrls(body);
+}
+
+function qs(params = {}) {
+  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '');
+  if (entries.length === 0) return '';
+  return `?${new URLSearchParams(entries).toString()}`;
+}
+
+export const listVideos = () => request('/api/videos');
+export const getVideo = (id) => request(`/api/videos/${encodeURIComponent(id)}`);
+// Nasconde/mostra un video (asse `hidden` del modello a flag, M25).
+export const setHidden = (id, hidden) =>
+  request(`/api/videos/${encodeURIComponent(id)}/hidden`, { method: 'POST', body: JSON.stringify({ hidden }) });
+// Preferito (asse `favorite` del modello a flag, M43).
+export const setFavorite = (id, favorite) =>
+  request(`/api/videos/${encodeURIComponent(id)}/favorite`, { method: 'POST', body: JSON.stringify({ favorite }) });
+// Cancella solo il file scaricato (M30); la scheda resta in libreria.
+export const deleteVideoFile = (id) =>
+  request(`/api/videos/${encodeURIComponent(id)}/file`, { method: 'DELETE' });
+// Cancellazione totale e irreversibile (punto 11): scheda+file+copertina+metadati.
+export const deleteVideo = (id) =>
+  request(`/api/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+// Aggiorna metadati + copertina (M31); sui rimossi funge da ri-verifica.
+export const refreshMetadata = (id) =>
+  request(`/api/videos/${encodeURIComponent(id)}/metadata/refresh`, { method: 'POST' });
+// download:false → aggiunge solo il video alla libreria senza scaricarlo
+// (checkbox "Download immediato" non spuntato, M29). Default: scarica subito.
+export const downloadSingle = (url, download = true) =>
+  request('/api/videos/download-single', { method: 'POST', body: JSON.stringify({ url, download }) });
+// M55: analizza un download prima di avviarlo (per il confirm "elimina e
+// ri-scarica" e la scelta audio A/B). Passa { videoId } per un video già in
+// catalogo, oppure { url } per un link nuovo (crea lo stub, NON avvia il job).
+// Ritorna { videoId, title, alreadyDownloaded, needsAudioChoice, maxVideoHeight, maxCombinedHeight, ... }.
+export const analyzeDownload = ({ url, videoId }) =>
+  request('/api/videos/analyze-download', {
+    method: 'POST',
+    body: JSON.stringify(videoId ? { videoId } : { url })
+  });
+// M55: avvia il download di un video in catalogo con la strategia audio scelta
+// ('combined' | 'merged' | undefined) e, opzionalmente, eliminando prima la
+// copia esistente (deleteFirst). Sostituisce triggerJob('downloadSingle') diretto
+// quando serve passare per il confirm/scelta.
+// maxHeight (M56): tetto di risoluzione scelto dall'utente — un numero (px di
+// altezza), oppure null per "massima disponibile". Omesso = default di config.
+export const downloadVideoById = (id, { audioStrategy, deleteFirst, maxHeight } = {}) =>
+  request(`/api/videos/${encodeURIComponent(id)}/download`, {
+    method: 'POST',
+    body: JSON.stringify({ audioStrategy, deleteFirst, maxHeight })
+  });
+
+export const searchVideos = (q, limit) => request(`/api/search${qs({ q, limit })}`);
+
+export const listChannels = () => request('/api/channels');
+export const listVideosByChannel = (key) =>
+  request(`/api/channels/${encodeURIComponent(key)}/videos`);
+
+export const listSources = () => request('/api/sources');
+export const addSource = (url) => request('/api/sources', { method: 'POST', body: JSON.stringify({ url }) });
+export const removeSource = (id) => request(`/api/sources/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const syncSources = (sourceId) =>
+  request('/api/sync', { method: 'POST', body: JSON.stringify(sourceId ? { sourceId } : {}) });
+
+export const triggerJob = (type, params) =>
+  request('/api/jobs', { method: 'POST', body: JSON.stringify({ type, params }) });
+export const listJobs = () => request('/api/jobs');
+export const getJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`);
+export const deleteJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+// Interruzione manuale di un job running/queued (M51): solo downloadSingle/downloadPending la supportano.
+export const cancelJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+export const clearJobs = () => request('/api/jobs', { method: 'DELETE' });
+
+export const reorganizeLibrary = (dryRun) =>
+  request('/api/library/reorganize', { method: 'POST', body: JSON.stringify({ dryRun }) });
+
+export const syncChannelAvatars = (force, channelKey) =>
+  request('/api/channels/avatars/sync', {
+    method: 'POST',
+    body: JSON.stringify({ ...(force ? { force } : {}), ...(channelKey ? { channelKey } : {}) })
+  });
+
+// Backup: il download avviene via link diretto (<a href={BACKUP_URL}>), così il
+// browser scarica il .zip con il nome dato dall'header Content-Disposition.
+export const BACKUP_URL = apiUrl('/api/backup');
+// Ripristino: invia il file .zip grezzo (Content-Type application/zip). Il
+// server salva una copia di sicurezza e sostituisce i file; richiede riavvio.
+export const restoreBackup = (file) =>
+  request('/api/backup/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip' },
+    body: file
+  });
+
+// Impostazioni: posizione della cartella media (copertine/avatar) e dei video.
+export const getConfig = () => request('/api/config');
+export const setMediaRoot = (path) =>
+  request('/api/config/media-root', { method: 'POST', body: JSON.stringify({ path }) });
+export const setVideosRoot = (path) =>
+  request('/api/config/videos-root', { method: 'POST', body: JSON.stringify({ path }) });
+
+// Cookie YouTube (core/cookies.txt): corpo grezzo del file .txt, nessun riavvio richiesto.
+export const uploadCookies = (text) =>
+  request('/api/config/cookies', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });
+export const deleteCookies = () => request('/api/config/cookies', { method: 'DELETE' });
