@@ -1,0 +1,36 @@
+# Dipendenze e build: reinstallate/ricostruite dentro l'immagine
+node_modules
+**/node_modules
+packages/web/dist
+**/dist
+
+# Dati personali e media: arrivano da volumi montati, mai dentro l'immagine
+/media
+/data
+/videos
+data/catalog.json
+data/metadata.json
+data/config.json
+data/jobs.json
+data/jobs/
+
+# Binari: ffmpeg viene da apt nell'immagine, yt-dlp/ffprobe da un volume montato
+/tools
+
+# Cookie YouTube (personali, mai nell'immagine)
+core/cookies.txt
+
+# Git, ambiente, editor
+.git
+.gitignore
+.dockerignore
+.env
+.env.local
+.env.*.local
+.claude
+
+# Non necessari a runtime nell'immagine web
+.github
+docs/
+scripts/
+README.md

@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1
+
+# Immagine Docker della sola parte web: API (packages/server, usa @catalog/core)
+# + Web GUI compilata (packages/web) in un unico container/porta. Non include
+# la CLI (packages/cli, packages/ondo-cli) — quella si distribuisce a parte
+# come .tgz nella release (vedi .github/workflows/release-ondo-cli.yml).
+#
+# Base Debian/glibc (non Alpine/musl): il binario ufficiale yt-dlp_linux è un
+# eseguibile PyInstaller costruito su glibc, non gira su Alpine. ffmpeg arriva
+# da apt (nel PATH); yt-dlp NON è nell'immagine — arriva da un volume montato
+# in /app/tools, così si aggiorna sostituendo il file senza rebuild.
+
+# ── Stage 1: build ───────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+
+# Solo i manifest per primi, per la cache dei layer. npm ci ha bisogno di
+# TUTTI i workspace del monorepo per essere coerente con package-lock.json,
+# anche se nell'immagine finale (stage 2) entrano solo core, packages/server
+# e la build statica di packages/web.
+COPY package.json package-lock.json ./
+COPY core/package.json ./core/
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/ondo-cli/package.json ./packages/ondo-cli/
+COPY packages/server/package.json ./packages/server/
+COPY packages/web/package.json ./packages/web/
+RUN npm ci
+
+# Sorgenti e build della sola web (produce packages/web/dist).
+COPY core ./core
+COPY packages ./packages
+RUN npm run web:build
+
+# Elimina i devDependencies (vite, plugin di build): non servono a runtime,
+# la web è ormai statica in packages/web/dist.
+RUN npm prune --omit=dev
+
+# ── Stage 2: runtime — solo core + server + web/dist, niente CLI ───────────
+FROM node:22-bookworm-slim
+ENV NODE_ENV=production
+
+# ffmpeg: usato da yt-dlp per fondere video+audio e convertire le copertine.
+# getPaths() ricade su "ffmpeg nel PATH" quando tools/ non contiene ffmpeg,
+# quindi basta averlo installato qui. ca-certificates per le connessioni TLS.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# node_modules pruned dal builder: restano symlink orfani di @catalog/cli e
+# @catalog/ondo-cli (i loro sorgenti non sono copiati qui sotto) più i
+# pacchetti npm usati solo da loro (commander, @inquirer/prompts) —
+# inutilizzati ma innocui, qualche centinaio di KB.
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/core ./core
+COPY --from=builder /app/packages/server ./packages/server
+COPY --from=builder /app/packages/web/dist ./packages/web/dist
+
+# L'API ascolta sulla porta di data/config.json (default 3001).
+EXPOSE 3001
+
+# Verifica che il server risponda (root → index.html, la web è servita da qui).
+# Porta 3001 = default di data/config.json; se la cambi lì, aggiorna anche qui.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "packages/server/src/index.js"]

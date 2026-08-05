@@ -1,0 +1,32 @@
+# Deploy della sola web (API + GUI) usando l'immagine pubblicata su ghcr.io a
+# ogni release (vedi .github/workflows/release-web-docker.yml), oppure
+# buildata in locale (sezione "build" commentata sotto). I percorsi host qui
+# sotto sono RELATIVI alla cartella del compose: sostituiscili con i percorsi
+# reali delle tue cartelle se il compose vive altrove (es. su un NAS).
+
+services:
+  web:
+    image: ghcr.io/helmutsti/youtubecatalog-web:latest
+    # Per buildare dai sorgenti locali invece di scaricare l'immagine pubblicata:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.web
+    container_name: youtubecatalog-web
+    restart: unless-stopped
+    ports:
+      # host:container — cambia la parte a sinistra se 3001 è già occupata.
+      - "3001:3001"
+    volumes:
+      # Stato del catalogo (catalog.json, config.json, jobs.json, metadata.json).
+      - ./data:/app/data
+      # Copertine e avatar (piccoli) + .ytdlp-archive.txt.
+      - ./media:/app/media
+      # I VIDEO (grandi): cartella dedicata, separata dalle copertine sopra.
+      # Se la sposti altrove sull'host, aggiorna solo la parte a sinistra —
+      # il percorso nel container (config.videosRoot) resta /app/media/videos.
+      - ./videos:/app/media/videos
+      # Binario yt-dlp aggiornabile senza rebuild dell'immagine: metti qui
+      # tools/yt-dlp_linux (reso eseguibile: chmod +x).
+      - ./tools:/app/tools
+      # (Facoltativo) cookie YouTube per video privati/non listati:
+      # - ./cookies.txt:/app/core/cookies.txt:ro
