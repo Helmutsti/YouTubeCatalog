@@ -22,7 +22,9 @@ import { fileURLToPath } from 'node:url';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STAGE_DIR = path.join(PROJECT_ROOT, 'dist', 'ondo-cli');
 
-const version = process.argv[2] || '0.0.0-dev';
+// Il tag della release (es. "v1.0.1") arriva con la "v" davanti: il campo
+// "version" di package.json deve invece essere semver puro ("1.0.1").
+const version = (process.argv[2] || '0.0.0-dev').replace(/^v/, '');
 
 function step(msg) {
   console.log(`\n▶ ${msg}`);
