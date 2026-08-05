@@ -6,7 +6,8 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "cli": "node packages/cli/cli.js",
-    "link:ondo": "npm link --workspace packages/ondo-cli"
+    "link:ondo": "npm link --workspace packages/ondo-cli",
+    "package:ondo-cli": "node scripts/package-ondo-cli.mjs"
   },
   "workspaces": [
     "core",

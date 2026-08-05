@@ -1,0 +1,35 @@
+name: Package ondo-cli
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install workspace deps (smoke test)
+        run: npm ci
+
+      - name: Smoke test — ondo-cli gira nel monorepo prima di impacchettarlo
+        run: node packages/ondo-cli/bin/ondo.js --help
+
+      - name: Build pacchetto standalone
+        run: node scripts/package-ondo-cli.mjs "${{ github.event.release.tag_name }}"
+
+      - name: Crea zip
+        run: |
+          cd dist/ondo-cli
+          zip -r "../../ondo-cli-${{ github.event.release.tag_name }}.zip" .
+
+      - name: Allega alla release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: ondo-cli-${{ github.event.release.tag_name }}.zip

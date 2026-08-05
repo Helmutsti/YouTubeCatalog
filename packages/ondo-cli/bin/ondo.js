@@ -11,8 +11,20 @@ import { sourceCommand } from '../src/commands/source.js';
 // e installano un decoder di tasti su stdin — inutile, e da evitare, per una
 // singola chiamata a sotto-comando.
 async function launchMenu() {
-  const { run } = await import('@catalog/cli/cli.js');
-  const ui = await import('@catalog/cli/ui.js');
+  let mod;
+  let uiMod;
+  try {
+    mod = await import('@catalog/cli/cli.js');
+    uiMod = await import('@catalog/cli/ui.js');
+  } catch (e) {
+    if (e?.code === 'ERR_MODULE_NOT_FOUND') {
+      console.log('Il menu interattivo non è incluso in questo pacchetto. Usa: ondo --help');
+      process.exit(0);
+    }
+    throw e;
+  }
+  const { run } = mod;
+  const ui = uiMod;
   try {
     await run();
   } catch (e) {
