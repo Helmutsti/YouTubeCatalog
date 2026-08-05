@@ -28,6 +28,30 @@ Le cartelle `media/` e i file in `data/` vengono creati da soli al primo avvio: 
 
 ---
 
+## Solo i sotto-comandi da terminale (senza clonare il repo)
+
+Se non ti serve il menu interattivo a frecce ma solo i comandi (`video`, `author`, `source`) da uno script o da terminale, non serve clonare il repo: dalle [Release](https://github.com/Helmutsti/YouTubeCatalog/releases) viene pubblicato un pacchetto standalone, installabile con un solo comando.
+
+Serve **Node.js 20 o superiore**.
+
+```bash
+npm install -g https://github.com/Helmutsti/YouTubeCatalog/releases/download/<tag>/ondo-cli-<tag>.tgz
+ondo setup   # scarica yt-dlp + ffmpeg + ffprobe in tools/ (per il tuo sistema)
+```
+
+(sostituisci `<tag>` con la versione che vuoi, es. `v1.0.0`)
+
+```bash
+ondo --help
+ondo video --help
+ondo author --help
+ondo source --help
+```
+
+Questo pacchetto **non include il menu interattivo** (`ondo` senza argomenti stampa un messaggio invece di aprirlo) — per quello serve l'installazione completa qui sopra.
+
+---
+
 ## Uso
 
 ```bash
