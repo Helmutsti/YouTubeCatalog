@@ -19,6 +19,7 @@ import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvata
 import { createBackup, restoreBackup } from './services/backupService.js';
 import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
 import { checkTools, reportToolsOnStartup, findJsRuntime, inPath, JS_RUNTIME_NAMES } from './preflight.js';
+import { setupTools } from './services/toolsSetupService.js';
 import { acquireDataLock } from './lock.js';
 // M86 — la superficie che la CLI (tradotta 1:1 dal ramo Rust) consuma.
 import { playVideo, videoFilePath, PLAYBACK_MODE } from './services/playbackService.js';
@@ -186,6 +187,10 @@ export {
   checkTools,
   reportToolsOnStartup,
   expectedToolNames,
+  // M91 — scarica davvero yt-dlp/ffmpeg/ffprobe in tools/ (era scripts/setup.mjs):
+  // riusata da quello script e dal sotto-comando `ondo setup` del pacchetto
+  // standalone, dove "npm run setup" non è disponibile (installazione globale).
+  setupTools,
   // M86 — il runtime JS di cui ha bisogno yt-dlp: si dice all'avvio, non a metà
   // del primo download
   findJsRuntime,

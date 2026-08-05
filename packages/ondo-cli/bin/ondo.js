@@ -5,6 +5,7 @@ import * as core from '@catalog/core';
 import { videoCommand } from '../src/commands/video.js';
 import { authorCommand } from '../src/commands/author.js';
 import { sourceCommand } from '../src/commands/source.js';
+import { setupCommand } from '../src/commands/setup.js';
 
 // `ondo` senza argomenti resta il menu interattivo di sempre (@catalog/cli);
 // gli import di quel package restano dinamici perché caricano @inquirer/prompts
@@ -50,11 +51,16 @@ async function main() {
 
   // Lock consultivo su data/ (M80), preso una volta prima di qualunque
   // sotto-comando che tocchi il catalogo — stesso lock del menu interattivo.
-  program.hook('preAction', () => core.acquireDataLock('ondo'));
+  // Escluso "setup": scarica solo binari in tools/, non tocca data/catalog.json,
+  // e non deve essere bloccato da un altro Ondo aperto sulla stessa libreria.
+  program.hook('preAction', (_thisCommand, actionCommand) => {
+    if (actionCommand.name() !== 'setup') core.acquireDataLock('ondo');
+  });
 
   program.addCommand(videoCommand());
   program.addCommand(authorCommand());
   program.addCommand(sourceCommand());
+  program.addCommand(setupCommand());
 
   await program.parseAsync(process.argv);
 }

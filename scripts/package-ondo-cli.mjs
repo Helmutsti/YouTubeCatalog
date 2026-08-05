@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Costruisce un pacchetto standalone dei soli sotto-comandi `ondo-cli`
-// (video/author/source), senza il menu interattivo (@catalog/cli) né il resto
-// del monorepo — pensato per essere zippato e allegato a una GitHub Release.
+// (video/author/source/setup), senza il menu interattivo (@catalog/cli) né il
+// resto del monorepo — pensato per essere impacchettato in un .tgz e allegato
+// a una GitHub Release (installabile con `npm install -g <url>.tgz`).
 //
-// `core/` va copiato *fisicamente* come sibling di bin/scripts (non dentro
+// `core/` va copiato *fisicamente* come sibling di bin/ (non dentro
 // node_modules/@catalog/core): PROJECT_ROOT in core/src/config.js è calcolato
 // come due cartelle sopra la posizione fisica di config.js, quindi core/ deve
 // stare esattamente un livello sotto la root del pacchetto, come nel repo —
@@ -13,7 +14,7 @@
 //   node scripts/package-ondo-cli.mjs <versione>
 //   npm run package:ondo-cli -- 1.2.3
 
-import { existsSync, rmSync, mkdirSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { rmSync, mkdirSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,13 +52,9 @@ function main() {
   cpSync(path.join(PROJECT_ROOT, 'packages/ondo-cli/bin'), path.join(STAGE_DIR, 'bin'), { recursive: true });
   cpSync(path.join(PROJECT_ROOT, 'packages/ondo-cli/src'), path.join(STAGE_DIR, 'src'), { recursive: true });
 
-  step('Copia scripts/setup.mjs');
-  mkdirSync(path.join(STAGE_DIR, 'scripts'), { recursive: true });
-  cpSync(path.join(PROJECT_ROOT, 'scripts/setup.mjs'), path.join(STAGE_DIR, 'scripts/setup.mjs'));
-
   step("Riscrittura import '@catalog/core' → path relativi");
   rewriteCoreImport(path.join(STAGE_DIR, 'bin/ondo.js'), '../core/src/index.js');
-  for (const name of ['video.js', 'author.js', 'source.js']) {
+  for (const name of ['video.js', 'author.js', 'source.js', 'setup.js']) {
     rewriteCoreImport(path.join(STAGE_DIR, `src/commands/${name}`), '../../core/src/index.js');
   }
 
@@ -68,7 +65,6 @@ function main() {
     private: true,
     type: 'module',
     bin: { ondo: './bin/ondo.js' },
-    scripts: { setup: 'node scripts/setup.mjs' },
     dependencies: { commander: '^12.1.0' }
   };
   writeFileSync(path.join(STAGE_DIR, 'package.json'), JSON.stringify(pkg, null, 2) + '\n', 'utf-8');
@@ -79,14 +75,25 @@ function main() {
 Sotto-comandi da terminale per il catalogo video Ondo: \`video\`, \`author\`, \`source\`.
 Non include il menu interattivo a frecce.
 
-## Installazione
-
 Serve **Node.js 20 o superiore**.
+
+## Installazione — un solo comando
+
+\`\`\`bash
+npm install -g https://github.com/Helmutsti/YouTubeCatalog/releases/download/<tag>/ondo-cli-<tag>.tgz
+ondo setup   # scarica yt-dlp + ffmpeg + ffprobe in tools/ (per il tuo sistema)
+\`\`\`
+
+(sostituisci \`<tag>\` con la versione della release che vuoi, es. \`v1.0.0\`)
+
+## Installazione — dal sorgente estratto
+
+Se hai scaricato ed estratto questo pacchetto invece di installarlo con l'URL:
 
 \`\`\`bash
 npm install      # dipendenze (solo commander)
-npm run setup    # scarica yt-dlp + ffmpeg + ffprobe in tools/ (per il tuo sistema)
 npm link         # rende disponibile il comando "ondo" nel terminale
+ondo setup       # scarica yt-dlp + ffmpeg + ffprobe in tools/
 \`\`\`
 
 ## Uso
@@ -96,6 +103,7 @@ ondo --help
 ondo video --help
 ondo author --help
 ondo source --help
+ondo setup --help
 \`\`\`
 `;
   writeFileSync(path.join(STAGE_DIR, 'README.md'), readme, 'utf-8');

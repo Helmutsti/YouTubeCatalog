@@ -25,13 +25,17 @@ jobs:
       - name: Build pacchetto standalone
         run: node scripts/package-ondo-cli.mjs "${{ github.event.release.tag_name }}"
 
-      - name: Crea zip
+      - name: Crea tarball (.tgz), installabile con "npm install -g <url>"
         run: |
-          cd dist/ondo-cli
-          zip -r "../../ondo-cli-${{ github.event.release.tag_name }}.zip" .
+          # La cartella dentro il tar deve chiamarsi "package" (convenzione npm:
+          # è così che sono fatti i tarball di `npm pack`/`npm publish`) perché
+          # `npm install -g <url>.tgz` sappia stripparla correttamente in fase
+          # di estrazione — con un nome diverso il pacchetto non si installa.
+          mv dist/ondo-cli dist/package
+          tar czf "ondo-cli-${{ github.event.release.tag_name }}.tgz" -C dist package
 
       - name: Allega alla release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name }}
-          files: ondo-cli-${{ github.event.release.tag_name }}.zip
+          files: ondo-cli-${{ github.event.release.tag_name }}.tgz
