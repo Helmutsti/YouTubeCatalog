@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .claude/
+.DS_Store
 /media/
 data/catalog.json
 data/metadata.json
