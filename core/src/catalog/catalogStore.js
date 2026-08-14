@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { getPaths } from '../config.js';
+import { acquireDataLock } from '../lock.js';
 import { createEmptyCatalog, DOWNLOAD_STATE, migrateVideoToFlags, migrateVideoToSources, normalizeVideoAxes } from './catalogSchema.js';
 
 let catalog = null;
@@ -47,12 +48,23 @@ function reconcileOnLoad(cat) {
   return changed;
 }
 
+// Scelta come UNICO punto che tocca i byte di catalog.json su disco, e per
+// questo si prende il lock qui invece che nei chiamanti: `updateCatalog` lo
+// tiene già preso più in largo (vedi sopra), ma la migrazione una tantum in
+// `ensureLoaded` chiama questa funzione direttamente — senza il lock qui
+// dentro, quella scrittura resterebbe scoperta. Rientrante, quindi la doppia
+// acquisizione da `updateCatalog` non costa nulla (vedi lock.js).
 function persistToDisk(cat) {
   const { catalogPath } = getPaths();
   const tmpPath = `${catalogPath}.tmp`;
   cat.meta.lastUpdated = new Date().toISOString();
-  writeFileSync(tmpPath, JSON.stringify(cat, null, 2), 'utf-8');
-  renameSync(tmpPath, catalogPath);
+  const release = acquireDataLock();
+  try {
+    writeFileSync(tmpPath, JSON.stringify(cat, null, 2), 'utf-8');
+    renameSync(tmpPath, catalogPath);
+  } finally {
+    release();
+  }
 }
 
 async function ensureLoaded() {
@@ -117,19 +129,34 @@ export async function claimVideosForDownload(ids, { allowRedownload = false } = 
 }
 
 // Serializza tutte le mutazioni su un'unica coda (mutex asincrono): garantisce
-// che due mutazioni concorrenti non si sovrascrivano a vicenda. Se il mutator
-// lancia un errore, viene catturato qui e ri-lanciato al solo chiamante che lo
-// ha causato, senza "avvelenare" la coda per le mutazioni successive.
+// che due mutazioni concorrenti *in questo processo* non si sovrascrivano a
+// vicenda. Se il mutator lancia un errore, viene catturato qui e ri-lanciato al
+// solo chiamante che lo ha causato, senza "avvelenare" la coda per le
+// mutazioni successive.
 export async function updateCatalog(mutator) {
   await ensureLoaded();
   let result;
   let error;
   writeQueue = writeQueue.then(async () => {
+    const release = acquireDataLock();
     try {
+      // M92 — rilettura da disco prima di mutare, dentro il lock: il lock ora
+      // si prende solo per la durata di una scrittura (non più per l'intera
+      // sessione), quindi un altro processo può aver scritto da quando questo
+      // processo ha caricato il catalogo l'ultima volta. Senza rileggere,
+      // muteremmo la copia in memoria di QUESTO processo — vecchia — e la sua
+      // persistToDisk cancellerebbe in silenzio la scrittura dell'altro. Il
+      // lock impedisce solo la sovrapposizione fisica di due scritture; questo
+      // è ciò che impedisce l'un-sovrascrive-l'altro fra scritture in momenti
+      // diversi.
+      catalog = readCatalogFromDisk();
+      reconcileOnLoad(catalog);
       result = await mutator(catalog);
       persistToDisk(catalog);
     } catch (err) {
       error = err;
+    } finally {
+      release();
     }
   });
   await writeQueue;

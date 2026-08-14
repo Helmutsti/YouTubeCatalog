@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { getPaths } from '../config.js';
+import { acquireDataLock } from '../lock.js';
 
 let metadata = null;
 let loadPromise = null;
@@ -14,8 +15,13 @@ function readMetadataFromDisk() {
 function persistToDisk(store) {
   const { metadataPath } = getPaths();
   const tmpPath = `${metadataPath}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(store, null, 2), 'utf-8');
-  renameSync(tmpPath, metadataPath);
+  const release = acquireDataLock();
+  try {
+    writeFileSync(tmpPath, JSON.stringify(store, null, 2), 'utf-8');
+    renameSync(tmpPath, metadataPath);
+  } finally {
+    release();
+  }
 }
 
 async function ensureLoaded() {
@@ -42,13 +48,21 @@ export async function deleteMetadata(id) {
   await ensureLoaded();
   let error;
   writeQueue = writeQueue.then(async () => {
+    const release = acquireDataLock();
     try {
+      // M92 — rilettura da disco dentro il lock, stesso motivo di
+      // updateCatalog (catalogStore.js): il lock adesso si prende solo per la
+      // scrittura, non per l'intera sessione, quindi un altro processo può
+      // aver scritto metadata.json da quando questo processo l'ha caricato.
+      metadata = readMetadataFromDisk();
       if (id in metadata) {
         delete metadata[id];
         persistToDisk(metadata);
       }
     } catch (err) {
       error = err;
+    } finally {
+      release();
     }
   });
   await writeQueue;
@@ -63,11 +77,16 @@ export async function setMetadata(id, info) {
   const { automatic_captions, ...trimmed } = info;
   let error;
   writeQueue = writeQueue.then(async () => {
+    const release = acquireDataLock();
     try {
+      // M92 — vedi il commento in deleteMetadata qui sopra.
+      metadata = readMetadataFromDisk();
       metadata[id] = trimmed;
       persistToDisk(metadata);
     } catch (err) {
       error = err;
+    } finally {
+      release();
     }
   });
   await writeQueue;

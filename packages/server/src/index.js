@@ -2,7 +2,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, reportToolsOnStartup, acquireDataLock } from '@catalog/core';
+import { loadConfig, reportToolsOnStartup, setLockRole } from '@catalog/core';
 import { videosRouter } from './routes/videos.routes.js';
 import { sourcesRouter } from './routes/sources.routes.js';
 import { jobsRouter } from './routes/jobs.routes.js';
@@ -74,10 +74,11 @@ const host = local ? '127.0.0.1' : undefined;
 // funziona comunque.
 reportToolsOnStartup();
 
-// Lock consultivo su data/: evita che server e CLI scrivano insieme sullo
-// stesso catalogo. Se un altro processo ce l'ha già, fallisce qui con un
-// messaggio chiaro invece di rischiare una scrittura in conflitto più avanti.
-acquireDataLock('server');
+// Lock consultivo su data/ (M92): si attiva da solo a ogni scrittura vera e
+// propria (dentro il core), non all'avvio — il server può restare aperto
+// insieme a quante CLI si vuole finché tutte leggono soltanto. Qui si imposta
+// solo il ruolo mostrato nel messaggio a chi trova il lock occupato.
+setLockRole('server');
 
 const config = loadConfig();
 app.listen(config.port, host, () => {

@@ -17,10 +17,11 @@ import { searchVideos } from './services/searchService.js';
 import { reorganizeLibrary, deleteVideoFile, deleteVideoCompletely, removeVideoFromLibrary } from './services/libraryService.js';
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { createBackup, restoreBackup } from './services/backupService.js';
+import { mergeLibrary } from './services/mergeService.js';
 import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
 import { checkTools, reportToolsOnStartup, findJsRuntime, inPath, JS_RUNTIME_NAMES } from './preflight.js';
 import { setupTools } from './services/toolsSetupService.js';
-import { acquireDataLock } from './lock.js';
+import { acquireDataLock, setLockRole } from './lock.js';
 // M86 — la superficie che la CLI (tradotta 1:1 dal ramo Rust) consuma.
 import { playVideo, videoFilePath, PLAYBACK_MODE } from './services/playbackService.js';
 import {
@@ -179,6 +180,9 @@ export {
   // backup/ripristino del catalogo in .zip (M36)
   createBackup,
   restoreBackup,
+  // fusione di una libreria esterna dentro quella corrente: mai i video
+  // fisici, solo metadati/copertine/avatar, il più completo vince
+  mergeLibrary,
   // config/introspezione
   loadConfig,
   getPaths,
@@ -196,9 +200,12 @@ export {
   findJsRuntime,
   inPath,
   JS_RUNTIME_NAMES,
-  // lock consultivo su data/ (M80): un solo processo per libreria, detto con un
-  // messaggio invece che lasciato alla memoria dell'utente
+  // lock consultivo su data/ (M80): si attiva solo per la durata di una
+  // scrittura (M92), detto con un messaggio invece che lasciato alla memoria
+  // dell'utente. `setLockRole` va chiamato una volta a inizio processo (chi
+  // scrive nel messaggio d'errore a un altro processo).
   acquireDataLock,
+  setLockRole,
   // impostazioni a runtime: scrittura config + posizione cartella media (M37)
   // e cartella video dedicata separata da copertine/avatar (M38)
   updateConfig,

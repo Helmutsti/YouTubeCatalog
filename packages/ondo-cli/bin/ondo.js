@@ -8,6 +8,7 @@ import * as core from '@catalog/core';
 import { videoCommand } from '../src/commands/video.js';
 import { authorCommand } from '../src/commands/author.js';
 import { sourceCommand } from '../src/commands/source.js';
+import { libraryCommand } from '../src/commands/library.js';
 import { setupCommand } from '../src/commands/setup.js';
 
 // Letta da package.json invece di essere hardcoded: la versione pubblicata
@@ -58,17 +59,17 @@ async function main() {
     .description('ondo — il catalogo video da terminale')
     .version(version);
 
-  // Lock consultivo su data/ (M80), preso una volta prima di qualunque
-  // sotto-comando che tocchi il catalogo — stesso lock del menu interattivo.
-  // Escluso "setup": scarica solo binari in tools/, non tocca data/catalog.json,
-  // e non deve essere bloccato da un altro Ondo aperto sulla stessa libreria.
-  program.hook('preAction', (_thisCommand, actionCommand) => {
-    if (actionCommand.name() !== 'setup') core.acquireDataLock('ondo');
-  });
+  // Lock consultivo su data/ (M80/M92): si attiva da solo a ogni scrittura
+  // vera e propria (dentro il core), non qui — un sotto-comando di sola
+  // lettura (es. "video list") non tocca mai il lock, quante altre `ondo` o il
+  // server siano aperti insieme. Qui si imposta solo il ruolo mostrato nel
+  // messaggio a chi trova il lock occupato.
+  core.setLockRole('ondo');
 
   program.addCommand(videoCommand());
   program.addCommand(authorCommand());
   program.addCommand(sourceCommand());
+  program.addCommand(libraryCommand());
   program.addCommand(setupCommand());
 
   await program.parseAsync(process.argv);

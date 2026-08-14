@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { acquireDataLock } from './lock.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -90,16 +91,26 @@ export function loadConfig() {
 // cache in-memory così il prossimo loadConfig() rilegge da disco. Nota: per un
 // processo già avviato (server) alcune cose sono fissate all'avvio (es. i mount
 // express.static sui media), quindi resta comunque necessario un riavvio.
+//
+// M92 — lettura e scrittura dentro il lock (data/): già rileggeva da disco a
+// ogni chiamata invece di fidarsi della cache, quindi qui il rischio non era
+// la staleness ma la sovrapposizione fisica di due scritture (server e CLI che
+// aggiornano le impostazioni nello stesso istante); il lock copre quello.
 export function updateConfig(patch) {
   mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-  let userConfig = {};
-  if (existsSync(CONFIG_PATH)) {
-    userConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+  const release = acquireDataLock();
+  try {
+    let userConfig = {};
+    if (existsSync(CONFIG_PATH)) {
+      userConfig = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    }
+    const updated = deepMerge(userConfig, patch);
+    const tmp = `${CONFIG_PATH}.tmp`;
+    writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', 'utf-8');
+    renameSync(tmp, CONFIG_PATH);
+  } finally {
+    release();
   }
-  const updated = deepMerge(userConfig, patch);
-  const tmp = `${CONFIG_PATH}.tmp`;
-  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', 'utf-8');
-  renameSync(tmp, CONFIG_PATH);
   cachedConfig = null;
   return loadConfig();
 }

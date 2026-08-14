@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, renameSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { getPaths } from '../config.js';
+import { acquireDataLock } from '../lock.js';
 import { createZip, readZip } from '../lib/zip.js';
 
 // Whitelist esplicita dei file dati JSON inclusi nel backup. Da M61 include
@@ -129,38 +130,50 @@ export function restoreBackup(zipBuffer) {
 
   const { dataDir } = getPaths();
 
-  // 1. Copia di sicurezza dei soli file dati JSON attuali.
-  const safetyDir = path.join(dataDir, `pre-restore-${timestamp()}`);
-  mkdirSync(safetyDir, { recursive: true });
-  const backedUp = [];
-  for (const name of BACKUP_JSON_FILES) {
-    const current = dataFilePath(name);
-    if (existsSync(current)) {
-      copyFileSync(current, path.join(safetyDir, name));
-      backedUp.push(name);
+  // M92 — un lock solo, tenuto per tutto il ripristino: qui non c'è un
+  // mutator sincero da riproteggere in mezzo (a differenza di
+  // catalogStore/metadataStore), è direttamente una sostituzione fisica di
+  // file su disco — quindi tutta l'operazione va trattata come una singola
+  // scrittura. `restoreBackup` avvisa già il chiamante che il processo va
+  // riavviato per applicare, quindi non serve rileggere nulla dopo.
+  const release = acquireDataLock();
+  let safetyDir, backedUp, restored, restoredImages;
+  try {
+    // 1. Copia di sicurezza dei soli file dati JSON attuali.
+    safetyDir = path.join(dataDir, `pre-restore-${timestamp()}`);
+    mkdirSync(safetyDir, { recursive: true });
+    backedUp = [];
+    for (const name of BACKUP_JSON_FILES) {
+      const current = dataFilePath(name);
+      if (existsSync(current)) {
+        copyFileSync(current, path.join(safetyDir, name));
+        backedUp.push(name);
+      }
     }
-  }
 
-  // 2. Sostituzione atomica (tmp + rename) dei soli file JSON in whitelist.
-  const restored = [];
-  for (const name of BACKUP_JSON_FILES) {
-    if (!jsonByName.has(name)) continue;
-    const dest = dataFilePath(name);
-    const tmp = `${dest}.restore-tmp`;
-    writeFileSync(tmp, jsonByName.get(name));
-    renameSync(tmp, dest);
-    restored.push(name);
-  }
+    // 2. Sostituzione atomica (tmp + rename) dei soli file JSON in whitelist.
+    restored = [];
+    for (const name of BACKUP_JSON_FILES) {
+      if (!jsonByName.has(name)) continue;
+      const dest = dataFilePath(name);
+      const tmp = `${dest}.restore-tmp`;
+      writeFileSync(tmp, jsonByName.get(name));
+      renameSync(tmp, dest);
+      restored.push(name);
+    }
 
-  // 3. Immagini (copertine/avatar): scrittura atomica nel basename validato.
-  let restoredImages = 0;
-  for (const img of imageEntries) {
-    const dir = imageDirPath(img.prefix); // getPaths (dentro) crea la cartella se manca
-    const dest = path.join(dir, img.base);
-    const tmp = `${dest}.restore-tmp`;
-    writeFileSync(tmp, img.data);
-    renameSync(tmp, dest);
-    restoredImages++;
+    // 3. Immagini (copertine/avatar): scrittura atomica nel basename validato.
+    restoredImages = 0;
+    for (const img of imageEntries) {
+      const dir = imageDirPath(img.prefix); // getPaths (dentro) crea la cartella se manca
+      const dest = path.join(dir, img.base);
+      const tmp = `${dest}.restore-tmp`;
+      writeFileSync(tmp, img.data);
+      renameSync(tmp, dest);
+      restoredImages++;
+    }
+  } finally {
+    release();
   }
 
   return { restored, restoredImages, backedUp, safetyDir, requiresRestart: true };

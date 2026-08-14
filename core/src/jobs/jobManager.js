@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSyn
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getPaths, loadConfig } from '../config.js';
+import { acquireDataLock } from '../lock.js';
 
 const emitter = new EventEmitter();
 const jobs = new Map();
@@ -138,12 +139,25 @@ function reconcileOrphanJobs() {
 // `await` in cui un altro job possa infilarsi. Il pericolo del parallelismo in
 // Node non è la race dentro un turno — non esiste — ma l'interleaving *fra* due
 // `await`: qui non ce ne sono.
+//
+// M92 — il lock qui protegge solo la sovrapposizione fisica di due scritture
+// (server e CLI che chiudono un job nello stesso istante), non la staleness:
+// `jobs` resta una Map in memoria per tutta la vita del processo e non viene
+// riletta da disco a ogni scrittura come catalogStore/metadataStore. Due
+// processi di lunga vita (server + menu interattivo) che eseguono job insieme
+// possono quindi ancora perdersi a vicenda le voci — limite noto, non risolto
+// qui: risolverlo servirebbe un merge con lo stato su disco, non solo un lock.
 function persistStore() {
   const file = storeFilePath();
   const tmp = `${file}.tmp`;
-  const data = { version: 1, jobs: Object.fromEntries(jobs) };
-  writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
-  renameSync(tmp, file);
+  const release = acquireDataLock();
+  try {
+    const data = { version: 1, jobs: Object.fromEntries(jobs) };
+    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
+    renameSync(tmp, file);
+  } finally {
+    release();
+  }
 }
 
 export function triggerJob(type, params = {}) {
@@ -166,6 +180,12 @@ export function triggerJob(type, params = {}) {
     // risoluzione l'ha reso noto, non a download finito. Forma libera, riempita
     // dall'handler con `ctx.note({...})`.
     note: null,
+    // M93 — percentuale corrente (0-100) o null se il job non ne riporta una
+    // (es. enrichSource fra un video e l'altro). Non persistito su ogni tick
+    // (cambia troppo spesso, vedi `log` sopra) — vive solo in memoria, letta
+    // dal polling di un client (es. lo userscript "scripter") che non può
+    // iscriversi al flusso SSE.
+    progress: null,
     error: null
   };
   jobs.set(job.id, job);
@@ -315,7 +335,10 @@ async function runJob(nextId) {
       linesSinceFlush = 0;
     }
   };
-  const progress = (pct) => emitter.emit(`job:${job.id}:progress`, pct);
+  const progress = (pct) => {
+    job.progress = pct;
+    emitter.emit(`job:${job.id}:progress`, pct);
+  };
   // La nota si accumula (merge), non si sostituisce: l'handler ne aggiunge un
   // pezzo per volta (prima la fase, poi id/titolo appena risolti).
   const note = (fields) => {

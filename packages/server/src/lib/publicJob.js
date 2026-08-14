@@ -49,6 +49,22 @@ export async function toPublicJob(job) {
     return { ...job, thumbnails: [], thumbnailsMore: 0, title: job.summary.name };
   }
 
+  // quickDownload (M85, usata anche dallo userscript "scripter" M93): l'id non
+  // è noto finché la risoluzione del link non finisce — prima lì, `note.videoId`
+  // (scritto dall'handler appena risolto, M86) è l'unica fonte; a job finito
+  // c'è anche `summary.videoId`, tenuto come fallback per i job più vecchi il
+  // cui `note` potrebbe non essere sopravvissuto a un riavvio del processo.
+  if (job.type === 'quickDownload') {
+    const videoId = job.summary?.videoId ?? job.note?.videoId;
+    const v = videoId ? await safeVideo(videoId) : null;
+    return {
+      ...job,
+      thumbnails: v?.thumbnailUrl ? [v.thumbnailUrl] : [],
+      thumbnailsMore: 0,
+      title: v?.title ?? job.note?.title ?? null
+    };
+  }
+
   if (job.type === 'downloadPending' && Array.isArray(job.summary?.results)) {
     const succeededIds = job.summary.results.filter((r) => r.status === 'downloaded').map((r) => r.id);
     const shownIds = succeededIds.slice(0, MAX_THUMBNAILS);

@@ -116,10 +116,12 @@ async function esci(app) {
 }
 
 export async function run() {
-  // Lock sulla libreria (M80). Prima di ogni altra cosa: se un server o un'altra
-  // CLI è aperta, questo processo non deve nemmeno arrivare al menu — due
-  // processi sulla stessa libreria si sovrascrivono a vicenda.
-  core.acquireDataLock('CLI');
+  // Lock sulla libreria (M80/M92): si attiva da solo a ogni scrittura vera e
+  // propria (dentro il core), non all'avvio del menu — si può sfogliare la
+  // libreria da quanti terminali si vuole, in parallelo a un server o a un'altra
+  // `ondo`, finché nessuno dei due scrive nello stesso istante. Qui si imposta
+  // solo il ruolo mostrato nel messaggio a chi trova il lock occupato.
+  core.setLockRole('CLI');
 
   const root = core.getPaths().projectRoot;
   const lib = new Library();
