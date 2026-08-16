@@ -1,18 +1,18 @@
 import express, { Router } from 'express';
-import { loadConfig, getPaths, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile } from '@catalog/core';
+import { loadConfig, getPaths, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
 
 export const configRouter = Router();
 
-// Sola lettura delle impostazioni rilevanti per la UI: percorsi di media
-// (copertine/avatar) e video, così come sono in config e risolti in assoluto.
+// Sola lettura delle impostazioni rilevanti per la UI: cartella video (l'unica
+// relocabile) e dove sono finite copertine/avatar (fisso, dentro data/media,
+// solo informativo qui).
 configRouter.get(
   '/config',
   asyncRoute(async (req, res) => {
     const cfg = loadConfig();
     const paths = getPaths();
     res.json({
-      mediaRoot: cfg.mediaRoot,
       mediaRootResolved: paths.mediaRoot,
       videosRoot: cfg.videosRoot ?? null,
       videosDirResolved: paths.videosDir,
@@ -36,15 +36,6 @@ configRouter.delete(
   '/config/cookies',
   asyncRoute(async (req, res) => {
     res.json(deleteCookiesFile());
-  })
-);
-
-// Imposta la posizione della cartella media (copertine/avatar). Solo
-// ripuntamento, nessuno spostamento di file. Richiede il riavvio del server.
-configRouter.post(
-  '/config/media-root',
-  asyncRoute(async (req, res) => {
-    res.json(setMediaRoot(req.body?.path));
   })
 );
 

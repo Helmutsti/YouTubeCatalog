@@ -85,8 +85,7 @@ Tutto sta in `data/config.json`, creato da solo al primo avvio con valori sensat
 
 | Campo | A cosa serve |
 |---|---|
-| `videosRoot` | Cartella dei **file video**. Default `null` = dentro `media/videos`. Impostala per tenerli su un altro disco, es. `"D:\\YouTube\\Video"`. |
-| `mediaRoot` | Cartella di copertine e avatar (default `./media`). |
+| `videosRoot` | Cartella dei **file video**. Default `null` = dentro `./videos` (accanto a `data/`). Impostala per tenerli su un altro disco, es. `"D:\\YouTube\\Video"`. Copertine e avatar (piccoli) vivono invece fissi dentro `data/media/`, non relocabili separatamente. |
 | `quality` | Qualità predefinita: `"best"`, `"ask"` (chiede a ogni download) o `{ "height": 1080 }`. |
 | `jobs.parallel` | Quanti download insieme (default `1`). Si può cambiare a caldo. |
 | `playback.vlcPath` | Percorso di `vlc.exe`, per la riproduzione. |

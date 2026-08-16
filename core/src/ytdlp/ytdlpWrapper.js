@@ -476,7 +476,7 @@ function buildDownloadArgs(paths, config, formatSelector, url, { useCookies }) {
     '--write-info-json',
     '--newline',
     // Archivio canonico per creator, nome leggibile con id finale (come il
-    // default di yt-dlp): media/videos/<Creator>/<Titolo> [<id>].<ext>. yt-dlp
+    // default di yt-dlp): <videosDir>/<Creator>/<Titolo> [<id>].<ext>. yt-dlp
     // sanifica da solo i caratteri non validi per Windows e crea le sottocartelle.
     // Il fallback "|Sconosciuto" copre i (rari) casi senza channel/uploader.
     // L'.info.json segue automaticamente questo stesso template.

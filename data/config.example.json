@@ -1,5 +1,4 @@
 {
-  "mediaRoot": "./media",
   "videosRoot": null,
   "port": 3001,
   "ytdlp": {

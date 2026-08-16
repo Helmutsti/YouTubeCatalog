@@ -92,7 +92,6 @@ async function paths(app) {
     const cfg = app.lib.config();
     const voci = [
       { name: `Cartella video: ${cfg.videos}`, value: 'videos' },
-      { name: `Cartella copertine: ${cfg.covers}`, value: 'covers' },
       { name: `VLC: ${cfg.vlc ?? 'non configurato'}`, value: 'vlc' },
       { name: `Cookie: ${cfg.cookies ?? 'nessuno'}`, value: 'cookies' },
       { name: '← indietro', value: BACK }
@@ -112,17 +111,6 @@ async function paths(app) {
         } else {
           core.setVideosRoot(nuovo);
           ui.ok(app, 'cambiata. I file già scaricati NON vengono spostati: spostali a mano se serve.');
-        }
-      } else if (scelta === 'covers') {
-        const attuale = core.loadConfig().mediaRoot;
-        const nuovo = await chiedi('Cartella copertine', attuale);
-        if (nuovo === null) {
-          ui.ok(app, 'invariata');
-        } else if (nuovo === '') {
-          ui.err(app, 'la cartella delle copertine non può essere vuota');
-        } else {
-          core.setMediaRoot(nuovo);
-          ui.ok(app, 'cambiata. Le copertine già salvate NON vengono spostate.');
         }
       } else if (scelta === 'vlc') {
         const nuovo = await chiedi('Eseguibile di VLC (vuoto = nessuno)', cfg.vlc ?? '');

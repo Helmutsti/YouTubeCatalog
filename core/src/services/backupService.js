@@ -1,7 +1,7 @@
 // Backup e ripristino dello stato del catalogo in un archivio .zip (M36, esteso
 // in M61). Contiene TUTTO lo stato ricostruibile TRANNE i file video grezzi (i
 // pesanti): i file dati JSON, le impostazioni (config.json) e le immagini
-// (copertine + avatar). NON include i video (media/videos/, ri-scaricabili) né
+// (copertine + avatar). NON include i video (ri-scaricabili) né
 // core/cookies.txt (dati di sessione sensibili, lo zip non è cifrato).
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, renameSync, readdirSync, statSync } from 'node:fs';

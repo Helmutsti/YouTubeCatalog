@@ -16,7 +16,12 @@ export function resolveForeignPaths(sourceRoot) {
   const metadataPath = path.join(dataDir, 'metadata.json');
   const configPath = path.join(dataDir, 'config.json');
   const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf-8')) : {};
-  const mediaRoot = path.resolve(root, config.mediaRoot ?? './media');
+  // `mediaRoot` esplicito in config.json = libreria da prima del cambio a
+  // data/media fisso (retrocompatibile); altrimenti si assume il layout
+  // attuale, dove le copertine/avatar vivono dentro data/media.
+  const mediaRoot = config.mediaRoot
+    ? path.resolve(root, config.mediaRoot)
+    : path.join(dataDir, 'media');
   return {
     root,
     catalogPath,

@@ -18,7 +18,7 @@ import { reorganizeLibrary, deleteVideoFile, deleteVideoCompletely, removeVideoF
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { createBackup, restoreBackup } from './services/backupService.js';
 import { mergeLibrary } from './services/mergeService.js';
-import { loadConfig, getPaths, updateConfig, setMediaRoot, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
+import { loadConfig, getPaths, updateConfig, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
 import { checkTools, reportToolsOnStartup, findJsRuntime, inPath, JS_RUNTIME_NAMES } from './preflight.js';
 import { setupTools } from './services/toolsSetupService.js';
 import { acquireDataLock, setLockRole } from './lock.js';
@@ -206,10 +206,9 @@ export {
   // scrive nel messaggio d'errore a un altro processo).
   acquireDataLock,
   setLockRole,
-  // impostazioni a runtime: scrittura config + posizione cartella media (M37)
-  // e cartella video dedicata separata da copertine/avatar (M38)
+  // impostazioni a runtime: scrittura config + posizione cartella video
+  // dedicata, separata da copertine/avatar (M38, che vivono fisse in data/media)
   updateConfig,
-  setMediaRoot,
   setVideosRoot,
   // cookie YouTube (core/cookies.txt): upload/cancellazione da Impostazioni
   getCookiesStatus,

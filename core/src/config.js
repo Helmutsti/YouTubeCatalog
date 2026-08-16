@@ -8,10 +8,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const CORE_DIR = path.resolve(__dirname, '..');
 
 const DEFAULT_CONFIG = {
-  mediaRoot: './media',
   // Percorso dedicato ai soli file video (con sottocartelle per creator dentro).
-  // Se null → si usa mediaRoot/videos (retrocompatibile). Serve a tenere i video
-  // (grandi) su un disco separato dalle copertine/avatar (piccoli, sotto mediaRoot).
+  // Se null → si usa <root>/videos, sibling di data/. Copertine/avatar (piccoli)
+  // vivono invece dentro data/media/ e non sono relocabili separatamente: sono
+  // parte dello stato dell'istanza, i video (grandi) no — per questo restano
+  // fuori da data/, su un percorso a scelta (anche un disco diverso).
   videosRoot: null,
   port: 3001,
   ytdlp: {
@@ -115,34 +116,10 @@ export function updateConfig(patch) {
   return loadConfig();
 }
 
-// Imposta la posizione della cartella media (relocazione fuori dal progetto).
-// Modalità "solo ripuntamento": NON sposta alcun file — l'utente sposta la
-// cartella e poi indica il percorso, che qui viene solo validato e persistito.
-// Regge sul fatto che i localPath nel catalogo sono relativi a mediaRoot.
-export function setMediaRoot(newPath) {
-  if (typeof newPath !== 'string' || !newPath.trim()) {
-    throw new Error('Percorso non valido.');
-  }
-  const value = newPath.trim();
-  const resolved = path.resolve(PROJECT_ROOT, value);
-  if (!existsSync(resolved)) {
-    throw new Error(
-      `Il percorso non esiste: ${resolved}. Sposta prima la cartella media in questa posizione, poi imposta il percorso.`
-    );
-  }
-  if (!statSync(resolved).isDirectory()) {
-    throw new Error(`Il percorso non è una cartella: ${resolved}.`);
-  }
-  updateConfig({ mediaRoot: value });
-  // Avvisa (senza bloccare) se la nuova posizione non contiene i video: aiuta a
-  // scoprire un percorso sbagliato o uno spostamento incompleto.
-  const hasVideos = existsSync(path.join(resolved, 'videos'));
-  return { mediaRoot: value, resolved, hasVideos, requiresRestart: true };
-}
-
 // Imposta la posizione della cartella dei VIDEO (videosRoot), separata dalle
-// copertine/avatar (che restano sotto mediaRoot). Stessa modalità "solo
-// ripuntamento" di setMediaRoot: non sposta file, valida e persiste. Le
+// copertine/avatar (che restano sotto data/media, non relocabili). Modalità
+// "solo ripuntamento": NON sposta alcun file — l'utente sposta la cartella e
+// poi indica il percorso, che qui viene solo validato e persistito. Le
 // sottocartelle per creator vivono direttamente dentro questa cartella.
 export function setVideosRoot(newPath) {
   if (typeof newPath !== 'string' || !newPath.trim()) {
@@ -209,15 +186,19 @@ export function expectedToolNames(platform = process.platform) {
 
 export function getPaths() {
   const config = loadConfig();
-  const mediaRoot = path.resolve(PROJECT_ROOT, config.mediaRoot);
   const dataDir = path.join(PROJECT_ROOT, 'data');
-  // I video possono vivere in un percorso dedicato (videosRoot), separato dalle
-  // copertine/avatar che restano sotto mediaRoot. Se videosRoot non è impostato
-  // si ricade sul classico mediaRoot/videos. video.localPath resta relativo a
-  // questa cartella (videosDir), qualunque sia la sua posizione.
+  // Copertine/avatar vivono dentro data/media: sono stato dell'istanza tanto
+  // quanto catalog.json/config.json, non relocabili separatamente (a
+  // differenza dei video, vedi videosDir sotto) — così un'istanza si
+  // "timbra" spostando/backuppando una sola cartella (data/).
+  const mediaRoot = path.join(dataDir, 'media');
+  // I video vivono in un percorso dedicato (videosRoot), separato da data/
+  // perché grandi e spesso su un disco diverso. Se videosRoot non è impostato
+  // si ricade su <root>/videos, sibling di data/. video.localPath resta
+  // relativo a questa cartella (videosDir), qualunque sia la sua posizione.
   const videosDir = config.videosRoot
     ? path.resolve(PROJECT_ROOT, config.videosRoot)
-    : path.join(mediaRoot, 'videos');
+    : path.join(PROJECT_ROOT, 'videos');
   const thumbnailsDir = path.join(mediaRoot, 'thumbnails');
   const avatarsDir = path.join(mediaRoot, 'avatars');
   const jobsDir = path.join(dataDir, 'jobs');

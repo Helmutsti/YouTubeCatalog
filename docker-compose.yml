@@ -17,14 +17,15 @@ services:
       # host:container — cambia la parte a sinistra se 3001 è già occupata.
       - "3001:3001"
     volumes:
-      # Stato del catalogo (catalog.json, config.json, jobs.json, metadata.json).
+      # Stato del catalogo: catalog.json, config.json, jobs.json, metadata.json
+      # + copertine/avatar (data/media/, piccoli) — tutto lo stato "leggero"
+      # dell'istanza in un'unica cartella, comoda da backuppare/replicare.
       - ./data:/app/data
-      # Copertine e avatar (piccoli) + .ytdlp-archive.txt.
-      - ./media:/app/media
-      # I VIDEO (grandi): cartella dedicata, separata dalle copertine sopra.
-      # Se la sposti altrove sull'host, aggiorna solo la parte a sinistra —
-      # il percorso nel container (config.videosRoot) resta /app/media/videos.
-      - ./videos:/app/media/videos
+      # I VIDEO (grandi): cartella dedicata, separata dai dati sopra — a
+      # scelta, anche su un disco diverso da quello di ./data. Se la sposti
+      # altrove sull'host, aggiorna solo la parte a sinistra: il percorso nel
+      # container (default quando config.videosRoot è null) resta /app/videos.
+      - ./videos:/app/videos
       # Binario yt-dlp aggiornabile senza rebuild dell'immagine: metti qui
       # tools/yt-dlp_linux (reso eseguibile: chmod +x).
       - ./tools:/app/tools

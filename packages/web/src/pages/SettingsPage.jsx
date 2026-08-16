@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, FolderCog, Clapperboard, Cookie, Trash2, PictureInPicture2, Play } from 'lucide-react';
-import { BACKUP_URL, restoreBackup, getConfig, setMediaRoot, setVideosRoot, uploadCookies, deleteCookies } from '../api/client.js';
+import { Download, Upload, Clapperboard, Cookie, Trash2, PictureInPicture2, Play } from 'lucide-react';
+import { BACKUP_URL, restoreBackup, getConfig, setVideosRoot, uploadCookies, deleteCookies } from '../api/client.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast } from '../lib/toast.js';
@@ -18,12 +18,8 @@ export function SettingsPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  // --- Percorsi (media = copertine/avatar; video = file video) ---
+  // --- Percorso video (copertine/avatar vivono fissi dentro data/media) ---
   const [config, setConfig] = useState(null);
-  const [mediaInput, setMediaInput] = useState('');
-  const [mediaBusy, setMediaBusy] = useState(false);
-  const [mediaResult, setMediaResult] = useState(null);
-  const [mediaError, setMediaError] = useState(null);
   const [videosInput, setVideosInput] = useState('');
   const [videosBusy, setVideosBusy] = useState(false);
   const [videosResult, setVideosResult] = useState(null);
@@ -37,7 +33,6 @@ export function SettingsPage() {
   function reloadConfig() {
     return getConfig().then((c) => {
       setConfig(c);
-      setMediaInput(c.mediaRoot ?? '');
       setVideosInput(c.videosRoot ?? '');
       setCookiesStatus(c.cookies);
       return c;
@@ -45,7 +40,7 @@ export function SettingsPage() {
   }
 
   useEffect(() => {
-    reloadConfig().catch((e) => setMediaError(e.message));
+    reloadConfig().catch((e) => setVideosError(e.message));
   }, []);
 
   async function handleRestore(e) {
@@ -61,19 +56,6 @@ export function SettingsPage() {
       setError(err.message);
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function handleSaveMediaRoot() {
-    setMediaError(null);
-    setMediaResult(null);
-    setMediaBusy(true);
-    try {
-      setMediaResult(await setMediaRoot(mediaInput.trim()));
-    } catch (err) {
-      setMediaError(err.message);
-    } finally {
-      setMediaBusy(false);
     }
   }
 
@@ -177,11 +159,11 @@ export function SettingsPage() {
 
       <div className="d-desc">
         <span className="label">Cartella video</span>
-        Posizione su disco dei file video (con una sottocartella per creator). Può stare su un disco diverso da copertine/avatar. Per cambiarla: crea/sposta prima la cartella, poi indica qui il percorso — l'app non tocca i file. Effetto dopo il riavvio del server.
+        Posizione su disco dei file video (con una sottocartella per creator). Copertine e avatar vivono invece dentro <code>data/media</code>, non spostabili separatamente. Per cambiare questa: crea/sposta prima la cartella, poi indica qui il percorso — l'app non tocca i file. Effetto dopo il riavvio del server.
         {config && (
           <div style={{ marginTop: 12, fontSize: 12.5 }}>
             Percorso attuale: <code>{config.videosDirResolved}</code>
-            {!config.videosRoot && <> <span style={{ color: 'var(--faint)' }}>(default: sotto la cartella media)</span></>}
+            {!config.videosRoot && <> <span style={{ color: 'var(--faint)' }}>(default: ./videos)</span></>}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -205,43 +187,6 @@ export function SettingsPage() {
         {videosResult && (
           <div className="notice success" style={{ marginTop: 14 }}>
             Cartella video impostata su <code>{videosResult.resolved}</code>.
-            {' '}<strong>Riavvia il server</strong> per applicare.
-          </div>
-        )}
-      </div>
-
-      <div className="d-desc">
-        <span className="label">Cartella media (copertine e avatar)</span>
-        Posizione su disco di copertine e avatar (piccoli). I file video hanno una cartella dedicata separata (sopra). Per cambiarla: sposta prima la cartella, poi indica qui il percorso. Effetto dopo il riavvio del server.
-        {config && (
-          <div style={{ marginTop: 12, fontSize: 12.5 }}>
-            Percorso attuale: <code>{config.mediaRoot}</code>
-            {config.mediaRootResolved !== config.mediaRoot && (
-              <> → <code>{config.mediaRootResolved}</code></>
-            )}
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div className="field" style={{ marginBottom: 0, flex: 1, minWidth: 240, maxWidth: 'none' }}>
-            <input
-              placeholder="Es. ./media"
-              value={mediaInput}
-              onChange={(e) => setMediaInput(e.target.value)}
-              disabled={mediaBusy}
-            />
-          </div>
-          <button
-            className="btn btn-primary"
-            onClick={handleSaveMediaRoot}
-            disabled={mediaBusy || !mediaInput.trim() || mediaInput.trim() === config?.mediaRoot}
-          >
-            <FolderCog size={15} /> {mediaBusy ? 'Salvataggio…' : 'Salva'}
-          </button>
-        </div>
-        {mediaError && <div className="notice error" style={{ marginTop: 14 }}>{mediaError}</div>}
-        {mediaResult && (
-          <div className={`notice ${mediaResult.hasVideos ? 'success' : ''}`} style={{ marginTop: 14 }}>
-            Cartella media impostata su <code>{mediaResult.resolved}</code>.
             {' '}<strong>Riavvia il server</strong> per applicare.
           </div>
         )}

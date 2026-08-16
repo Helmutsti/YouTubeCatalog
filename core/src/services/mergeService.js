@@ -1,6 +1,6 @@
-// Fusione di due librerie: una SORGENTE (cartella esterna data/+media/) dentro
-// la libreria TARGET (quella del processo corrente). Non copia mai i video
-// fisici (media/videos/) — solo metadati (catalog.json/metadata.json),
+// Fusione di due librerie: una SORGENTE (cartella esterna data/, con la sua
+// data/media/) dentro la libreria TARGET (quella del processo corrente). Non
+// copia mai i video fisici — solo metadati (catalog.json/metadata.json),
 // copertine (thumbnails) e avatar dei canali. In caso di conflitto sullo
 // stesso video (stesso id) vince il dato più completo, campo per campo: lo
 // stato locale (file fisico, download, presenza, curation utente) resta
@@ -124,7 +124,7 @@ function mergeExistingVideo(target, source, { thumbnailsSrcDir, thumbnailsDestDi
 
 /**
  * Fonde la libreria in `sourceRoot` dentro la libreria corrente. Non tocca mai
- * i video fisici (media/videos/). dryRun:true calcola il report senza
+ * i video fisici. dryRun:true calcola il report senza
  * scrivere né copiare nulla.
  * @returns {object} report con i conteggi dell'operazione
  */

@@ -108,10 +108,9 @@ export const restoreBackup = (file) =>
     body: file
   });
 
-// Impostazioni: posizione della cartella media (copertine/avatar) e dei video.
+// Impostazioni: posizione della cartella video (l'unica relocabile — copertine
+// e avatar vivono fissi dentro data/media).
 export const getConfig = () => request('/api/config');
-export const setMediaRoot = (path) =>
-  request('/api/config/media-root', { method: 'POST', body: JSON.stringify({ path }) });
 export const setVideosRoot = (path) =>
   request('/api/config/videos-root', { method: 'POST', body: JSON.stringify({ path }) });
 

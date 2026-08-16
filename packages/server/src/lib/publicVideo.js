@@ -1,6 +1,6 @@
 import { channelKey, videoCategory } from '@catalog/core';
 
-// video.localPath/thumbnail.localPath sono percorsi relativi a mediaRoot
+// video.localPath è relativo a videosDir, thumbnail.localPath a thumbnailsDir
 // (possono includere sottocartelle per creator, vedi "Archivio canonico per
 // creator" in documentazione.md). Qui si aggiunge l'URL pronto all'uso per il
 // frontend, incapsulando dove vive il media server-side.

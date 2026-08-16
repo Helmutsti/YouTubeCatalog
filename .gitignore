@@ -2,7 +2,8 @@ node_modules/
 dist/
 .claude/
 .DS_Store
-/media/
+/videos/
+data/media/
 data/catalog.json
 data/metadata.json
 data/config.json
