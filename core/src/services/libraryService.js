@@ -207,7 +207,14 @@ function walkFiles(dir) {
 // prima prova il localPath registrato; se manca/non esiste, cerca ricorsivamente
 // un file video il cui basename e' "<id>.<ext>" (vecchio layout piatto) oppure
 // contiene "[<id>]" (gia' nel nuovo layout). Ritorna { abs, rel } o null.
-function locateCurrentFile(paths, video) {
+//
+// Esportata (oltre che usata da reorganizeLibrary qui sotto) perche' e'
+// anche il modo in cui catalogStore.reconcileOnLoad stabilisce se un video e'
+// davvero scaricato: il disco fa fede, non il flag `download` nel catalogo
+// (un file puo' sparire senza passare da qui, o esistere senza che il
+// catalogo lo sapesse ancora — es. un'istanza appena puntata su un archivio
+// video preesistente).
+export function locateCurrentFile(paths, video) {
   const isVideo = (f) => /\.(mp4|mkv|webm)$/i.test(f);
 
   if (video.video?.localPath) {

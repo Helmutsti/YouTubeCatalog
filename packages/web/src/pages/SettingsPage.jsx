@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, Clapperboard, Cookie, Trash2, PictureInPicture2, Play } from 'lucide-react';
-import { BACKUP_URL, restoreBackup, getConfig, setVideosRoot, uploadCookies, deleteCookies } from '../api/client.js';
+import { Download, Upload, Clapperboard, Cookie, Trash2, PictureInPicture2, Play, Gauge } from 'lucide-react';
+import { BACKUP_URL, restoreBackup, getConfig, setVideosRoot, setDefaultQuality, uploadCookies, deleteCookies } from '../api/client.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast } from '../lib/toast.js';
@@ -17,6 +17,10 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+
+  // --- Qualità predefinita dei download (stesso menu della CLI) ---
+  const [qualityBusy, setQualityBusy] = useState(false);
+  const [qualityError, setQualityError] = useState(null);
 
   // --- Percorso video (copertine/avatar vivono fissi dentro data/media) ---
   const [config, setConfig] = useState(null);
@@ -56,6 +60,21 @@ export function SettingsPage() {
       setError(err.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleSetQuality(e) {
+    const level = (config?.qualityLevels ?? []).find((q) => e.target.value === `${q.kind}:${q.height}`);
+    if (!level) return;
+    setQualityError(null);
+    setQualityBusy(true);
+    try {
+      await setDefaultQuality(level);
+      await reloadConfig();
+    } catch (err) {
+      setQualityError(err.message);
+    } finally {
+      setQualityBusy(false);
     }
   }
 
@@ -155,6 +174,30 @@ export function SettingsPage() {
             <span className="switch-knob" />
           </button>
         </div>
+      </div>
+
+      <div className="d-desc">
+        <span className="label"><Gauge size={15} style={{ verticalAlign: -2 }} /> Qualità predefinita</span>
+        Vale per i download futuri (i già scaricati non vengono toccati). «Chiedi ogni volta» fa comparire la scelta della risoluzione a ogni download, come già succede per ogni video da questa pagina web. La qualità più alta esclude comunque l'AV1: alla stessa risoluzione dava errori 403 sistematici.
+        {config && (
+          <div className="field" style={{ marginTop: 12, maxWidth: 320 }}>
+            <select
+              value={(() => {
+                const current = (config.qualityLevels ?? []).find((q) => q.current);
+                return current ? `${current.kind}:${current.height}` : '';
+              })()}
+              onChange={handleSetQuality}
+              disabled={qualityBusy}
+            >
+              {(config.qualityLevels ?? []).map((q) => (
+                <option key={`${q.kind}:${q.height}`} value={`${q.kind}:${q.height}`}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {qualityError && <div className="notice error" style={{ marginTop: 14 }}>{qualityError}</div>}
       </div>
 
       <div className="d-desc">

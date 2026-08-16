@@ -114,6 +114,11 @@ export const getConfig = () => request('/api/config');
 export const setVideosRoot = (path) =>
   request('/api/config/videos-root', { method: 'POST', body: JSON.stringify({ path }) });
 
+// Qualità predefinita dei download (stesso menu della CLI): { kind, height }
+// come ricevuto da getConfig().qualityLevels.
+export const setDefaultQuality = ({ kind, height }) =>
+  request('/api/config/quality', { method: 'POST', body: JSON.stringify({ kind, height }) });
+
 // Cookie YouTube (core/cookies.txt): corpo grezzo del file .txt, nessun riavvio richiesto.
 export const uploadCookies = (text) =>
   request('/api/config/cookies', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });

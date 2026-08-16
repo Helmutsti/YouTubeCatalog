@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { getPaths } from '../config.js';
 import { acquireDataLock } from '../lock.js';
 import { createEmptyCatalog, DOWNLOAD_STATE, migrateVideoToFlags, migrateVideoToSources, normalizeVideoAxes } from './catalogSchema.js';
+import { locateCurrentFile } from '../services/libraryService.js';
 
 let catalog = null;
 let loadPromise = null;
@@ -15,6 +16,50 @@ function readCatalogFromDisk() {
   return JSON.parse(readFileSync(catalogPath, 'utf-8'));
 }
 
+// Azzera i campi del file fisico (usato quando il disco smentisce un
+// `download: 'downloaded'` — stesso reset di deleteVideoFile, il file non c'è
+// più quindi questi dati non hanno più senso).
+function clearFileFields(video) {
+  video.download = DOWNLOAD_STATE.NONE;
+  video.video = {
+    localPath: null, formatId: null, container: null, videoCodec: null, audioCodec: null,
+    bitrateKbps: null, sizeBytes: null, sha256: null, downloadedAt: null, ytdlpVersion: null,
+    qualityNote: null
+  };
+}
+
+// Il disco fa fede su cosa è davvero scaricato, non il flag `download` letto
+// dal JSON: un file può sparire (disco riformattato, cartella spostata a
+// mano) senza passare da deleteVideoFile, e può esistere senza che il
+// catalogo lo sappia ancora (istanza appena puntata su un archivio video
+// preesistente, come in Docker con un mount diverso da quello con cui il
+// catalogo era stato scritto). locateCurrentFile guarda per id (marcatore
+// "[<id>]" nel nome, o vecchio layout piatto "<id>.<ext>"), quindi trova il
+// file anche se il localPath registrato è sbagliato o assente.
+function reconcileWithDisk(cat, paths) {
+  let changed = false;
+  for (const video of Object.values(cat.videos)) {
+    const current = locateCurrentFile(paths, video);
+    if (current) {
+      if (video.download !== DOWNLOAD_STATE.DOWNLOADED || video.video?.localPath !== current.rel) {
+        video.download = DOWNLOAD_STATE.DOWNLOADED;
+        video.video = {
+          ...video.video,
+          localPath: current.rel,
+          sizeBytes: video.video?.sizeBytes ?? statSync(current.abs).size
+        };
+        video.updatedAt = new Date().toISOString();
+        changed = true;
+      }
+    } else if (video.download === DOWNLOAD_STATE.DOWNLOADED) {
+      clearFileFields(video);
+      video.updatedAt = new Date().toISOString();
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function reconcileOnLoad(cat) {
   let changed = false;
   for (const video of Object.values(cat.videos)) {
@@ -25,13 +70,15 @@ function reconcileOnLoad(cat) {
     // Normalizzazione una tantum (M87) dei campi aggiunti dopo: favorite/enrichedAt/missCount.
     if (normalizeVideoAxes(video)) changed = true;
     // Reconciliation: un download interrotto a metà (processo morto durante
-    // il download) va riportato a "none" e rifatto da zero al prossimo trigger.
+    // il download) va riportato a "none" e rifatto da zero al prossimo trigger
+    // — SE il disco (sotto) non trova comunque un file completo per questo id.
     if (video.download === DOWNLOAD_STATE.DOWNLOADING) {
       video.download = DOWNLOAD_STATE.NONE;
       video.updatedAt = new Date().toISOString();
       changed = true;
     }
   }
+  if (reconcileWithDisk(cat, getPaths())) changed = true;
   // Migrazione: cataloghi scritti prima dell'introduzione delle foto profilo
   // dei canali (M14) non hanno ancora questo campo.
   if (!cat.channelAvatars) {
