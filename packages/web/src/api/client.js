@@ -119,6 +119,11 @@ export const setVideosRoot = (path) =>
 export const setDefaultQuality = ({ kind, height }) =>
   request('/api/config/quality', { method: 'POST', body: JSON.stringify({ kind, height }) });
 
+// Download/job in parallelo (stesso menu della CLI, default 1): alzarlo fa
+// partire subito quelli in coda, abbassarlo non interrompe quelli in corso.
+export const setParallel = (parallel) =>
+  request('/api/config/parallel', { method: 'POST', body: JSON.stringify({ parallel }) });
+
 // Cookie YouTube (core/cookies.txt): corpo grezzo del file .txt, nessun riavvio richiesto.
 export const uploadCookies = (text) =>
   request('/api/config/cookies', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text });

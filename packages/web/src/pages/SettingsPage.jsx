@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, Clapperboard, Cookie, Trash2, PictureInPicture2, Play, Gauge } from 'lucide-react';
-import { BACKUP_URL, restoreBackup, getConfig, setVideosRoot, setDefaultQuality, uploadCookies, deleteCookies } from '../api/client.js';
+import { Download, Upload, Clapperboard, Cookie, Trash2, PictureInPicture2, Play, Gauge, Layers } from 'lucide-react';
+import { BACKUP_URL, restoreBackup, getConfig, setVideosRoot, setDefaultQuality, setParallel, uploadCookies, deleteCookies } from '../api/client.js';
 import { useTitle } from '../hooks/useTitle.js';
 import { confirmDialog } from '../lib/dialog.js';
 import { showToast } from '../lib/toast.js';
@@ -21,6 +21,10 @@ export function SettingsPage() {
   // --- Qualità predefinita dei download (stesso menu della CLI) ---
   const [qualityBusy, setQualityBusy] = useState(false);
   const [qualityError, setQualityError] = useState(null);
+
+  // --- Download in parallelo (stesso menu della CLI, default 1) ---
+  const [parallelBusy, setParallelBusy] = useState(false);
+  const [parallelError, setParallelError] = useState(null);
 
   // --- Percorso video (copertine/avatar vivono fissi dentro data/media) ---
   const [config, setConfig] = useState(null);
@@ -75,6 +79,21 @@ export function SettingsPage() {
       setQualityError(err.message);
     } finally {
       setQualityBusy(false);
+    }
+  }
+
+  async function handleSetParallel(e) {
+    const n = Number.parseInt(e.target.value, 10);
+    if (!Number.isFinite(n) || n < 1) return;
+    setParallelError(null);
+    setParallelBusy(true);
+    try {
+      await setParallel(n);
+      await reloadConfig();
+    } catch (err) {
+      setParallelError(err.message);
+    } finally {
+      setParallelBusy(false);
     }
   }
 
@@ -198,6 +217,25 @@ export function SettingsPage() {
           </div>
         )}
         {qualityError && <div className="notice error" style={{ marginTop: 14 }}>{qualityError}</div>}
+      </div>
+
+      <div className="d-desc">
+        <span className="label"><Layers size={15} style={{ verticalAlign: -2 }} /> Download in parallelo</span>
+        Quanti download vanno insieme invece che uno alla volta (default 1). Alzarlo fa partire subito quelli in coda; abbassarlo non interrompe quelli già in corso, semplicemente non vengono rimpiazzati finché non si scende sotto il tetto.
+        {config && (
+          <div className="field" style={{ marginTop: 12, maxWidth: 320 }}>
+            <select
+              value={config.parallel ?? 1}
+              onChange={handleSetParallel}
+              disabled={parallelBusy}
+            >
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n === 1 ? '1 (uno alla volta)' : n}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {parallelError && <div className="notice error" style={{ marginTop: 14 }}>{parallelError}</div>}
       </div>
 
       <div className="d-desc">

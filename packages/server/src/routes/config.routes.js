@@ -1,7 +1,8 @@
 import express, { Router } from 'express';
 import {
-  loadConfig, getPaths, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile,
-  getQuality, setQuality, qualityLabel, sameQuality, QUALITY_LEVELS
+  loadConfig, updateConfig, getPaths, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile,
+  getQuality, setQuality, qualityLabel, sameQuality, QUALITY_LEVELS,
+  getJobParallelism, nudgeJobPool
 } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
 
@@ -28,7 +29,8 @@ configRouter.get(
         height: q.height,
         label: qualityLabel(q),
         current: sameQuality(q, quality)
-      }))
+      })),
+      parallel: getJobParallelism()
     });
   })
 );
@@ -68,5 +70,18 @@ configRouter.post(
   asyncRoute(async (req, res) => {
     const { kind, height } = req.body ?? {};
     res.json(setQuality({ kind, height: height ?? null }));
+  })
+);
+
+// Quanti download/job girano insieme (default 1, "un download per volta" —
+// stesso menu della CLI, vedi ondo.js setParallel). nudgeJobPool() dopo
+// l'update fa partire subito i job in coda se il tetto è stato alzato.
+configRouter.post(
+  '/config/parallel',
+  asyncRoute(async (req, res) => {
+    const n = Number.parseInt(req.body?.parallel, 10);
+    updateConfig({ jobs: { parallel: Math.max(1, Number.isFinite(n) ? n : 1) } });
+    nudgeJobPool();
+    res.json({ parallel: getJobParallelism() });
   })
 );
