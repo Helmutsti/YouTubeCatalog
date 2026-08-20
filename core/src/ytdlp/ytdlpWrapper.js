@@ -330,10 +330,30 @@ export function hashFileSha256(filePath) {
   });
 }
 
-// Elenca ricorsivamente tutti i file sotto dir (path assoluti).
+// Elenca ricorsivamente tutti i file sotto dir (path assoluti). Best-effort:
+// su un mount che ogni tanto restituisce ENOENT transitorio su una singola
+// sottocartella (bridge Docker Desktop + disco esterno ExFAT — vedi la stessa
+// gemella in libraryService.js) una readdirSync fallita qui non deve
+// interrompere findDownloadedFiles/cleanupFailedDownloadArtifacts, altrimenti
+// un ENOENT capitato per caso su una cartella qualunque durante il cleanup
+// dopo un download fallito nasconde l'errore vero (es. l'HTTP 403 di YouTube
+// che ha causato il fallimento).
 function walkFiles(dir) {
   const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    // "._<nome>" — sidecar AppleDouble (attributi estesi, macOS/Docker Desktop
+    // su ExFAT via grpcfuse — verificato: magic 0x00051607, xattr
+    // "com.docker.grpcfuse.ownership"). Condivide il marcatore "[<id>]" col
+    // file vero: senza escluderlo qui, findDownloadedFiles può prenderlo al
+    // posto del vero .info.json e il parse esplode con un errore fuorviante,
+    // che nasconde — e nel job viene riportato al posto del — problema reale.
+    if (entry.name.startsWith('._')) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walkFiles(full));
     else out.push(full);

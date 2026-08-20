@@ -205,9 +205,31 @@ export function targetRelPath(video) {
   return `${creator}/${title} [${video.id}].${extFromVideo(video)}`;
 }
 
+// Best-effort: su un mount che ogni tanto restituisce ENOENT transitorio su
+// una singola sottocartella (bridge Docker Desktop + disco esterno ExFAT,
+// stessa causa di removeDirIfEmpty/pruneEmptyDirs sotto) una readdirSync
+// fallita qui non deve far fallire l'intera scansione — si salta semplicemente
+// quella sottocartella, riprovabile al prossimo giro. Il retry a livello di
+// buildVideoFileIndex non basta quando il blip capita su una sola cartella
+// diversa a ogni tentativo (verificato: con centinaia di sottocartelle, 3
+// tentativi dell'intero albero incappano quasi sempre in una nuova).
 function walkFiles(dir) {
   const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    // "._<nome>" — sidecar AppleDouble che macOS/Docker Desktop scrivono per
+    // gli attributi estesi sui filesystem che non li supportano nativamente
+    // (verificato: ExFAT via grpcfuse). Stesso nome/marcatore "[<id>]" del file
+    // vero, quindi senza escluderli qui possono vincere il .find() più avanti
+    // (locateCurrentFile/findDownloadedFiles) al posto del file reale: non è
+    // testo, è binario Apple (magic 0x00051607), letto come JSON esplode con
+    // un errore che non c'entra nulla col vero problema.
+    if (entry.name.startsWith('._')) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walkFiles(full));
     else out.push(full);
@@ -242,23 +264,7 @@ export function buildVideoFileIndex(videosDir) {
   const index = new Map();
   if (!existsSync(videosDir)) return index;
 
-  // Anche con una sola scansione, un mount instabile puo' far fallire proprio
-  // questa: un paio di tentativi immediati bastano quasi sempre a scavalcare
-  // il blip (verificato: la stessa identica scansione, ripetuta subito dopo,
-  // di norma riesce).
-  let files;
-  let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      files = walkFiles(videosDir);
-      lastErr = null;
-      break;
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  if (lastErr) throw lastErr;
-
+  const files = walkFiles(videosDir);
   for (const abs of files) {
     const base = path.basename(abs);
     if (!isVideoFile(base)) continue;
