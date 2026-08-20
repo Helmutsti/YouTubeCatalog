@@ -1,4 +1,4 @@
-import { getJob, analyzeDownload, downloadVideoById } from '../api/client.js';
+import { getJob, analyzeDownload, downloadVideoById, getConfig } from '../api/client.js';
 import { showToast, updateToast, dismissToast } from './toast.js';
 import { appNavigate } from './navigation.js';
 import { trackVideoDownload, untrackVideoDownload } from './downloadTracker.js';
@@ -72,8 +72,16 @@ export async function startDownload(videoId, { triggerJob, onSettled, title }) {
   const analyzingId = showToast(`${label}: analisi formati…`, 'info', 0, () => appNavigate('/sources'));
 
   let analysis;
+  let quality;
   try {
-    analysis = await analyzeDownload({ videoId });
+    // In parallelo: la qualità predefinita (Impostazioni) serve solo a
+    // decidere se saltare il dialog di risoluzione qui sotto — un suo
+    // fallimento non è fatale, si ripiega su "chiedi ogni volta" (comportamento
+    // di sempre) invece di bloccare il download per un problema secondario.
+    [analysis, quality] = await Promise.all([
+      analyzeDownload({ videoId }),
+      getConfig().then((c) => c.quality).catch(() => ({ kind: 'ask', height: null }))
+    ]);
   } catch (e) {
     updateToast(analyzingId, { message: `${label}: impossibile analizzare il download (${e.message})`, type: 'error' });
     return;
@@ -83,7 +91,10 @@ export async function startDownload(videoId, { triggerJob, onSettled, title }) {
   // che resterebbe dietro. Riusato come toast di avvio solo se NON compare alcun
   // modale (raro: nessuna risoluzione nota e nessun altro caso).
   const heights = analysis.availableHeights ?? [];
-  const willPrompt = analysis.alreadyDownloaded || heights.length > 0 || analysis.needsAudioChoice;
+  // Con una qualità predefinita diversa da "chiedi ogni volta" (Impostazioni)
+  // il dialog di risoluzione sotto viene saltato: non conta per willPrompt.
+  const willAskResolution = heights.length > 0 && quality.kind === 'ask';
+  const willPrompt = analysis.alreadyDownloaded || willAskResolution || analysis.needsAudioChoice;
   if (willPrompt) dismissToast(analyzingId);
 
   let deleteFirst = false;
@@ -98,11 +109,15 @@ export async function startDownload(videoId, { triggerJob, onSettled, title }) {
     deleteFirst = true;
   }
 
-  // M56: scelta della risoluzione (sempre, se ci sono formati noti). La più alta
-  // è "(massima)" e passa maxHeight=null (nessun cap → il meglio disponibile al
-  // momento del download); le altre cappano a quell'altezza.
+  // M56: scelta della risoluzione, se ci sono formati noti — SOLO quando la
+  // qualità predefinita (Impostazioni) è "chiedi ogni volta". Altrimenti si usa
+  // direttamente quella (best → nessun cap, height → quel cap), senza chiedere
+  // nulla: lo scopo della qualità predefinita è proprio non doverla ripetere
+  // ad ogni download singolo. La più alta del dialog è "(massima)" e passa
+  // maxHeight=null (nessun cap → il meglio disponibile al momento del
+  // download); le altre cappano a quell'altezza.
   let maxHeight; // undefined = default di config
-  if (heights.length > 0) {
+  if (willAskResolution) {
     const picked = await radioDialog({
       title: 'Scegli la risoluzione',
       message: `A quale risoluzione scaricare ${label}?`,
@@ -112,6 +127,8 @@ export async function startDownload(videoId, { triggerJob, onSettled, title }) {
     });
     if (picked == null) return; // annullato
     maxHeight = picked === heights[0] ? null : picked;
+  } else if (heights.length > 0) {
+    maxHeight = quality.kind === 'height' ? quality.height : null;
   }
 
   let audioStrategy;
