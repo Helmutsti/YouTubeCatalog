@@ -42,9 +42,7 @@ export async function deleteVideoFile(id) {
       if (existsSync(abs)) unlinkSync(abs);
       const dir = path.dirname(abs);
       // rimuove la sottocartella creator se ora vuota (non la root videosDir)
-      if (dir !== paths.videosDir && existsSync(dir) && readdirSync(dir).length === 0) {
-        rmdirSync(dir);
-      }
+      removeDirIfEmpty(dir, paths.videosDir);
     }
     removeFromDownloadArchive(paths, id);
 
@@ -87,9 +85,7 @@ export async function deleteVideoCompletely(id) {
       const abs = path.join(paths.videosDir, videoRel);
       if (existsSync(abs)) unlinkSync(abs);
       const dir = path.dirname(abs);
-      if (dir !== paths.videosDir && existsSync(dir) && readdirSync(dir).length === 0) {
-        rmdirSync(dir);
-      }
+      removeDirIfEmpty(dir, paths.videosDir);
     }
     const thumbRel = video.thumbnail?.localPath;
     if (thumbRel) {
@@ -122,9 +118,7 @@ export async function removeVideoFromLibrary(id, { deleteFiles = false } = {}) {
         if (existsSync(abs)) unlinkSync(abs);
         const dir = path.dirname(abs);
         // La sottocartella del creator si rimuove solo se resta vuota.
-        if (dir !== paths.videosDir && existsSync(dir) && readdirSync(dir).length === 0) {
-          rmdirSync(dir);
-        }
+        removeDirIfEmpty(dir, paths.videosDir);
       }
       const thumbRel = video.thumbnail?.localPath;
       if (thumbRel) {
@@ -173,6 +167,24 @@ export function sanitizeName(name, fallback = 'Sconosciuto') {
   return s;
 }
 
+// Rimuove `dir` se e' rimasta vuota, senza fidarsi di existsSync come guardia:
+// su un bridge di condivisione file (Docker Desktop + disco esterno, ExFAT,
+// verificato) existsSync/stat su un path con una normalizzazione Unicode (NFC)
+// diversa da quella con cui la cartella e' scritta sul disco (NFD, es. "Olivé"
+// con la é composta da lettera + accento separato) risultano vere per un
+// falso positivo, ma readdirSync sullo stesso path lancia ENOENT: existsSync
+// non basta, va intercettato l'errore della lettura vera e propria.
+function removeDirIfEmpty(dir, root) {
+  if (dir === root) return;
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  if (entries.length === 0) rmdirSync(dir);
+}
+
 function extFromVideo(video) {
   if (video.video?.container) return video.video.container;
   if (video.video?.localPath) {
@@ -203,10 +215,67 @@ function walkFiles(dir) {
   return out;
 }
 
+const isVideoFile = (f) => /\.(mp4|mkv|webm)$/i.test(f);
+
+// Id di un video dal basename del suo file: "[<id>].<ext>" (nuovo layout) o
+// "<id>.<ext>" (vecchio layout piatto, l'id e' l'intero nome senza estensione).
+function extractVideoId(base) {
+  const bracket = base.match(/\[([^[\]]+)\]\.[^.]+$/);
+  if (bracket) return bracket[1];
+  const dot = base.indexOf('.');
+  return dot > 0 ? base.slice(0, dot) : null;
+}
+
+// Indice id -> path assoluto di tutti i file video sotto videosDir, con UNA
+// sola scansione ricorsiva. reconcileWithDisk (M92) chiama locateCurrentFile
+// per OGNI video del catalogo a ogni caricamento/scrittura: senza indice,
+// ciascun video privo di localPath valido (non ancora scaricato, o con path
+// registrato ma non piu' trovato) rifaceva da capo l'intera scansione
+// dell'archivio — con centinaia di video e videosDir su un disco esterno
+// condiviso via Docker Desktop, questo significava migliaia di letture di
+// cartella per un solo caricamento, abbastanza da incappare quasi sempre in
+// un ENOENT transitorio del bridge di condivisione file (verificato: la
+// stessa scansione, ripetuta, a volte fallisce e a volte no sullo stesso
+// identico percorso — non e' un problema di normalizzazione Unicode del nome,
+// e' proprio instabilita' del mount).
+export function buildVideoFileIndex(videosDir) {
+  const index = new Map();
+  if (!existsSync(videosDir)) return index;
+
+  // Anche con una sola scansione, un mount instabile puo' far fallire proprio
+  // questa: un paio di tentativi immediati bastano quasi sempre a scavalcare
+  // il blip (verificato: la stessa identica scansione, ripetuta subito dopo,
+  // di norma riesce).
+  let files;
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      files = walkFiles(videosDir);
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (lastErr) throw lastErr;
+
+  for (const abs of files) {
+    const base = path.basename(abs);
+    if (!isVideoFile(base)) continue;
+    const id = extractVideoId(base);
+    if (id && !index.has(id)) index.set(id, abs); // primo trovato vince (come il .find() di prima)
+  }
+  return index;
+}
+
 // Trova il file video attuale di un'entry, ovunque si trovi dentro videosDir:
-// prima prova il localPath registrato; se manca/non esiste, cerca ricorsivamente
-// un file video il cui basename e' "<id>.<ext>" (vecchio layout piatto) oppure
-// contiene "[<id>]" (gia' nel nuovo layout). Ritorna { abs, rel } o null.
+// prima prova il localPath registrato; se manca/non esiste, guarda nell'indice
+// per id. Ritorna { abs, rel } o null.
+//
+// `fileIndex` e' opzionale (da buildVideoFileIndex, vedi sopra) e va sempre
+// passato quando si chiama questa funzione in un ciclo su piu' video, per non
+// tornare alla scansione ripetuta per ciascuno; se assente si ripiega su una
+// scansione singola, comoda solo per una chiamata isolata su un solo video.
 //
 // Esportata (oltre che usata da reorganizeLibrary qui sotto) perche' e'
 // anche il modo in cui catalogStore.reconcileOnLoad stabilisce se un video e'
@@ -214,21 +283,16 @@ function walkFiles(dir) {
 // (un file puo' sparire senza passare da qui, o esistere senza che il
 // catalogo lo sapesse ancora — es. un'istanza appena puntata su un archivio
 // video preesistente).
-export function locateCurrentFile(paths, video) {
-  const isVideo = (f) => /\.(mp4|mkv|webm)$/i.test(f);
-
+export function locateCurrentFile(paths, video, fileIndex = null) {
   if (video.video?.localPath) {
     const abs = path.join(paths.videosDir, video.video.localPath);
     if (existsSync(abs)) return { abs, rel: video.video.localPath };
   }
 
-  if (!existsSync(paths.videosDir)) return null;
   const id = video.id;
-  const match = walkFiles(paths.videosDir).find((f) => {
-    const base = path.basename(f);
-    if (!isVideo(base)) return false;
-    return base.startsWith(`${id}.`) || base.includes(`[${id}]`);
-  });
+  const match = fileIndex
+    ? fileIndex.get(id) ?? null
+    : buildVideoFileIndex(paths.videosDir).get(id) ?? null;
   if (!match) return null;
   return { abs: match, rel: path.relative(paths.videosDir, match).split(path.sep).join('/') };
 }
@@ -248,15 +312,21 @@ function isAlreadyOrganized(current, videoId) {
 }
 
 // Rimuove le sottocartelle vuote rimaste sotto videosDir dopo gli spostamenti
-// (la root videosDir stessa non viene mai rimossa).
+// (la root videosDir stessa non viene mai rimossa). Best-effort: su un mount
+// che ogni tanto restituisce ENOENT transitorio (vedi buildVideoFileIndex)
+// una lettura fallita qui non deve far fallire tutto reorganizeLibrary — si
+// salta semplicemente quella sottocartella, riprovabile a un giro successivo.
 function pruneEmptyDirs(dir, root) {
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
     if (entry.isDirectory()) pruneEmptyDirs(path.join(dir, entry.name), root);
   }
-  if (path.resolve(dir) !== path.resolve(root) && readdirSync(dir).length === 0) {
-    rmdirSync(dir);
-  }
+  removeDirIfEmpty(dir, root);
 }
 
 // Riorganizza l'archivio nel layout canonico per creator. Idempotente: i video
@@ -269,10 +339,11 @@ export async function reorganizeLibrary({ dryRun = false } = {}) {
   const moves = [];
   const missing = [];
   let alreadyOk = 0;
+  const fileIndex = buildVideoFileIndex(paths.videosDir);
 
   for (const video of Object.values(catalog.videos)) {
     if (video.download !== DOWNLOAD_STATE.DOWNLOADED) continue;
-    const current = locateCurrentFile(paths, video);
+    const current = locateCurrentFile(paths, video, fileIndex);
     if (!current) {
       missing.push(video.id);
       continue;

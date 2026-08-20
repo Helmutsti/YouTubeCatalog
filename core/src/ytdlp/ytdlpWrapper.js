@@ -226,7 +226,7 @@ export async function fetchVideoMetadata(videoId, url, { onLog = () => {} } = {}
   if (!existsSync(infoPath)) {
     throw new Error(`Metadati non trovati dopo l'estrazione per ${videoId}`);
   }
-  const info = JSON.parse(readFileSync(infoPath, 'utf-8'));
+  const info = await readInfoJsonWithRetry(infoPath);
 
   // Pulisce eventuali thumbnail intermedie (es. .webp prima della conversione a
   // jpg) per non lasciare orfani accanto alla copertina definitiva.
@@ -588,6 +588,25 @@ export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress
   }
 }
 
+// Legge e fa il parse dell'.info.json ritentando qualche volta: su certi
+// filesystem esterni (verificato con un disco USB ExFAT montato in Docker
+// Desktop) la lettura subito dopo la scrittura di yt-dlp può restituire
+// contenuto non ancora sincronizzato (byte nulli/parziali) anche a processo
+// yt-dlp già terminato. Sul percorso normale (disco locale) il primo
+// tentativo basta sempre, quindi qui non si paga nessun costo percepibile.
+async function readInfoJsonWithRetry(infoPath, { attempts = 5, delayMs = 200 } = {}) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      return JSON.parse(readFileSync(infoPath, 'utf-8'));
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 // Passi comuni post-download (normale e fuso): individua i file scritti da
 // yt-dlp, legge l'.info.json, calcola size/sha, consolida i metadati grezzi e
 // mappa i campi curati. Aggiunge la nota di qualità (M55, "segnala soltanto").
@@ -598,7 +617,7 @@ async function finalizeDownload(paths, videoId) {
   }
 
   const infoPath = path.join(paths.videosDir, infoFile);
-  const info = JSON.parse(readFileSync(infoPath, 'utf-8'));
+  const info = await readInfoJsonWithRetry(infoPath);
   const sizeBytes = statSync(path.join(paths.videosDir, videoFile)).size;
   const sha256 = await hashFileSha256(path.join(paths.videosDir, videoFile));
   const ytdlpVersion = await getYtdlpVersion();

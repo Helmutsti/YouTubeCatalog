@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'n
 import { getPaths } from '../config.js';
 import { acquireDataLock } from '../lock.js';
 import { createEmptyCatalog, DOWNLOAD_STATE, migrateVideoToFlags, migrateVideoToSources, normalizeVideoAxes } from './catalogSchema.js';
-import { locateCurrentFile } from '../services/libraryService.js';
+import { locateCurrentFile, buildVideoFileIndex } from '../services/libraryService.js';
 
 let catalog = null;
 let loadPromise = null;
@@ -38,8 +38,9 @@ function clearFileFields(video) {
 // file anche se il localPath registrato è sbagliato o assente.
 function reconcileWithDisk(cat, paths) {
   let changed = false;
+  const fileIndex = buildVideoFileIndex(paths.videosDir);
   for (const video of Object.values(cat.videos)) {
-    const current = locateCurrentFile(paths, video);
+    const current = locateCurrentFile(paths, video, fileIndex);
     if (current) {
       if (video.download !== DOWNLOAD_STATE.DOWNLOADED || video.video?.localPath !== current.rel) {
         video.download = DOWNLOAD_STATE.DOWNLOADED;
