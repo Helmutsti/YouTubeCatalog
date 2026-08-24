@@ -19,7 +19,7 @@
 import { existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { createEmptyCatalog } from './catalog/catalogSchema.js';
-import { INSTALL_ROOT } from './lib/installRoot.js';
+import { appConfigDir } from './appConfig.js';
 
 // I nomi del layout, in un posto solo: li usano sia questo modulo sia getPaths().
 export const DATA_DIR_NAME = 'data';
@@ -158,41 +158,24 @@ export function currentLibrary() {
 }
 
 /**
- * La cartella dei binari esterni (yt-dlp, ffmpeg, ffprobe). Appartiene
- * all'INSTALLAZIONE, non alla libreria: dieci librerie condividono un solo
- * yt-dlp. Vive qui, e non in config.js, perché deve essere risolvibile **senza**
- * una libreria — `ondo setup` va eseguito anche da una cartella qualunque.
+ * La cartella dei binari esterni (yt-dlp, ffmpeg, ffprobe): **accanto al file di
+ * configurazione dell'applicazione**, in `<cartella config>/tools`.
+ *
+ * Appartengono all'INSTALLAZIONE, non alla libreria: dieci librerie condividono
+ * un solo yt-dlp. E stanno insieme alle impostazioni perché sono la stessa
+ * categoria di cosa — «il programma su questa macchina» — e perché tenerli in
+ * due posti diversi voleva dire due posti da ricordare quando cerchi un file.
+ *
+ * M98.1 — prima i binari andavano in una cartella *dati* separata
+ * (%LOCALAPPDATA% su Windows, ~/.local/share su Linux) per non trascinare 130 MB
+ * di eseguibili nei profili utente mobili dei domini. Beneficio reale ma
+ * strettissimo, pagato da tutti con la confusione di due percorsi: la web app in
+ * container ha i suoi binari nell'immagine, quindi nessun altro programma
+ * condivide questa cartella e non c'è niente da guadagnare tenendola distinta.
+ *
+ * Segue quindi `appConfigDir()`, override `ONDO_CONFIG_DIR` compreso: nel
+ * container diventa /config/tools, che è già su un volume montato.
  */
 export function toolsRoot() {
-  return path.join(installDataRoot(), 'tools');
-}
-
-// Dove l'installazione può scrivere i propri dati. Normalmente è la sua stessa
-// cartella; l'eccezione è `npm install -g`, che piazza il pacchetto dentro
-// node_modules e lo riscrive a ogni aggiornamento — lì i binari scaricati e le
-// impostazioni verrebbero buttati via. In quel caso si passa alla cartella dati
-// dell'utente. Import ritardato per non creare un ciclo con appConfig.
-function installDataRoot() {
-  if (INSTALL_ROOT.split(path.sep).includes('node_modules')) return userDataDir();
-  return INSTALL_ROOT;
-}
-
-// Dati locali della macchina, NON configurazione: su Windows %LOCALAPPDATA% e
-// non %APPDATA%, perché quest'ultimo è il profilo che segue l'utente sulla rete
-// nei domini — e 130 MB di eseguibili non sono roba da sincronizzare.
-function userDataDir() {
-  if (process.platform === 'win32') {
-    const base = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE ?? '', 'AppData', 'Local');
-    return path.join(base, 'ondo');
-  }
-  if (process.platform === 'darwin') {
-    return path.join(process.env.HOME ?? '', 'Library', 'Application Support', 'ondo');
-  }
-  const base = process.env.XDG_DATA_HOME || path.join(process.env.HOME ?? '', '.local', 'share');
-  return path.join(base, 'ondo');
-}
-
-/** `true` se l'installazione sta dentro un node_modules (pacchetto npm globale). */
-export function isPackagedInstall() {
-  return INSTALL_ROOT.split(path.sep).includes('node_modules');
+  return path.join(appConfigDir(), 'tools');
 }

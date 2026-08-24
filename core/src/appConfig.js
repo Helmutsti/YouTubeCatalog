@@ -26,11 +26,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { INSTALL_ROOT } from './lib/installRoot.js';
+import { INSTALL_ROOT, isPackagedInstall } from './lib/installRoot.js';
 import { deepMerge } from './lib/deepMerge.js';
-// isPackagedInstall vive in library.js insieme a toolsRoot, che segue la stessa
-// regola: library.js non importa questo modulo, quindi nessun ciclo.
-import { isPackagedInstall } from './library.js';
 
 const DEFAULT_APP_CONFIG = {
   // M98 — niente `libraryPath`: la libreria è quella in cui ti trovi (vedi

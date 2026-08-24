@@ -46,11 +46,12 @@ services:
       # library/data/conf.json — è l'unico percorso che il file contiene.
       # - D:\Video:/videos
       #
-      # (Facoltativo) yt-dlp/ffmpeg/ffprobe sono GIÀ dentro l'immagine: questo
-      # mount serve solo per imporre una versione tua senza aspettare una nuova
-      # immagine. Nomi attesi su Linux: yt-dlp_linux, ffmpeg, ffprobe.
-      # NON montare qui la cartella tools/ di un'installazione Windows.
-      # - ./tools:/app/tools
+      # (Facoltativo) yt-dlp/ffmpeg/ffprobe sono GIÀ dentro l'immagine. Se vuoi
+      # imporre una TUA versione senza aspettare un'immagine nuova, non serve un
+      # mount in più: metti il binario in `config/tools/` (la cartella qui
+      # accanto, già montata su /config) e ha la precedenza su quello
+      # dell'immagine. Nomi attesi su Linux: yt-dlp_linux, ffmpeg, ffprobe —
+      # NON i .exe di un'installazione Windows, che nel container non partono.
       #
       # (Facoltativo) cookie YouTube per video privati/non listati — si può
       # anche caricare dalla web app, in Impostazioni:

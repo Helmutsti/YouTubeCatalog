@@ -12,9 +12,11 @@
 # è nel PATH). Prima yt-dlp non c'era e andava messo a mano in un volume montato
 # su /app/tools: il primo avvio era rotto per costruzione, e senza CLI né
 # package.json nell'immagine non c'era nemmeno un comando per rimediare.
-# Il volume su tools/ resta possibile e ha ancora la precedenza (vedi
-# config.js: tools/ → PATH), quindi aggiornare yt-dlp senza rebuild continua a
-# funzionare — solo che ora è un'opzione, non un prerequisito.
+# Scavalcarli resta possibile e ha ancora la precedenza (vedi config.js:
+# tools/ → PATH): dal M98.1 la cartella dei binari segue quella della
+# configurazione, quindi basta mettere il file in /config/tools — volume già
+# montato, nessun mount aggiuntivo. Aggiornare yt-dlp senza rebuild continua a
+# funzionare, solo che ora è un'opzione e non un prerequisito.
 
 # ── Stage 1: binari esterni (yt-dlp, ffmpeg, ffprobe) ────────────────────────
 # Gira sulla piattaforma di BUILD (non emulata) e sceglie i binari in base a
@@ -107,8 +109,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# I tre binari esterni, nel PATH. Non in /app/tools di proposito: un volume
-# montato lì (come nei compose esistenti) nasconderebbe il contenuto
+# I tre binari esterni, nel PATH. In /opt/ondo/bin e non in una cartella che
+# l'utente potrebbe montare: un volume sopra di essa nasconderebbe il contenuto
 # dell'immagine, e ci troveremmo di nuovo senza yt-dlp.
 COPY --from=tools /out/ /opt/ondo/bin/
 ENV PATH="/opt/ondo/bin:${PATH}"

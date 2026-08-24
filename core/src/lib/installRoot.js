@@ -24,3 +24,17 @@ export const INSTALL_ROOT = path.resolve(__dirname, '../../..');
 
 /** La cartella `core/` dell'installazione. */
 export const CORE_DIR = path.resolve(__dirname, '../..');
+
+/**
+ * L'installazione sta dentro un `node_modules`, cioè è un pacchetto installato
+ * con `npm install -g`? In quel caso la sua cartella è usa-e-getta: npm la
+ * riscrive a ogni aggiornamento, quindi impostazioni e binari non possono
+ * viverci dentro.
+ *
+ * Vive qui, nel modulo senza dipendenze, perché serve sia ad appConfig (dove
+ * mettere le impostazioni) sia a library (dove mettere i binari), e quei due si
+ * importano già a vicenda in una direzione sola.
+ */
+export function isPackagedInstall() {
+  return INSTALL_ROOT.split(path.sep).includes('node_modules');
+}

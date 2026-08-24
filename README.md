@@ -21,9 +21,25 @@ Guida completa e autonoma: **non serve leggere il resto di questo README**, non 
 
 Solo **Docker Desktop**: <https://www.docker.com/products/docker-desktop/> (Windows, macOS, Linux). Installalo, avvialo, e aspetta che l'icona nella barra dica che è in esecuzione.
 
-### 1. Prepara la cartella
+### Due cartelle, e vanno tenute separate
 
-Scegli dove tenere archivio e video — per esempio `C:\Catalog` — e crea dentro un file di testo chiamato **`docker-compose.yml`**, con questo contenuto:
+È l'unica cosa da capire prima di cominciare, e ti risparmia il pasticcio più comune:
+
+```
+C:\OndoWeb\                  ← L'INSTALLAZIONE. Usa e getta: la rifai in un minuto
+  docker-compose.yml
+  config\web.json               impostazioni: qualità, parallelismo, porta
+
+D:\MiaLibreria\              ← LA LIBRERIA. Preziosa: ci sono i tuoi video
+  videos\  thumbnails\  avatars\
+  data\  →  libreria.json (il catalogo), conf.json, metadata.json, jobs.json
+```
+
+Perché separate: la libreria la apri anche dalla CLI, la copi per il backup, la sposti su un altro disco quando cresce. Metterla dentro la cartella del deploy significa mescolare la cosa che butti con quella che tieni.
+
+### 1. Prepara l'installazione
+
+Crea una cartella qualsiasi — per esempio `C:\OndoWeb` — e mettici dentro un file di testo chiamato **`docker-compose.yml`**:
 
 ```yaml
 services:
@@ -38,13 +54,15 @@ services:
       - ./config:/config
 ```
 
-Sostituisci `D:\MiaLibreria` con la cartella dove vuoi tenere l'archivio: può essere su qualunque disco, e **non deve stare dentro questa cartella**. Il motivo è pratico: questa cartella (compose più impostazioni) la rifai in un minuto, la libreria contiene tutti i tuoi video.
+Una riga sola da personalizzare: **`D:\MiaLibreria`**, che è dove vuoi tenere l'archivio. Può essere su qualunque disco; se non è `C:`, va prima condiviso in Docker Desktop (Settings → Resources → File sharing).
 
-Nessuna delle due cartelle va creata a mano: nascono al primo avvio.
+Le due cartelle (`config` qui, e la libreria) non devi crearle: nascono al primo avvio. Se la libreria è vuota o non esiste, viene inizializzata da sé.
+
+> Se salvi con il Blocco note, nella finestra di salvataggio scegli «Tutti i file»: altrimenti ti ritrovi un `docker-compose.yml.txt` e Docker non lo trova.
 
 ### 2. Avvia
 
-Apri il terminale **dentro quella cartella** (su Windows: click destro nella cartella → «Apri nel terminale») e dai:
+Apri il terminale **dentro la cartella dell'installazione** (click destro → «Apri nel terminale») e dai:
 
 ```bash
 docker compose up -d
@@ -52,28 +70,17 @@ docker compose up -d
 
 La prima volta scarica l'immagine — qualche centinaio di MB, una volta sola. Gli avvii successivi sono immediati.
 
-### 3. Apri la web app
+### 3. Controlla e apri
 
-<http://localhost:3001>
-
-È tutto. Aggiungi un canale da **Sorgenti**, oppure incolla il link di un video per scaricarlo subito.
-
-### Dove finiscono i tuoi file
-
-Dentro la cartella che hai scelto al passo 1:
-
+```bash
+docker compose logs
 ```
-library/            ← il tuo archivio: copialo e hai copiato tutto
-  videos/             i video, in una sottocartella per creator
-  thumbnails/         le copertine
-  avatars/            le foto profilo dei canali
-  data/
-    libreria.json     il catalogo
-    conf.json         dove sono i video (l'unico percorso che contiene)
-    metadata.json, jobs.json …
-config/
-  web.json          ← impostazioni dell'applicazione (qualità, parallelismo, porta)
-```
+
+Devi leggere `@catalog/server in ascolto su http://localhost:3001`. Se la libreria era nuova, vedrai anche `Libreria inizializzata in /library` — ed è un buon modo di accorgersi subito se ha aperto la cartella sbagliata.
+
+Poi: <http://localhost:3001>
+
+Aggiungi un canale da **Sorgenti**, oppure incolla il link di un video per scaricarlo subito.
 
 Per il backup basta copiare `library/`: è autoportante. (Dalla web app, **Impostazioni → Backup**, scarichi anche un archivio del solo stato, senza i video.)
 
@@ -87,9 +94,22 @@ Tutti da dare nella cartella del `docker-compose.yml`:
 | Leggere i log dal vivo | `docker compose logs -f` |
 | Fermarla / riavviarla | `docker compose stop` / `docker compose start` |
 | **Aggiornarla** | `docker compose pull` e poi `docker compose up -d` |
-| Disinstallarla | `docker compose down` (i tuoi file restano: sono in `data/` e `videos/`) |
+| **Cambiare libreria** | modifica il percorso `/library` nel compose, poi `docker compose up -d` |
+| Disinstallarla | `docker compose down` (la libreria resta dov'è: è una cartella tua) |
 
 L'aggiornamento non tocca i tuoi dati, e ti porta anche una versione recente di yt-dlp: vale la pena farlo ogni tanto, perché YouTube cambia spesso e un yt-dlp vecchio prima o poi smette di scaricare.
+
+Per lavorare su **due librerie insieme** basta un secondo servizio nello stesso compose, con nome, porta e `config` diversi:
+
+```yaml
+  archivio2019:
+    image: ghcr.io/helmutsti/youtubecatalog-web:latest
+    container_name: ondo-2019
+    ports: ["3002:3001"]
+    volumes:
+      - D:\Archivio2019:/library
+      - ./config-2019:/config
+```
 
 ### Personalizzazioni comuni
 
@@ -114,13 +134,16 @@ Su Docker Desktop il disco deve essere fra quelli condivisi (Settings → Resour
 
 **Video privati o non listati.** Esporta i cookie di YouTube in formato Netscape (per esempio con l'estensione «Get cookies.txt LOCALLY») e caricali dalla web app in **Impostazioni → Cookie**. Vanno ricaricati dopo un aggiornamento dell'immagine.
 
+**Imporre una versione tua di yt-dlp**, senza aspettare un'immagine nuova: mettila in `config\tools\` (la cartella accanto al compose, già montata) col nome `yt-dlp_linux`. Ha la precedenza su quella dell'immagine. Deve essere il binario **Linux**: un `.exe` di Windows nel container non parte.
+
 ### Se qualcosa non va
 
 | Sintomo | Da guardare |
 |---|---|
 | La pagina non si apre | `docker compose ps` deve dire `running`. Se no, `docker compose logs` spiega perché. |
 | I download falliscono tutti | Quasi sempre è yt-dlp da aggiornare: `docker compose pull` e `docker compose up -d`. Per vedere quale versione hai: `docker exec youtubecatalog-web yt-dlp --version` |
-| L'app parte ma non trova i video già scaricati | Controlla che il percorso a sinistra di `:/library` sia quello giusto e che il disco sia collegato. |
+| L'app parte ma il catalogo è vuoto | Sta guardando un'altra cartella. `docker compose logs` mostra su quale libreria ha aperto; controlla il percorso a sinistra di `:/library`. |
+| «Libreria inizializzata» quando non te lo aspettavi | Il percorso `/library` puntava a una cartella vuota o inesistente: quasi sempre un disco esterno scollegato, o una lettera di unità sbagliata. |
 
 ### In alternativa: costruire l'immagine dai sorgenti
 
@@ -144,7 +167,7 @@ Dalla cartella del progetto, tre comandi:
 
 ```bash
 npm install      # dipendenze (solo @inquirer/prompts: il core non ne ha nessuna)
-npm run setup    # scarica yt-dlp + ffmpeg + ffprobe in tools/ (per il tuo sistema)
+npm run setup    # scarica yt-dlp + ffmpeg + ffprobe in config/tools/
 npm run cli      # apre il menu a terminale (= ondo menu)
 ```
 
@@ -187,7 +210,23 @@ Le librerie possono essere quante ne vuoi: sono cartelle, ci si va con `cd`. Nes
 
 Attenzione a una conseguenza voluta: **non si risale**. Dentro `D:\MiaLibreria\videos` non sei nella libreria, sei in una sua sottocartella, e `ondo` si ferma dicendoti quale cartella ha guardato.
 
-I binari (yt-dlp, ffmpeg) appartengono all'**installazione**, non alla libreria: `ondo setup` si fa una volta e vale per tutte le librerie.
+### Dove finiscono impostazioni e binari
+
+Non nella libreria: appartengono all'**installazione**, quindi `ondo setup` si fa una volta e vale per tutte le librerie. Stanno insieme, nella stessa cartella:
+
+| Sistema | Cartella |
+|---|---|
+| Windows | `%APPDATA%\ondo\` → `ondo.json` + `tools\` |
+| macOS | `~/Library/Application Support/ondo/` |
+| Linux | `$XDG_CONFIG_HOME/ondo/` (o `~/.config/ondo/`) |
+
+Con `npm install -g` finiscono lì e non dentro il pacchetto, perché npm riscrive la propria cartella a ogni aggiornamento: così aggiornare la CLI non ti fa perdere impostazioni né ti obbliga a riscaricare yt-dlp. `ONDO_CONFIG_DIR` sposta tutto, se preferisci decidere tu.
+
+> **Attenzione ai percorsi in `ondo.json`.** È un file JSON, quindi le backslash vanno **raddoppiate**:
+> ```json
+> { "vlcPath": "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe" }
+> ```
+> Con una sola backslash il file diventa illeggibile e ogni comando si ferma. In genere non serve nemmeno impostarlo: `null` significa «cercalo», e VLC viene trovato da sé nelle posizioni standard.
 
 ```bash
 ondo               # apre il menu
@@ -199,6 +238,8 @@ Per disinstallarlo:
 ```bash
 npm uninstall -g @catalog/ondo-cli
 ```
+
+La cartella delle impostazioni resta: cancellala a mano se vuoi ripulire. Le librerie non vengono toccate.
 
 ---
 
@@ -253,7 +294,7 @@ E `conf.json` ha un campo, uno solo:
 
 ### 2. L'applicazione — un file per programma
 
-`ondo.json` per la CLI, `web.json` per la web app, nella cartella **`config/` dentro l'installazione** — accanto al codice e a `tools/` con i binari, perché sono roba dell'applicazione: duplicare un'installazione ne duplica anche le impostazioni.
+`ondo.json` per la CLI, `web.json` per la web app, nella cartella **`config/` dell'installazione** — insieme a `config/tools/`, dove finiscono yt-dlp e ffmpeg. Impostazioni e binari stanno nello stesso posto perché sono la stessa categoria di cosa: «il programma su questa macchina». Duplicare un'installazione ne duplica entrambi.
 
 Nel caso Docker il codice sta nell'immagine, quindi l'installazione sull'host è la cartella col `docker-compose.yml`, e il `config/` che monti su `/config` è il suo.
 
@@ -274,7 +315,7 @@ Quasi tutto si cambia dal menu **Impostazioni** (o dalla pagina Impostazioni del
 
 > **Perché divisi.** Qualità, parallelismo e percorsi di programmi sono scelte di chi usa il computer, non proprietà dell'archivio: tenerle nella libreria la rendeva intrasportabile — copiata su un altro PC o montata in un container si portava dietro la porta di quel container e un percorso di VLC che lì non esisteva. Ora la libreria contiene solo ciò che è suo, e si sposta senza portarsi dietro niente di estraneo.
 
-> **I percorsi dei binari non si configurano affatto: si trovano.** yt-dlp e ffmpeg si cercano nella cartella `tools/` dell'installazione e poi nel PATH di sistema; il file dei cookie sta sempre in `core/cookies.txt`. Nota che `tools/` segue l'**installazione**, non la libreria: i binari sono del computer, e una libreria su un disco esterno non deve pretendere di avere yt-dlp accanto ai video.
+> **I percorsi dei binari non si configurano affatto: si trovano.** yt-dlp e ffmpeg si cercano in `config/tools/` (accanto alle impostazioni) e poi nel PATH di sistema; il file dei cookie sta sempre in `core/cookies.txt`. Seguono l'**installazione**, non la libreria: dieci librerie condividono un solo yt-dlp, e una libreria su un disco esterno non deve pretendere di avere i binari accanto ai video.
 
 > **Se il disco di `videosRoot` non è collegato, l'app non parte** (`ENOENT ... mkdir`). È un difetto noto, registrato in [`docs/PIANO.md`](docs/PIANO.md) → "Bug noti". Ripiego: ricollega il disco, o rimetti `videosRoot` a `null`.
 
