@@ -1,4 +1,4 @@
-// Colori ANSI a mano, come packages/cli/ui.js: niente dipendenza in più per
+// Colori ANSI a mano, come src/menu/ui.js: niente dipendenza in più per
 // poche sequenze di escape, e si spengono da sole quando l'output non è un
 // terminale (rediretto, pipe). Non si importa ui.js direttamente: al caricamento
 // installa un decoder di tasti su stdin pensato per i menu interattivi, un

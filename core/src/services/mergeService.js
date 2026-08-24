@@ -1,11 +1,11 @@
 // Fusione di due librerie: una SORGENTE (cartella esterna data/, con la sua
-// data/media/) dentro la libreria TARGET (quella del processo corrente). Non
-// copia mai i video fisici — solo metadati (catalog.json/metadata.json),
+// thumbnails/, avatars/) dentro la libreria TARGET (quella del processo corrente). Non
+// copia mai i video fisici — solo metadati (libreria.json/metadata.json),
 // copertine (thumbnails) e avatar dei canali. In caso di conflitto sullo
 // stesso video (stesso id) vince il dato più completo, campo per campo: lo
 // stato locale (file fisico, download, presenza, curation utente) resta
 // sempre quello del target, mai quello della sorgente.
-import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { getPaths } from '../config.js';
 import { readCatalog, updateCatalog } from '../catalog/catalogStore.js';
@@ -60,7 +60,13 @@ function copyImageIfPresent(srcDir, destDir, filename, { copyFiles }) {
   if (!filename) return false;
   const src = path.join(srcDir, filename);
   if (!existsSync(src)) return false;
-  if (copyFiles) copyFileSync(src, path.join(destDir, filename));
+  if (copyFiles) {
+    // M98 — la cartella di destinazione esiste (l'ha creata `initLibrary`); il
+    // mkdir copre solo chi l'ha cancellata a mano, perché da M98 non è più
+    // `getPaths()` a ricrearla come effetto collaterale.
+    mkdirSync(destDir, { recursive: true });
+    copyFileSync(src, path.join(destDir, filename));
+  }
   return true;
 }
 
@@ -131,7 +137,7 @@ function mergeExistingVideo(target, source, { thumbnailsSrcDir, thumbnailsDestDi
 export async function mergeLibrary(sourceRoot, { dryRun = false } = {}) {
   const targetPaths = getPaths();
   const sPaths = resolveForeignPaths(sourceRoot);
-  if (sPaths.root === targetPaths.projectRoot) {
+  if (sPaths.root === targetPaths.libraryRoot) {
     throw new Error('La libreria sorgente coincide con quella corrente.');
   }
 

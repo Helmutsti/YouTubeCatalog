@@ -1,6 +1,6 @@
 // M80 — un lock su `data/`, invece di una regola che l'utente deve ricordare.
 //
-// Il problema, che succede davvero: ogni processo tiene `catalog.json` in
+// Il problema, che succede davvero: ogni processo tiene `libreria.json` in
 // memoria e **riscrive tutto** quando salva. Server e CLI aperti insieme si
 // sovrascrivono a vicenda — l'ultimo che salva cancella il lavoro dell'altro.
 // Finora era documentato come regola in `progetto.md` («quel processo va

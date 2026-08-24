@@ -108,8 +108,8 @@ export const restoreBackup = (file) =>
     body: file
   });
 
-// Impostazioni: posizione della cartella video (l'unica relocabile — copertine
-// e avatar vivono fissi dentro data/media).
+// Impostazioni: posizione della cartella video (l'unica spostabile — copertine
+// e avatar vivono fissi dentro la libreria).
 export const getConfig = () => request('/api/config');
 export const setVideosRoot = (path) =>
   request('/api/config/videos-root', { method: 'POST', body: JSON.stringify({ path }) });

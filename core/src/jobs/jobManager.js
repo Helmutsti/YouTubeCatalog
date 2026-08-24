@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getPaths, loadConfig } from '../config.js';
+import { getPaths } from '../config.js';
+import { loadAppConfig, updateAppConfig } from '../appConfig.js';
 import { acquireDataLock } from '../lock.js';
 
 const emitter = new EventEmitter();
@@ -30,13 +31,27 @@ let inFlight = 0;
 
 // Il tetto si rilegge dalla config a ogni giro invece di essere memorizzato,
 // così cambiarlo dalle impostazioni ha effetto **a caldo** senza un canale
-// dedicato: `loadConfig()` è in cache, quindi costa niente. Alzarlo fa partire
+// dedicato: la config è in cache, quindi costa niente. Alzarlo fa partire
 // subito altri job; **abbassarlo non interrompe nulla** — quelli in corso
 // finiscono, semplicemente non vengono rimpiazzati.
+// M96 — sta nel file dell'applicazione: quanti download in parallelo regga
+// questa macchina non è una proprietà dell'archivio.
 export function getJobParallelism() {
-  const configured = loadConfig()?.jobs?.parallel;
+  const configured = loadAppConfig()?.jobs?.parallel;
   const n = Number.parseInt(configured, 10);
   return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/**
+ * Cambia il tetto e fa subito ripartire la coda se è stato alzato.
+ * M96 — un solo punto di scrittura: prima la stessa coppia
+ * "scrivi la config + nudge" era duplicata nella CLI e nella route del server.
+ */
+export function setJobParallelism(quanti) {
+  const n = Math.max(1, Number.parseInt(quanti, 10) || 1);
+  updateAppConfig({ jobs: { parallel: n } });
+  nudgeJobPool();
+  return getJobParallelism();
 }
 
 /** Quanti job stanno girando adesso, e quanti aspettano un posto libero. */

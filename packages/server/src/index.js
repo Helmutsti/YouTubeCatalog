@@ -2,7 +2,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, reportToolsOnStartup, setLockRole } from '@catalog/core';
+import { loadAppConfig, setAppId, reportToolsOnStartup, setLockRole, isLibrary, initLibrary, libraryRoot } from '@catalog/core';
 import { videosRouter } from './routes/videos.routes.js';
 import { sourcesRouter } from './routes/sources.routes.js';
 import { jobsRouter } from './routes/jobs.routes.js';
@@ -10,6 +10,24 @@ import { libraryRouter } from './routes/library.routes.js';
 import { backupRouter } from './routes/backup.routes.js';
 import { configRouter } from './routes/config.routes.js';
 import { mountMediaRoutes } from './media/mediaRoutes.js';
+
+// M96 — dichiara QUALE applicazione siamo: decide il file di impostazioni
+// (`web.json`, distinto dall'`ondo.json` della CLI). Prima di qualunque lettura
+// della configurazione, quindi prima di tutto il resto.
+setAppId('web');
+
+// M98 — la libreria: qui NON vale la regola «quella in cui ti trovi», perché la
+// cartella di lavoro del container è /app e non è una libreria. Arriva da
+// ONDO_LIBRARY, impostata dall'immagine, e la si inizializza se il volume è
+// vuoto: un deploy non è una sessione interattiva, e `docker compose up -d`
+// deve bastare come promette la guida. La CLI invece si ferma e chiede
+// `ondo init`, perché lì una cartella sbagliata è un errore di battitura, non
+// un volume nuovo.
+const library = libraryRoot();
+if (!isLibrary(library)) {
+  const { created } = initLibrary(library);
+  console.log(`Libreria inizializzata in ${library} (${created.length} elementi creati).`);
+}
 
 const app = express();
 app.use(express.json());
@@ -80,7 +98,7 @@ reportToolsOnStartup();
 // solo il ruolo mostrato nel messaggio a chi trova il lock occupato.
 setLockRole('server');
 
-const config = loadConfig();
+const config = loadAppConfig();
 app.listen(config.port, host, () => {
   const shownHost = local ? '127.0.0.1' : 'localhost';
   console.log(`@catalog/server in ascolto su http://${shownHost}:${config.port}${local ? ' (solo locale, non esposto in LAN)' : ''}`);

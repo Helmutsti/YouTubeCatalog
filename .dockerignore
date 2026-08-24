@@ -4,17 +4,18 @@ node_modules
 packages/web/dist
 **/dist
 
-# Dati personali e media: arrivano da volumi montati, mai dentro l'immagine
-/media
+# Dati personali e media: arrivano da volumi montati, mai dentro l'immagine.
+# M97 — la libreria è /library nel container e thumbnails/avatars stanno in
+# cima; le impostazioni dell'applicazione arrivano da /config.
 /data
 /videos
-data/catalog.json
-data/metadata.json
-data/config.json
-data/jobs.json
-data/jobs/
+/thumbnails
+/avatars
+/config
 
-# Binari: ffmpeg viene da apt nell'immagine, yt-dlp/ffprobe da un volume montato
+# Binari: l'immagine se li scarica da sé in build (stage "tools" di
+# Dockerfile.web, in /opt/ondo/bin). Quelli locali sono per il sistema dello
+# sviluppatore — su Windows sarebbero .exe: mai dentro l'immagine.
 /tools
 
 # Cookie YouTube (personali, mai nell'immagine)

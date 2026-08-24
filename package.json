@@ -8,7 +8,7 @@
     "ondo": "node packages/ondo-cli/bin/ondo.js",
     "ondo:link": "npm link --workspace packages/ondo-cli",
     "ondo:package": "node scripts/package-ondo-cli.mjs",
-    "cli": "node packages/cli/cli.js",
+    "cli": "node packages/ondo-cli/bin/ondo.js menu",
     "web": "npm run web:build && npm run web:start",
     "web:dev": "npm run dev --workspace=packages/web",
     "web:dev:lan": "npm run dev:lan --workspace=packages/web",

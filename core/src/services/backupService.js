@@ -1,8 +1,10 @@
 // Backup e ripristino dello stato del catalogo in un archivio .zip (M36, esteso
 // in M61). Contiene TUTTO lo stato ricostruibile TRANNE i file video grezzi (i
-// pesanti): i file dati JSON, le impostazioni (config.json) e le immagini
-// (copertine + avatar). NON include i video (ri-scaricabili) né
-// core/cookies.txt (dati di sessione sensibili, lo zip non è cifrato).
+// pesanti): i file dati JSON, le impostazioni della libreria (conf.json) e le
+// immagini (copertine + avatar). NON include i video (ri-scaricabili), né
+// core/cookies.txt (dati di sessione sensibili, lo zip non è cifrato), né le
+// impostazioni dell'APPLICAZIONE — quelle vivono con l'installazione (M96), non
+// con la libreria, e un ripristino non deve riconfigurare il programma.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, renameSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -11,12 +13,15 @@ import { acquireDataLock } from '../lock.js';
 import { createZip, readZip } from '../lib/zip.js';
 
 // Whitelist esplicita dei file dati JSON inclusi nel backup. Da M61 include
-// anche config.json (impostazioni: l'utente accetta che un ripristino su
-// un'altra macchina sovrascriva anche i percorsi macchina-specifici). In
+// anche il config della libreria (che da M96 contiene solo il percorso dei
+// video: l'utente accetta che un ripristino su un'altra macchina lo
+// sovrascriva). In
 // ripristino non viene MAI scritto un nome di file diverso da questi, anche se
 // presente nello zip (sicurezza: nessun path traversal / sovrascrittura
 // arbitraria dallo zip). cookies.txt resta escluso (dati di sessione sensibili).
-const BACKUP_JSON_FILES = ['catalog.json', 'metadata.json', 'jobs.json', 'config.json'];
+// M97 — nomi del nuovo layout: il catalogo è `libreria.json`, il config della
+// libreria è `conf.json` (e contiene solo il percorso dei video).
+const BACKUP_JSON_FILES = ['libreria.json', 'metadata.json', 'jobs.json', 'conf.json'];
 
 // Cartelle immagini incluse nel backup: prefisso nello zip → cartella su disco.
 // Sono copertine (thumbnails) e avatar dei canali: immagini, non video, quindi
@@ -114,10 +119,10 @@ export function restoreBackup(zipBuffer) {
     }
   }
 
-  // Validazione: catalog.json obbligatorio; ogni file JSON riconosciuto
+  // Validazione: il catalogo è obbligatorio; ogni file JSON riconosciuto
   // dev'essere JSON valido (evita di sostituire i dati con spazzatura).
-  if (!jsonByName.has('catalog.json')) {
-    throw new Error('Backup non valido: catalog.json mancante.');
+  if (!jsonByName.has('libreria.json')) {
+    throw new Error('Backup non valido: libreria.json mancante.');
   }
   for (const name of BACKUP_JSON_FILES) {
     if (!jsonByName.has(name)) continue;
@@ -165,7 +170,10 @@ export function restoreBackup(zipBuffer) {
     // 3. Immagini (copertine/avatar): scrittura atomica nel basename validato.
     restoredImages = 0;
     for (const img of imageEntries) {
-      const dir = imageDirPath(img.prefix); // getPaths (dentro) crea la cartella se manca
+      // M98 — il commento diceva «getPaths crea la cartella se manca»: non è più
+      // vero, risolvere un percorso non tocca il disco. La si assicura qui.
+      const dir = imageDirPath(img.prefix);
+      mkdirSync(dir, { recursive: true });
       const dest = path.join(dir, img.base);
       const tmp = `${dest}.restore-tmp`;
       writeFileSync(tmp, img.data);

@@ -1,8 +1,23 @@
 # Deploy della sola web (API + GUI) usando l'immagine pubblicata su ghcr.io a
 # ogni release (vedi .github/workflows/release-web-docker.yml), oppure
-# buildata in locale (sezione "build" commentata sotto). I percorsi host qui
-# sotto sono RELATIVI alla cartella del compose: sostituiscili con i percorsi
-# reali delle tue cartelle se il compose vive altrove (es. su un NAS).
+# buildata in locale (sezione "build" commentata sotto).
+#
+# M97/M98 — due mount, che sono due cose diverse e stanno in due posti diversi:
+#
+#   <la tua libreria>  →  /library   data/ (libreria.json, conf.json, metadata,
+#                                    jobs), videos/, thumbnails/, avatars/.
+#                                    Vive dove vuoi, con percorso ASSOLUTO.
+#   ./config           →  /config    le impostazioni di QUESTA applicazione
+#                                    (web.json: qualità, parallelismo, porta).
+#
+# La libreria fuori da questa cartella, e non dentro, perché sono cose di natura
+# diversa: il deploy lo rifai in un minuto, la libreria contiene i tuoi video —
+# e la apri anche dalla CLI, quindi non appartiene al container.
+#
+# Al primo avvio, se /library è vuota, la libreria viene inizializzata da sé:
+# un deploy non è una sessione interattiva, `docker compose up -d` deve bastare.
+# (La CLI invece si ferma e chiede `ondo init`: lì una cartella sbagliata è un
+# errore di battitura, non un volume nuovo.)
 
 services:
   web:
@@ -17,17 +32,26 @@ services:
       # host:container — cambia la parte a sinistra se 3001 è già occupata.
       - "3001:3001"
     volumes:
-      # Stato del catalogo: catalog.json, config.json, jobs.json, metadata.json
-      # + copertine/avatar (data/media/, piccoli) — tutto lo stato "leggero"
-      # dell'istanza in un'unica cartella, comoda da backuppare/replicare.
-      - ./data:/app/data
-      # I VIDEO (grandi): cartella dedicata, separata dai dati sopra — a
-      # scelta, anche su un disco diverso da quello di ./data. Se la sposti
-      # altrove sull'host, aggiorna solo la parte a sinistra: il percorso nel
-      # container (default quando config.videosRoot è null) resta /app/videos.
-      - ./videos:/app/videos
-      # Binario yt-dlp aggiornabile senza rebuild dell'immagine: metti qui
-      # tools/yt-dlp_linux (reso eseguibile: chmod +x).
-      - ./tools:/app/tools
-      # (Facoltativo) cookie YouTube per video privati/non listati:
-      # - ./cookies.txt:/app/core/cookies.txt:ro
+      # LA TUA LIBRERIA, con un percorso assoluto e FUORI da questa cartella.
+      # Non è pignoleria: questa cartella (compose + config) è usa-e-getta, la
+      # libreria contiene tutti i tuoi video; e la stessa libreria la apri anche
+      # con la CLI (`cd D:\MiaLibreria && ondo menu`), quindi non appartiene al
+      # deploy. Sostituisci con il tuo percorso:
+      - D:\MiaLibreria:/library
+      # Le impostazioni di QUESTA applicazione (web.json, creato al primo
+      # avvio): relativo, perché appartengono a questo compose.
+      - ./config:/config
+      # (Facoltativo) I video su un disco separato dal resto della libreria:
+      # monta la cartella e poi imposta "videosRoot" in
+      # library/data/conf.json — è l'unico percorso che il file contiene.
+      # - D:\Video:/videos
+      #
+      # (Facoltativo) yt-dlp/ffmpeg/ffprobe sono GIÀ dentro l'immagine: questo
+      # mount serve solo per imporre una versione tua senza aspettare una nuova
+      # immagine. Nomi attesi su Linux: yt-dlp_linux, ffmpeg, ffprobe.
+      # NON montare qui la cartella tools/ di un'installazione Windows.
+      # - ./tools:/app/tools
+      #
+      # (Facoltativo) cookie YouTube per video privati/non listati — si può
+      # anche caricare dalla web app, in Impostazioni:
+      # - ./cookies.txt:/app/core/cookies.txt

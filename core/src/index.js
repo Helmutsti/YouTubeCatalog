@@ -1,4 +1,4 @@
-import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, cancelJob, clearJobs, onJobLog, onJobStatus, onJobProgress, getPoolStatus, getJobParallelism, nudgeJobPool } from './jobs/jobManager.js';
+import { registerJobHandler, triggerJob, getJob, listJobs, deleteJob, cancelJob, clearJobs, onJobLog, onJobStatus, onJobProgress, getPoolStatus, getJobParallelism, setJobParallelism, nudgeJobPool } from './jobs/jobManager.js';
 import { downloadPendingJob } from './jobs/jobs/downloadPending.js';
 import { downloadSingleJob } from './jobs/jobs/downloadSingle.js';
 import { enrichSourceJob } from './jobs/jobs/enrichSource.js';
@@ -18,7 +18,9 @@ import { reorganizeLibrary, deleteVideoFile, deleteVideoCompletely, removeVideoF
 import { syncChannelAvatars, getChannelAvatarMap } from './services/channelAvatarService.js';
 import { createBackup, restoreBackup } from './services/backupService.js';
 import { mergeLibrary } from './services/mergeService.js';
-import { loadConfig, getPaths, updateConfig, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
+import { loadLibraryConfig, getPaths, getToolPaths, updateLibraryConfig, setVideosRoot, clearVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile, expectedToolNames } from './config.js';
+import { loadAppConfig, updateAppConfig, setAppId, getAppId, appConfigPath, appConfigDir } from './appConfig.js';
+import { isLibrary, initLibrary, libraryRoot, currentLibrary, setLibraryOverride, NotALibraryError, toolsRoot, isPackagedInstall } from './library.js';
 import { checkTools, reportToolsOnStartup, findJsRuntime, inPath, JS_RUNTIME_NAMES } from './preflight.js';
 import { setupTools } from './services/toolsSetupService.js';
 import { acquireDataLock, setLockRole } from './lock.js';
@@ -108,6 +110,7 @@ export {
   // consuma una volta sola, una fotografia si può richiedere ogni volta.
   getPoolStatus,
   getJobParallelism,
+  setJobParallelism,
   // M86 — da chiamare dopo aver **alzato** jobs.parallel: senza, i job già in
   // coda aspetterebbero un evento che potrebbe non arrivare mai
   nudgeJobPool,
@@ -183,9 +186,32 @@ export {
   // fusione di una libreria esterna dentro quella corrente: mai i video
   // fisici, solo metadati/copertine/avatar, il più completo vince
   mergeLibrary,
-  // config/introspezione
-  loadConfig,
+  // M96 — due configurazioni distinte:
+  //   libreria     → solo `videosRoot`, dentro la libreria
+  //   applicazione → tutto il resto, un file per applicazione (cli/web)
+  // Vedi appConfig.js per la regola con cui si decide dove va un campo.
+  loadLibraryConfig,
+  updateLibraryConfig,
+  loadAppConfig,
+  updateAppConfig,
+  // `setAppId` va chiamata a inizio processo, come setLockRole: decide QUALE
+  // file di impostazioni si usa, quindi va prima di ogni lettura.
+  setAppId,
+  getAppId,
+  appConfigPath,
+  appConfigDir,
+  // M98 — la libreria: si riconosce, si crea esplicitamente, e si sceglie con
+  // la cartella corrente (o --library / ONDO_LIBRARY). Vedi core/src/library.js.
+  isLibrary,
+  initLibrary,
+  libraryRoot,
+  currentLibrary,
+  setLibraryOverride,
+  NotALibraryError,
+  toolsRoot,
+  isPackagedInstall,
   getPaths,
+  getToolPaths,
   // prerequisiti esterni (yt-dlp/ffmpeg): controllo all'avvio di CLI e server,
   // con rimando a `npm run setup` invece di uno spawn ENOENT a metà download (M64)
   checkTools,
@@ -206,10 +232,10 @@ export {
   // scrive nel messaggio d'errore a un altro processo).
   acquireDataLock,
   setLockRole,
-  // impostazioni a runtime: scrittura config + posizione cartella video
-  // dedicata, separata da copertine/avatar (M38, che vivono fisse in data/media)
-  updateConfig,
+  // impostazioni a runtime: posizione della cartella video dedicata, separata
+  // da copertine/avatar (M38/M97, che vivono fisse dentro la libreria)
   setVideosRoot,
+  clearVideosRoot,
   // cookie YouTube (core/cookies.txt): upload/cancellazione da Impostazioni
   getCookiesStatus,
   saveCookiesFile,

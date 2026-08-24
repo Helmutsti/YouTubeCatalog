@@ -13,7 +13,7 @@
 
 import { existsSync } from 'node:fs';
 
-import * as core from '../../core/src/index.js';
+import * as core from '@catalog/core';
 import * as ui from './ui.js';
 import { Library, Downloader } from './ondo.js';
 import * as library from './library.js';
@@ -122,8 +122,17 @@ export async function run() {
   // `ondo`, finché nessuno dei due scrive nello stesso istante. Qui si imposta
   // solo il ruolo mostrato nel messaggio a chi trova il lock occupato.
   core.setLockRole('CLI');
+  // M96/M98 — quale applicazione siamo: decide il file di impostazioni
+  // (`config/ondo.json`, distinto dal `web.json` della web app). Idempotente:
+  // `bin/ondo.js` l'ha già chiamata, ma `run()` è anche il punto d'ingresso di
+  // `npm run cli`, quindi deve valere da sola.
+  core.setAppId('ondo');
 
-  const root = core.getPaths().projectRoot;
+  // M98 — la libreria è quella in cui ti trovi. Se non c'è, `getPaths()` lancia
+  // un NotALibraryError che nomina la cartella guardata: lo si lascia risalire
+  // così com'è, perché il messaggio è già quello giusto da mostrare — aprire il
+  // menu su una libreria inventata sarebbe molto peggio di non aprirlo.
+  const root = core.getPaths().libraryRoot;
   const lib = new Library();
   const dl = new Downloader(lib);
   const app = new App(lib, dl);
@@ -153,7 +162,11 @@ export async function run() {
 
   while (true) {
     await app.pump();
-    ui.screen(`ondo · ${app.lib.len()} video in ${root}${attivi(app)}`, app);
+    // M98 — «libreria: <percorso>» invece del solo percorso: da quando le
+    // librerie possono essere quante ne vuoi, un programma che non dice su
+    // quale sta lavorando è un programma che ti farà scaricare venti video nel
+    // posto sbagliato.
+    ui.screen(`ondo · ${app.lib.len()} video · libreria: ${root}${attivi(app)}`, app);
 
     const voci = [
       { name: 'Cerca', value: 'search' },
@@ -187,7 +200,7 @@ export async function run() {
   }
 }
 
-// Guardia sull'auto-invocazione: `node packages/cli/cli.js` deve continuare a
+// Guardia sull'auto-invocazione: `node src/menu/cli.js` deve continuare a
 // partire da solo, ma `ondo-cli` deve poter importare `run` senza farlo
 // scattare due volte (una all'import, una alla chiamata esplicita).
 if (import.meta.url === `file://${process.argv[1]}`) {

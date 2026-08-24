@@ -16,14 +16,51 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install workspace deps (smoke test)
-        run: npm ci
-
-      - name: Smoke test — ondo-cli gira nel monorepo prima di impacchettarlo
-        run: node packages/ondo-cli/bin/ondo.js --help
-
+      # Non serve `npm ci`: lo script di packaging usa solo moduli node: nativi e
+      # lancia lui stesso `npm install` dentro lo staging.
       - name: Build pacchetto standalone
         run: node scripts/package-ondo-cli.mjs "${{ github.event.release.tag_name }}"
+
+      # M98 — il collaudo gira DOPO il confezionamento e FUORI dal repo.
+      #
+      # Prima era `node packages/ondo-cli/bin/ondo.js --help` eseguito dal
+      # monorepo e *prima* di impacchettare: verificava il sorgente, non
+      # l'artefatto. Per questo una release intera è stata pubblicata con un
+      # pacchetto che non partiva nemmeno con `--help` (un import non riscritto).
+      #
+      # «Fuori dal repo» non è pignoleria: dentro, Node risale l'albero delle
+      # cartelle e trova `node_modules` del monorepo, quindi un import rotto
+      # risolve comunque e il pacchetto sembra funzionare.
+      - name: Collaudo dell'artefatto (fuori dal repo)
+        run: |
+          set -eux
+          cp -r dist/ondo-cli "$RUNNER_TEMP/pkg"
+          cd "$RUNNER_TEMP"
+
+          # 1. i sotto-comandi: carica bin/ondo.js e tutto ciò che importa
+          node pkg/bin/ondo.js --help
+          node pkg/bin/ondo.js --version
+
+          # 2. il menu interattivo: non si può pilotare una TUI in CI, ma il
+          #    guasto reale era la risoluzione del modulo — quella si verifica.
+          node -e "import('$RUNNER_TEMP/pkg/src/menu/cli.js').then(m => {
+            if (typeof m.run !== 'function') throw new Error('run() non esportata dal menu');
+          })"
+
+          # 3. giro vero: creare una libreria e leggerla. Copre la catena
+          #    completa (comandi → core → disco) sull'artefatto confezionato.
+          mkdir libreria && cd libreria
+          node ../pkg/bin/ondo.js init
+          test -f data/libreria.json
+          test -d thumbnails && test -d avatars && test -d videos
+          node ../pkg/bin/ondo.js video list
+
+          # 4. fuori da una libreria si deve FERMARE, non creare niente.
+          cd "$RUNNER_TEMP" && mkdir vuota && cd vuota
+          if node ../pkg/bin/ondo.js video list; then
+            echo "ERRORE: doveva fermarsi fuori da una libreria" >&2; exit 1
+          fi
+          test -z "$(ls -A)" || { echo "ERRORE: ha creato qualcosa in una cartella non-libreria" >&2; ls -A; exit 1; }
 
       - name: Crea tarball (.tgz), installabile con "npm install -g <url>"
         run: |

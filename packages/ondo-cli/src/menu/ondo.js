@@ -19,7 +19,7 @@
 
 import path from 'node:path';
 
-import * as core from '../../core/src/index.js';
+import * as core from '@catalog/core';
 
 export const FILTER = core.FILTER;
 export const STATE = core.STATE;
@@ -80,7 +80,8 @@ export class Library {
    * chiamata: dopo un cambio dalle impostazioni non deve restare indietro.
    */
   config() {
-    const cfg = core.loadConfig();
+    // M95 — non serve più leggere loadConfig() qui: tutto ciò che si mostra è
+    // un percorso RISOLTO da getPaths o una scelta esposta dal core.
     const paths = core.getPaths();
     const names = core.expectedToolNames();
     // ffmpeg/ffprobe: `ffmpegLocation` è già la risoluzione fatta dal core
@@ -90,14 +91,16 @@ export class Library {
       paths.ffmpegLocation ? path.join(paths.ffmpegLocation, file) : (core.inPath(name) ?? file);
 
     return {
-      root: paths.projectRoot,
+      root: paths.libraryRoot,
       videos: paths.videosDir,
       covers: paths.thumbnailsDir,
       metadata: paths.metadataPath,
       ytdlp: paths.ytdlpBinaryPath,
       ffmpeg: resolveTool('ffmpeg', names.ffmpeg),
       ffprobe: resolveTool('ffprobe', names.ffprobe),
-      vlc: cfg.playback?.vlcPath || null,
+      // M95 — cercato dal core (PATH + posizioni standard), non più un campo di
+      // configurazione: null se VLC non è installato.
+      vlc: paths.vlcPath,
       cookies: paths.cookiesPath,
       quality: core.getQuality(),
       parallel: core.getJobParallelism()
@@ -143,9 +146,6 @@ export class Library {
     return core.setQuality(quality);
   }
 
-  setPathSetting(patch) {
-    return core.updateConfig(patch);
-  }
 }
 
 /**
@@ -249,8 +249,7 @@ export class Downloader {
    * semplicemente non vengono rimpiazzati.
    */
   setParallel(quanti) {
-    core.updateConfig({ jobs: { parallel: Math.max(1, quanti) } });
-    core.nudgeJobPool();
+    core.setJobParallelism(quanti);
   }
 
   /** Interrompe i job di questa sessione ancora in movimento. */

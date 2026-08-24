@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { readZip } from '../lib/zip.js';
-import { expectedToolNames, getPaths } from '../config.js';
+import { expectedToolNames, getToolPaths } from '../config.js';
 
 function human(bytes) {
   if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
@@ -56,7 +56,7 @@ async function download(url, label, log) {
  * @returns {Promise<{ok: boolean}>}
  */
 export async function setupTools({ force = false } = {}) {
-  const TOOLS_DIR = getPaths().toolsDir;
+  const TOOLS_DIR = getToolPaths().toolsDir;
   const { platform, arch } = process;
   const NAMES = expectedToolNames(platform);
 

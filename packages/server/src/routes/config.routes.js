@@ -1,25 +1,29 @@
 import express, { Router } from 'express';
 import {
-  loadConfig, updateConfig, getPaths, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile,
+  loadLibraryConfig, getPaths, setVideosRoot, getCookiesStatus, saveCookiesFile, deleteCookiesFile,
   getQuality, setQuality, qualityLabel, sameQuality, QUALITY_LEVELS,
-  getJobParallelism, nudgeJobPool
+  getJobParallelism, setJobParallelism
 } from '@catalog/core';
 import { asyncRoute } from '../lib/asyncRoute.js';
 
 export const configRouter = Router();
 
-// Sola lettura delle impostazioni rilevanti per la UI: cartella video (l'unica
-// relocabile), dove sono finite copertine/avatar (fisso, dentro data/media,
-// solo informativo qui), e la qualità predefinita di download (stesso menu
-// della CLI — QUALITY_LEVELS è la fonte unica, il web non lo reimplementa).
+// Sola lettura delle impostazioni rilevanti per la UI: la radice della libreria
+// attiva, la cartella video (l'unica spostabile — copertine e avatar stanno in
+// `thumbnails/` e `avatars/` dentro la libreria), e la qualità predefinita di
+// download (stesso menu della CLI — QUALITY_LEVELS è la fonte unica, il web non
+// lo reimplementa).
 configRouter.get(
   '/config',
   asyncRoute(async (req, res) => {
-    const cfg = loadConfig();
+    const cfg = loadLibraryConfig();
     const paths = getPaths();
     const quality = getQuality();
     res.json({
-      mediaRootResolved: paths.mediaRoot,
+      // M97 — `mediaRootResolved` non esiste più: data/media/ è sparita,
+      // copertine e avatar stanno in cima alla libreria. Si espone la radice
+      // della libreria, che è l'informazione utile ora.
+      libraryRoot: paths.libraryRoot,
       videosRoot: cfg.videosRoot ?? null,
       videosDirResolved: paths.videosDir,
       cookies: getCookiesStatus(),
@@ -79,9 +83,7 @@ configRouter.post(
 configRouter.post(
   '/config/parallel',
   asyncRoute(async (req, res) => {
-    const n = Number.parseInt(req.body?.parallel, 10);
-    updateConfig({ jobs: { parallel: Math.max(1, Number.isFinite(n) ? n : 1) } });
-    nudgeJobPool();
-    res.json({ parallel: getJobParallelism() });
+    // M96 — un solo punto di scrittura nel core (scrive e fa il nudge).
+    res.json({ parallel: setJobParallelism(req.body?.parallel) });
   })
 );

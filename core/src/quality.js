@@ -10,7 +10,10 @@
 // Forma su disco, in `data/config.json` → `quality`:
 //   "best" · "ask" · { "height": 1080 }
 
-import { loadConfig, updateConfig } from './config.js';
+// M96 — la qualità predefinita è una preferenza dell'APPLICAZIONE, non della
+// libreria: due programmi sulla stessa macchina possono volerne una diversa, e
+// una libreria copiata altrove non deve imporre la propria.
+import { loadAppConfig, updateAppConfig } from './appConfig.js';
 
 export const QUALITY_BEST = 'best';
 export const QUALITY_ASK = 'ask';
@@ -68,10 +71,10 @@ export const QUALITY_LEVELS = [
 export const QUALITY_PER_DOWNLOAD = QUALITY_LEVELS.filter((q) => q.kind !== QUALITY_ASK);
 
 export function getQuality() {
-  return parseQuality(loadConfig().quality);
+  return parseQuality(loadAppConfig().quality);
 }
 
 export function setQuality(quality) {
-  updateConfig({ quality: serializeQuality(quality) });
+  updateAppConfig({ quality: serializeQuality(quality) });
   return getQuality();
 }

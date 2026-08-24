@@ -2,13 +2,21 @@ node_modules/
 dist/
 .claude/
 .DS_Store
+# M97 — layout della libreria: i video, le immagini e i file funzionali dentro
+# data/. Il catalogo si chiama libreria.json, il config della libreria conf.json.
 /videos/
-data/media/
-data/catalog.json
+/thumbnails/
+/avatars/
+data/libreria.json
 data/metadata.json
-data/config.json
+data/conf.json
+data/.ytdlp-archive.txt
 data/jobs/*.json
 data/jobs.json
+
+# M96/M97 — impostazioni dell'APPLICAZIONE (config/cli.json, config/web.json):
+# accompagnano questa installazione, quindi sono di questa macchina.
+/config/
 # Lock consultivo sulla libreria (M80): stato di runtime di questa macchina.
 data/.lock
 # Binari esterni: procurati da `npm run setup`, mai versionati (peserebbero

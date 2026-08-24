@@ -15,7 +15,7 @@
 
 import readline from 'node:readline';
 
-import * as core from '../../core/src/index.js';
+import * as core from '@catalog/core';
 import * as ui from './ui.js';
 
 const RIDISEGNO_MS = 120;

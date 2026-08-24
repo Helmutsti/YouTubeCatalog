@@ -3,9 +3,9 @@
 // Impostazioni: stato e percorsi, qualità predefinita, parallelismo.
 // Tutto finisce in `data/config.json`.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
-import * as core from '../../core/src/index.js';
+import * as core from '@catalog/core';
 import * as ui from './ui.js';
 import { FILTER } from './ondo.js';
 
@@ -90,10 +90,13 @@ async function paths(app) {
 
     console.log(`${ui.style.dim("Invio senza cambiare niente lascia il valore com'è.")}\n`);
     const cfg = app.lib.config();
+    // M95 — l'unico percorso ancora impostabile è la cartella dei video: VLC,
+    // yt-dlp e ffmpeg si cercano da soli, e il file cookie ha una posizione
+    // fissa (si importa, non si indica). Le due voci restanti sono di sola
+    // lettura, mostrate da stato(): qui si agisce solo su ciò che è una scelta.
     const voci = [
       { name: `Cartella video: ${cfg.videos}`, value: 'videos' },
-      { name: `VLC: ${cfg.vlc ?? 'non configurato'}`, value: 'vlc' },
-      { name: `Cookie: ${cfg.cookies ?? 'nessuno'}`, value: 'cookies' },
+      { name: 'Importa un file cookie…', value: 'cookies' },
       { name: '← indietro', value: BACK }
     ];
 
@@ -102,7 +105,7 @@ async function paths(app) {
 
     try {
       if (scelta === 'videos') {
-        const attuale = core.loadConfig().videosRoot ?? cfg.videos;
+        const attuale = core.loadLibraryConfig().videosRoot ?? cfg.videos;
         const nuovo = await chiedi('Cartella video (relativa alla radice, o assoluta)', attuale);
         if (nuovo === null) {
           ui.ok(app, 'invariata');
@@ -112,23 +115,18 @@ async function paths(app) {
           core.setVideosRoot(nuovo);
           ui.ok(app, 'cambiata. I file già scaricati NON vengono spostati: spostali a mano se serve.');
         }
-      } else if (scelta === 'vlc') {
-        const nuovo = await chiedi('Eseguibile di VLC (vuoto = nessuno)', cfg.vlc ?? '');
-        if (nuovo === null) {
-          ui.ok(app, 'invariato');
-        } else {
-          app.lib.setPathSetting({ playback: { vlcPath: nuovo === '' ? null : nuovo } });
-          if (nuovo === '') ui.ok(app, 'VLC dimenticato');
-          else if (!existsSync(nuovo)) ui.err(app, `salvato, ma non c'è niente in ${nuovo}`);
-          else ui.ok(app, 'VLC impostato');
-        }
       } else if (scelta === 'cookies') {
-        const nuovo = await chiedi('File cookie in formato Netscape (vuoto = nessuno)', cfg.cookies ?? '');
-        if (nuovo === null) {
+        // Si COPIA il file nella sua posizione fissa invece di memorizzarne il
+        // percorso: così il catalogo non dipende da un file che sta altrove sul
+        // disco e che l'utente può spostare senza saperlo.
+        const sorgente = await chiedi('File cookie da importare (formato Netscape)', '');
+        if (sorgente === null || sorgente === '') {
           ui.ok(app, 'invariato');
+        } else if (!existsSync(sorgente)) {
+          ui.err(app, `non c'è niente in ${sorgente}`);
         } else {
-          app.lib.setPathSetting({ ytdlp: { cookiesFile: nuovo === '' ? null : nuovo } });
-          ui.ok(app, 'salvato. I cookie si usano solo come ripiego, dopo un primo tentativo senza.');
+          core.saveCookiesFile(readFileSync(sorgente, 'utf-8'));
+          ui.ok(app, 'cookie importati. Si usano solo come ripiego, dopo un primo tentativo senza.');
         }
       }
     } catch (e) {
@@ -181,7 +179,16 @@ async function stato(app) {
         )
     );
   }
+  // M95 — VLC non è più configurabile: o lo si trova o no, quindi la riga si
+  // mostra sempre (prima appariva solo se impostata, e la sua assenza era
+  // indistinguibile da "non c'è la voce").
   if (cfg.vlc) riga('vlc', cfg.vlc);
+  else {
+    console.log(
+      `  ${ui.style.red('○')} ${ui.style.dim('vlc'.padEnd(12))} ` +
+        ui.style.red('non installato — la riproduzione non è disponibile')
+    );
+  }
 
   console.log(ui.style.bold('libreria'));
   console.log(

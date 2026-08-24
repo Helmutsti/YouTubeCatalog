@@ -96,7 +96,7 @@ function reconcileOnLoad(cat) {
   return changed;
 }
 
-// Scelta come UNICO punto che tocca i byte di catalog.json su disco, e per
+// Scelta come UNICO punto che tocca i byte di libreria.json su disco, e per
 // questo si prende il lock qui invece che nei chiamanti: `updateCatalog` lo
 // tiene già preso più in largo (vedi sopra), ma la migrazione una tantum in
 // `ensureLoaded` chiama questa funzione direttamente — senza il lock qui

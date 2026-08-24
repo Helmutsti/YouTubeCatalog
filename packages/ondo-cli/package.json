@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@catalog/core": "*",
-    "@catalog/cli": "*",
+    "@inquirer/prompts": "^8.5.2",
     "commander": "^12.1.0"
   }
 }

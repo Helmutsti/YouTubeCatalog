@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
-import { createReadStream, existsSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline';
-import { getPaths, loadConfig } from '../config.js';
+import { getPaths } from '../config.js';
+// M96 — formato, contenitore di uscita e tetto di risoluzione sono preferenze
+// dell'APPLICAZIONE (come si scarica), non della libreria (cosa contiene).
+import { loadAppConfig } from '../appConfig.js';
 import { setMetadata } from '../catalog/metadataStore.js';
 import { probeResolution } from './probe.js';
 import { removeFromDownloadArchive } from '../services/libraryService.js';
@@ -514,11 +517,17 @@ function buildDownloadArgs(paths, config, formatSelector, url, { useCookies }) {
 }
 
 function runYtdlp(paths, args, { onLog, onProgress, signal }) {
+  // M98 — punto di strozzatura di ogni invocazione di yt-dlp, e quindi il posto
+  // giusto per assicurarsi che thumbnails/ ci sia: è lì che finiscono copertine
+  // e .info.json. Da M98 `getPaths()` non crea più cartelle (risolvere un
+  // percorso non deve toccare il disco), e la cartella normalmente esiste già
+  // perché l'ha creata `initLibrary` — questo copre solo chi l'ha cancellata.
+  mkdirSync(paths.thumbnailsDir, { recursive: true });
   return new Promise((resolve, reject) => {
     // signal (M51, interruzione manuale): passato nativamente a spawn — Node
     // uccide il processo da sé quando viene abortito, senza bisogno di
     // gestire noi stessi l'invio del segnale al child.
-    const proc = spawn(paths.ytdlpBinaryPath, args, { cwd: paths.projectRoot, signal });
+    const proc = spawn(paths.ytdlpBinaryPath, args, { cwd: paths.libraryRoot, signal });
     const rlOut = readline.createInterface({ input: proc.stdout });
     const rlErr = readline.createInterface({ input: proc.stderr });
     let stderrTail = '';
@@ -547,7 +556,7 @@ function runYtdlp(paths, args, { onLog, onProgress, signal }) {
 // solo YouTube.
 export async function downloadVideo(videoId, url, { onLog = () => {}, onProgress = () => {}, signal, audioStrategy, maxHeight } = {}) {
   const paths = getPaths();
-  const config = loadConfig();
+  const config = loadAppConfig();
   // M56: tetto di risoluzione effettivo = scelta per-download (se passata),
   // altrimenti il default globale di config. undefined ⇒ usa config; null da UI
   // ("massima") azzera il cap. Coalescing solo su undefined per rispettare null.

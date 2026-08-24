@@ -11,7 +11,13 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { getPaths, expectedToolNames } from './config.js';
+import { getToolPaths, expectedToolNames } from './config.js';
+import { inPath } from './lib/which.js';
+
+// Ri-esportato: `inPath` viveva qui e da qui lo prende core/index.js (e quindi
+// il menu). M94 l'ha spostato in lib/which.js perché serve anche a
+// config.js, che non può importare questo modulo (sarebbe circolare).
+export { inPath };
 
 // ffmpeg è risolvibile in tre modi, in ordine di precedenza (stessa scala di
 // getPaths): percorso esplicito in config → binario in tools/ → PATH di sistema.
@@ -36,21 +42,6 @@ function ffmpegOnPath() {
 // inspiegabili — vale la pena dirlo all'avvio, non a metà del primo download.
 export const JS_RUNTIME_NAMES = ['deno', 'node', 'quickjs', 'bun'];
 
-/**
- * Cerca un eseguibile nel PATH restituendo il percorso **assoluto**.
- * Serve perché "il nome nudo funziona, tanto ci pensa il sistema" non si può
- * verificare: un percorso che esiste si controlla, un nome nudo no.
- */
-export function inPath(name) {
-  const file = process.platform === 'win32' ? `${name}.exe` : name;
-  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
-  for (const dir of dirs) {
-    const candidate = path.join(dir, file);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
 /** Il runtime JavaScript che yt-dlp troverebbe su questa macchina, se c'è. */
 export function findJsRuntime() {
   for (const name of JS_RUNTIME_NAMES) {
@@ -65,15 +56,19 @@ export function findJsRuntime() {
  * @returns {{ok: boolean, ytdlp: {ok: boolean, path: string}, ffmpeg: {ok: boolean, source: string|null}, messages: string[]}}
  */
 export function checkTools() {
-  const paths = getPaths();
+  const paths = getToolPaths();
   const names = expectedToolNames();
   const messages = [];
 
+  // getPaths() ha già applicato la scala tools/ → PATH di sistema (M94), quindi
+  // un percorso inesistente qui significa che yt-dlp non c'è in NESSUNO dei due
+  // posti: il messaggio deve nominarli entrambi, altrimenti manda a cercare il
+  // file solo in tools/ anche a chi lo avrebbe volentieri installato di sistema.
   const ytdlpOk = existsSync(paths.ytdlpBinaryPath);
   if (!ytdlpOk) {
     messages.push(
       `yt-dlp non trovato in ${paths.ytdlpBinaryPath}\n` +
-      `  Serve il file "${names.ytdlp}" nella cartella tools/.`
+      `  Serve il file "${names.ytdlp}" nella cartella tools/, oppure yt-dlp nel PATH di sistema.`
     );
   }
 

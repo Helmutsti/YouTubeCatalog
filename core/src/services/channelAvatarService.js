@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { getPaths } from '../config.js';
@@ -26,6 +26,11 @@ async function downloadAvatarImage(avatarUrl, avatarsDir, baseName, previousLoca
   }
 
   const buf = Buffer.from(await res.arrayBuffer());
+  // M98 — la cartella la crea `initLibrary`, quindi normalmente c'è già: questo
+  // `mkdirSync` copre solo il caso in cui l'utente l'abbia cancellata a mano.
+  // Da M98 non è più `getPaths()` a ricrearla, perché risolvere un percorso non
+  // deve avere effetti collaterali sul disco.
+  mkdirSync(avatarsDir, { recursive: true });
   await writeFile(path.join(avatarsDir, filename), buf);
   return filename;
 }

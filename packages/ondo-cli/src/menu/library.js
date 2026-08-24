@@ -4,7 +4,7 @@
 
 import { existsSync } from 'node:fs';
 
-import * as core from '../../core/src/index.js';
+import * as core from '@catalog/core';
 import * as ui from './ui.js';
 import { FILTER, STATE } from './ondo.js';
 

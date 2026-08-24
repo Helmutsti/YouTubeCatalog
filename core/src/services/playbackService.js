@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-import { getPaths, loadConfig } from '../config.js';
+import { getPaths } from '../config.js';
 import { readCatalog } from '../catalog/catalogStore.js';
 import { DOWNLOAD_STATE } from '../catalog/catalogSchema.js';
 
@@ -34,12 +34,15 @@ export async function playVideo(id, { mode = PLAYBACK_MODE.VIDEO } = {}) {
     throw new Error(`«${video.title}» non è ancora scaricato`);
   }
 
-  const vlc = loadConfig().playback?.vlcPath || null;
+  // M95 — VLC si cerca (PATH di sistema + posizioni standard di installazione),
+  // non si configura più: getPaths lo ha già risolto, e restituisce un percorso
+  // che esiste o null. Non serve più un existsSync qui.
+  const vlc = getPaths().vlcPath;
   if (!vlc) {
-    throw new Error('VLC non è configurato: impostalo dalle impostazioni (`playback.vlcPath` in data/config.json)');
-  }
-  if (!existsSync(vlc)) {
-    throw new Error(`VLC non è in ${vlc}: correggi il percorso dalle impostazioni`);
+    throw new Error(
+      'VLC non trovato. Installalo da https://www.videolan.org (su Windows va bene ' +
+      "l'installer standard), oppure mettilo nel PATH di sistema."
+    );
   }
 
   const file = videoFilePath(video);

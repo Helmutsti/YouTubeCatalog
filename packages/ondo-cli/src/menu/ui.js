@@ -7,7 +7,7 @@ import readline from 'node:readline';
 
 import { select as inquirerSelect, input as inquirerInput, confirm as inquirerConfirm } from '@inquirer/prompts';
 
-import * as core from '../../core/src/index.js';
+import * as core from '@catalog/core';
 
 // I colori del crate `console` a mano, con i codici ANSI: la CLI non prende una
 // dipendenza per sei sequenze di escape. Si spengono da sé quando l'output non è
