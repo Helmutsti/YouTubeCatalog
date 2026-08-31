@@ -21,6 +21,8 @@ Guida completa e autonoma: **non serve leggere il resto di questo README**, non 
 
 Solo **Docker Desktop**: <https://www.docker.com/products/docker-desktop/> (Windows, macOS, Linux). Installalo, avvialo, e aspetta che l'icona nella barra dica che è in esecuzione.
 
+L'immagine è pubblicata per `linux/amd64`, `linux/arm64` e `linux/arm/v7`: PC, Mac Apple Silicon e NAS, compresi quelli ARM a 32 bit. Su armv7 ffmpeg è una 7.0 statica invece della master (BtbN non pubblica armhf) e yt-dlp è il bundle ufficiale armv7l — cambia la provenienza dei binari, non il funzionamento.
+
 ### Due cartelle, e vanno tenute separate
 
 È l'unica cosa da capire prima di cominciare, e ti risparmia il pasticcio più comune:

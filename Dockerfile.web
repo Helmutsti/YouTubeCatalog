@@ -25,41 +25,85 @@
 # `--version`: un binario arm64 non è eseguibile su un runner amd64.
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS tools
 ARG TARGETARCH
+ARG TARGETVARIANT
 
 # xz-utils NON è nell'immagine node:22-bookworm-slim e nemmeno qui: GNU tar
 # delega la decompressione .xz al binario `xz`, e le build di ffmpeg sono
 # .tar.xz — senza, l'estrazione fallisce con un errore che sembra un problema
-# di tar.
+# di tar. unzip serve solo ad armv7 (vedi M99 sotto), ma sta qui perché è il
+# posto dove si installano gli strumenti di estrazione.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+  && apt-get install -y --no-install-recommends ca-certificates curl xz-utils unzip \
   && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp: release ufficiali. Su ARM l'asset si chiama yt-dlp_linux_aarch64 ma va
 # SALVATO come yt-dlp_linux, che è il nome cercato a runtime a prescindere
 # dall'architettura (expectedToolNames in core/src/config.js).
 # ffmpeg: build STATICHE di BtbN (non si portano dietro DLL/librerie sparse).
+#
+# M99 — linux/arm/v7 (i NAS ARM a 32 bit) prende i binari da due posti diversi
+# dalle altre due architetture, perché per armv7 non esiste ciò che usiamo lì:
+#
+#   yt-dlp  pubblica solo `yt-dlp_linux_armv7l.zip`, che NON è il singolo
+#           eseguibile delle altre piattaforme ma un bundle PyInstaller
+#           "onedir": l'eseguibile più una cartella `_internal/` accanto, e
+#           senza quella cartella non parte. Quindi si scompatta in
+#           /out/ytdlp-armv7l/ e `yt-dlp_linux` diventa un symlink al suo
+#           eseguibile — PyInstaller risolve `_internal` dal percorso REALE del
+#           binario (/proc/self/exe), non dal symlink, e il bundle si trova.
+#   ffmpeg  BtbN non pubblica armhf (solo linux64 e linuxarm64), quindi si
+#           passa alle build statiche di johnvansickle.com, che sono la fonte
+#           storica per armhf. In cambio è una 7.0.x ferma al 2024 invece della
+#           master di BtbN: per rimuxare e leggere le durate è più che
+#           sufficiente, ed è comunque più recente della 5.1 di Debian 12.
+#
+# armv6 non è supportata: TARGETARCH vale `arm` anche lì, ma yt-dlp non ne
+# pubblica il binario, quindi meglio fermarsi qui che produrre un'immagine che
+# fallisce al primo download.
 RUN set -eux; \
     case "$TARGETARCH" in \
-      amd64) ytdlp_asset='yt-dlp_linux';         ffmpeg_asset='ffmpeg-master-latest-linux64-gpl.tar.xz' ;; \
-      arm64) ytdlp_asset='yt-dlp_linux_aarch64'; ffmpeg_asset='ffmpeg-master-latest-linuxarm64-gpl.tar.xz' ;; \
+      amd64) ytdlp_asset='yt-dlp_linux';         ffmpeg_url='https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz' ;; \
+      arm64) ytdlp_asset='yt-dlp_linux_aarch64'; ffmpeg_url='https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linuxarm64-gpl.tar.xz' ;; \
+      arm) \
+        test "$TARGETVARIANT" = 'v7' || { echo "ARM 32 bit: supportata solo v7, non '$TARGETVARIANT'" >&2; exit 1; }; \
+        ytdlp_asset='yt-dlp_linux_armv7l.zip'; \
+        ffmpeg_url='https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz' ;; \
       *) echo "TARGETARCH non supportata: '$TARGETARCH'" >&2; exit 1 ;; \
     esac; \
     mkdir -p /out /tmp/ff; \
-    curl -fsSL -o /out/yt-dlp_linux \
-      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${ytdlp_asset}"; \
-    curl -fsSL -o /tmp/ffmpeg.tar.xz \
-      "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/${ffmpeg_asset}"; \
+    case "$ytdlp_asset" in \
+      *.zip) \
+        curl -fsSL -o /tmp/ytdlp.zip \
+          "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${ytdlp_asset}"; \
+        unzip -q /tmp/ytdlp.zip -d /out/ytdlp-armv7l; \
+        chmod 0755 /out/ytdlp-armv7l/yt-dlp_linux_armv7l; \
+        ln -s ytdlp-armv7l/yt-dlp_linux_armv7l /out/yt-dlp_linux; \
+        rm -f /tmp/ytdlp.zip ;; \
+      *) \
+        curl -fsSL -o /out/yt-dlp_linux \
+          "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${ytdlp_asset}"; \
+        chmod 0755 /out/yt-dlp_linux ;; \
+    esac; \
+    curl -fsSL -o /tmp/ffmpeg.tar.xz "$ffmpeg_url"; \
     tar -xf /tmp/ffmpeg.tar.xz -C /tmp/ff; \
     find /tmp/ff -type f -name ffmpeg  -exec install -m 0755 {} /out/ffmpeg  \; ; \
     find /tmp/ff -type f -name ffprobe -exec install -m 0755 {} /out/ffprobe \; ; \
-    chmod 0755 /out/yt-dlp_linux; \
     ln -s yt-dlp_linux /out/yt-dlp; \
     for f in yt-dlp_linux ffmpeg ffprobe; do test -s "/out/$f" || { echo "manca /out/$f" >&2; exit 1; }; done; \
     rm -rf /tmp/ff /tmp/ffmpeg.tar.xz; \
     ls -l /out
 
 # ── Stage 2: build della web ─────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS builder
+# M99 — anche questo stage gira sulla piattaforma di BUILD, non su quella di
+# destinazione: quello che produce è JavaScript (packages/web/dist e i
+# node_modules), che è identico su ogni architettura. Nessuna dipendenza si
+# compila in nativo — express e i plugin di Vite sono JS puro — quindi non c'è
+# nulla da guadagnare a emularla.
+# Su armv7 non è un'ottimizzazione ma la differenza fra fattibile e no: `npm ci`
+# più la build di Vite sotto QEMU a 32 bit sono decine di minuti e finiscono
+# spesso senza memoria. Le uniche istruzioni davvero emulate restano quelle
+# dello stage 3 (l'apt di ca-certificates).
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 WORKDIR /app
 
 # Solo i manifest per primi, per la cache dei layer. npm ci ha bisogno di
